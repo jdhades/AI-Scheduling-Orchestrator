@@ -1,0 +1,128 @@
+import { DomainError } from '../errors/domain.error';
+
+// ─── Intent Types ─────────────────────────────────────────────────────────────
+
+export type IntentType =
+    | 'swap_shift'
+    | 'report_absence'
+    | 'check_schedule'
+    | 'request_day_off'
+    | 'generate_schedule'
+    | 'unknown';
+
+export interface IntentEntities {
+    date?: string;                  // ISO 8601 date string
+    targetEmployeePhone?: string;   // E.164 format
+    shiftId?: string;               // UUID of the shift
+    reason?: string;                // free text
+    weekStart?: string;             // ISO 8601 date (YYYY-MM-DD) — for generate_schedule
+}
+
+// ─── ConversationIntentVO ─────────────────────────────────────────────────────
+
+/**
+ * Value Object that encapsulates the result of Gemini's intent classification.
+ *
+ * Immutable — created once from the Gemini response and passed downstream.
+ */
+export class ConversationIntentVO {
+    private static readonly VALID_INTENTS: IntentType[] = [
+        'swap_shift',
+        'report_absence',
+        'check_schedule',
+        'request_day_off',
+        'generate_schedule',
+        'unknown',
+    ];
+
+    private static readonly ACTIONABLE_CONFIDENCE_THRESHOLD = 0.6;
+
+    private constructor(
+        private readonly _intent: IntentType,
+        private readonly _confidence: number,
+        private readonly _entities: IntentEntities,
+        private readonly _rawText: string,
+    ) { }
+
+    // ─── Factory ──────────────────────────────────────────────────────────────
+
+    static create(params: {
+        intent: IntentType;
+        confidence: number;
+        entities: IntentEntities;
+        rawText: string;
+    }): ConversationIntentVO {
+        if (!ConversationIntentVO.VALID_INTENTS.includes(params.intent)) {
+            throw new DomainError(
+                `Invalid intent type: "${params.intent}". ` +
+                `Must be one of: ${ConversationIntentVO.VALID_INTENTS.join(', ')}`,
+            );
+        }
+        if (params.confidence < 0 || params.confidence > 1) {
+            throw new DomainError(
+                `Confidence must be between 0 and 1, got: ${params.confidence}`,
+            );
+        }
+        if (!params.rawText || params.rawText.trim().length === 0) {
+            throw new DomainError('rawText cannot be empty');
+        }
+
+        return new ConversationIntentVO(
+            params.intent,
+            params.confidence,
+            { ...params.entities }, // defensive copy
+            params.rawText,
+        );
+    }
+
+    /** Creates an "unknown" intent for when classification fails. */
+    static unknown(rawText = ''): ConversationIntentVO {
+        return new ConversationIntentVO('unknown', 0, {}, rawText);
+    }
+
+    // ─── Accessors ────────────────────────────────────────────────────────────
+
+    getIntent(): IntentType { return this._intent; }
+    getConfidence(): number { return this._confidence; }
+    getEntities(): Readonly<IntentEntities> { return { ...this._entities }; }
+    getRawText(): string { return this._rawText; }
+
+    // ─── Business logic ───────────────────────────────────────────────────────
+
+    /**
+     * Returns true when the intent is known AND confidence is high enough
+     * to proceed with command execution (no human fallback needed).
+     */
+    isActionable(): boolean {
+        return (
+            this._intent !== 'unknown' &&
+            this._confidence >= ConversationIntentVO.ACTIONABLE_CONFIDENCE_THRESHOLD
+        );
+    }
+
+    isUnknown(): boolean {
+        return this._intent === 'unknown';
+    }
+
+    /**
+     * Returns fields that are required for this intent but missing from entities.
+     */
+    getMissingFields(): string[] {
+        const required: Record<IntentType, (keyof IntentEntities)[]> = {
+            swap_shift: ['targetEmployeePhone', 'shiftId'],
+            report_absence: ['shiftId', 'reason'],
+            check_schedule: [],
+            request_day_off: ['date'],
+            generate_schedule: ['weekStart'],
+            unknown: [],
+        };
+
+        return (required[this._intent] ?? []).filter(
+            field => !this._entities[field],
+        );
+    }
+
+    isComplete(): boolean {
+        return this.getMissingFields().length === 0;
+    }
+}
