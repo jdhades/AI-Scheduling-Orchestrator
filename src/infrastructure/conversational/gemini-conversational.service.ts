@@ -127,7 +127,7 @@ Mensaje del empleado: "${text.replace(/"/g, '\\"')}"`;
 
     private buildAudioPrompt(): string {
         return `Eres un clasificador de intenciones para un sistema de gestión de turnos de trabajo.
-El archivo de audio adjunto contiene un mensaje de un empleado.
+El archivo de audio adjunto contiene un mensaje de un empleado o manager.
 
 Primero transcribe el audio fielmente. Luego clasifica la intención y extrae entidades.
 
@@ -136,7 +136,7 @@ INTENCIONES DISPONIBLES:
 - report_absence: el empleado no puede asistir a su turno
 - check_schedule: el empleado quiere ver su horario
 - request_day_off: el empleado solicita un día libre
-- generate_schedule: el manager quiere generar el horario de la semana
+- generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana")
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
