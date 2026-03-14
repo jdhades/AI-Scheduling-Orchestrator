@@ -53,17 +53,17 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
         );
 
         for (const shift of sortedShifts) {
-            const candidates = this.getCandidates(shift, skillIndex, busySlots);
+            const candidates = this.getCandidates(shift, employees, skillIndex, busySlots);
 
             if (candidates.length === 0) {
                 unfilledShifts.push(shift);
                 continue;
             }
 
-            // Ordenar por menor raw score (más descansados primero)
+            // Ordenar por menor raw score (más descansados primero), con ajuste por preferencias (soft)
             const ranked = candidates.sort((a, b) => {
-                const scoreA = liveHistory.get(a.id)?.computeRawScore() ?? 0;
-                const scoreB = liveHistory.get(b.id)?.computeRawScore() ?? 0;
+                const scoreA = (liveHistory.get(a.id)?.computeRawScore() ?? 0) * a.getPreferenceMultiplier(shift.startTime);
+                const scoreB = (liveHistory.get(b.id)?.computeRawScore() ?? 0) * b.getPreferenceMultiplier(shift.startTime);
                 return scoreA - scoreB;
             });
 
@@ -107,16 +107,49 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
 
     private getCandidates(
         shift: Shift,
+        employees: Employee[],
         skillIndex: Map<string, Employee[]>,
         busySlots: Map<string, Shift[]>,
     ): Employee[] {
         const pool = shift.requiredSkillId
             ? (skillIndex.get(shift.requiredSkillId) ?? [])
-            : [...new Set([...skillIndex.values()].flat())];
+            : employees;
 
-        return pool.filter(emp => {
+        const uniquePool = Array.from(new Set(pool));
+
+        return uniquePool.filter(emp => {
             const busy = busySlots.get(emp.id) ?? [];
-            return !busy.some(s => s.overlapsWith(shift));
+            if (busy.some(s => s.overlapsWith(shift))) return false;
+
+            const MAX_HOURS_PER_DAY = 8;
+            const MAX_HOURS_PER_WEEK = 40;
+            const MIN_GAP_HOURS = 11;
+            const proposedDuration = shift.getDuration();
+
+            // Hard: weekly hours cap
+            const weeklyHours = busy.reduce((acc, s) => acc + s.getDuration(), 0);
+            if (weeklyHours + proposedDuration > MAX_HOURS_PER_WEEK) return false;
+
+            // Hard: daily hours cap
+            const proposedStartStr = shift.startTime.toISOString().split('T')[0];
+            const dailyHours = busy
+                .filter(s => s.startTime.toISOString().split('T')[0] === proposedStartStr)
+                .reduce((acc, s) => acc + s.getDuration(), 0);
+            if (dailyHours + proposedDuration > MAX_HOURS_PER_DAY) return false;
+
+            // Hard: structural availability
+            if (!emp.isAvailable(shift.startTime, shift.endTime)) return false;
+
+            // Hard: minimum gap between shifts (anti-clopening)
+            const minGapMs = MIN_GAP_HOURS * 60 * 60 * 1000;
+            const gapViolation = busy.some(prev => {
+                const gapAfter = shift.startTime.getTime() - prev.endTime.getTime();
+                const gapBefore = prev.startTime.getTime() - shift.endTime.getTime();
+                return (gapAfter >= 0 && gapAfter < minGapMs) || (gapBefore >= 0 && gapBefore < minGapMs);
+            });
+            if (gapViolation) return false;
+
+            return true;
         });
     }
 

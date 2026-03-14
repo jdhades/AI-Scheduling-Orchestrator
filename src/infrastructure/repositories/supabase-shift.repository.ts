@@ -91,7 +91,16 @@ export class SupabaseShiftRepository implements IShiftRepository {
             .lt('shifts.start_time', weekEnd.toISOString());
 
         if (error) throw new Error(`ShiftRepository.findAssignmentsByCompanyAndWeek failed: ${error.message}`);
-        return (data ?? []).map(row => this.assignmentToDomain(row));
+        return (data ?? []).map(row => {
+            const assignment = this.assignmentToDomain(row);
+            // HACK: Attach the joined shifts table data dynamically for the Query View Model
+            (assignment as any).shifts = {
+                startTime: row.shifts?.start_time,
+                endTime: row.shifts?.end_time,
+                requiredSkillId: row.shifts?.required_skill_id
+            };
+            return assignment;
+        });
     }
 
     private toDomain(row: Record<string, any>): Shift {

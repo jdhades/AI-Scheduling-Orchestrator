@@ -15,6 +15,8 @@ function makeEmployee(id: string): Employee {
     return Employee.fromPersistence({
         id,
         companyId: 'company-1',
+        name: 'John Doe',
+        role: 'Waiter',
         phoneNumber: PhoneNumber.create('+34612345678'),
         experience: new ExperienceLevel(12, { junior: 6, intermediate: 24, senior: 999 }),
     });

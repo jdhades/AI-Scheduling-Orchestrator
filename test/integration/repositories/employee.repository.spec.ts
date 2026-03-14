@@ -75,6 +75,8 @@ describe('SupabaseEmployeeRepository (integration)', () => {
             const employee = Employee.fromPersistence({
                 id: TEST_EMPLOYEE_ID_1,
                 companyId: TEST_COMPANY_ID,
+                name: 'Test Employee 1',
+                role: 'Waiter',
                 phoneNumber: phone,
                 experience,
             });
@@ -98,6 +100,8 @@ describe('SupabaseEmployeeRepository (integration)', () => {
             const employee = Employee.fromPersistence({
                 id: TEST_EMPLOYEE_ID_1,
                 companyId: TEST_COMPANY_ID,
+                name: 'Test Employee 1',
+                role: 'Waiter',
                 phoneNumber: phone,
                 experience,
             });

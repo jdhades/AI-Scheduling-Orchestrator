@@ -17,6 +17,7 @@ import { SwapShiftHandler } from './handlers/swap-shift.handler';
 import { ReportAbsenceHandler } from './handlers/report-absence.handler';
 import { RequestDayOffHandler } from './handlers/request-day-off.handler';
 import { GetMyScheduleHandler } from './handlers/get-my-schedule.handler';
+import { GetCompanyEmployeesHandler } from './handlers/get-company-employees.handler';
 import { ShiftSwapRequestedHandler } from './handlers/shift-swap-requested.handler';
 import { AbsenceReportedHandler } from './handlers/absence-reported.handler';
 import { CommandMapperService } from './conversational/command-mapper.service';
@@ -24,6 +25,7 @@ import { MessageRouterService } from './conversational/message-router.service';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { ConversationalModule } from '../infrastructure/conversational/conversational.module';
+import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
 import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.service';
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
 import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
@@ -54,6 +56,7 @@ const CommandHandlers = [
 const QueryHandlers = [
     GetEmployeeCalendarHandler,
     GetCompanyScheduleHandler,
+    GetCompanyEmployeesHandler,
     GetSemanticRulesHandler,
     GetMyScheduleHandler,
 ];
@@ -79,7 +82,7 @@ const DomainServices = [
 ];
 
 @Module({
-    imports: [CqrsModule, RepositoriesModule, NotificationsModule, ConversationalModule],
+    imports: [CqrsModule, RepositoriesModule, NotificationsModule, ConversationalModule, WebsocketModule],
     providers: [
         ...CommandHandlers,
         ...QueryHandlers,

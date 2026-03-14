@@ -1,0 +1,916 @@
+{
+    "info": {
+        "name": "AI Scheduling Orchestrator",
+        "description": "Complete API collection for the AI Scheduling Orchestrator backend (NestJS + Supabase).\n\nImport this file + the `ai-scheduling-environment.json` file.\n\nExecution order for a full E2E run:\n1. Create Employee\n2. Initiate Handshake → 3. Verify Handshake\n4. Create Shift Templates (×N)\n5. Instantiate Week from Templates\n6. Generate Schedule (Deterministic or Hybrid)\n7. Get Weekly Schedule",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "_postman_id": "ai-scheduling-orchestrator-v1"
+    },
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:3000",
+            "type": "string"
+        },
+        {
+            "key": "company_id",
+            "value": "11111111-2222-3333-4444-555555555555",
+            "type": "string"
+        },
+        {
+            "key": "employee_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "shift_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "template_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "rule_id",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "week_start",
+            "value": "2024-03-04",
+            "type": "string"
+        }
+    ],
+    "item": [
+        {
+            "name": "Employees",
+            "item": [
+                {
+                    "name": "Register Employee",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "x-company-id",
+                                "value": "{{company_id}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/employees",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "employees"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"employeeId\": \"emp-001\",\n  \"phone\": \"+34600000001\",\n  \"experienceMonths\": 24\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Registers a new employee. Returns the generated employeeId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 201 Created', function () {",
+                                    "  pm.response.to.have.status(201);",
+                                    "});",
+                                    "",
+                                    "pm.test('Response contains employeeId', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.employeeId).to.exist;",
+                                    "  pm.collectionVariables.set('employee_id', json.employeeId);",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "List Company Employees",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "x-company-id",
+                                "value": "{{company_id}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/employees?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "employees"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "description": "Returns all employees for the company with their availability windows and preferences."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('Response is an array', function () {",
+                                    "  pm.expect(pm.response.json()).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "pm.test('Each employee has id and name', function () {",
+                                    "  var employees = pm.response.json();",
+                                    "  if (employees.length > 0) {",
+                                    "    pm.expect(employees[0]).to.have.property('id');",
+                                    "    pm.expect(employees[0]).to.have.property('name');",
+                                    "  }",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Employee Calendar",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "x-company-id",
+                                "value": "{{company_id}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/employees/{{employee_id}}/calendar?from=2024-03-04&to=2024-03-10",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "employees",
+                                "{{employee_id}}",
+                                "calendar"
+                            ],
+                            "query": [
+                                {
+                                    "key": "from",
+                                    "value": "2024-03-04"
+                                },
+                                {
+                                    "key": "to",
+                                    "value": "2024-03-10"
+                                }
+                            ]
+                        },
+                        "description": "Returns all shift assignments for an employee in a date range."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('Response is an array', function () {",
+                                    "  pm.expect(pm.response.json()).to.be.an('array');",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "WhatsApp Verification",
+            "item": [
+                {
+                    "name": "Initiate Handshake",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "x-company-id",
+                                "value": "{{company_id}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/employees/{{employee_id}}/handshake",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "employees",
+                                "{{employee_id}}",
+                                "handshake"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"handshakeId\": \"hs-001\",\n  \"phone\": \"+34600000001\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Initiates WhatsApp verification. Generates a one-time token with 15min TTL."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 202 Accepted', function () {",
+                                    "  pm.response.to.have.status(202);",
+                                    "});",
+                                    "",
+                                    "pm.test('Response has message', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.message).to.exist;",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Verify WhatsApp Token",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "x-company-id",
+                                "value": "{{company_id}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/employees/{{employee_id}}/verify",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "employees",
+                                "{{employee_id}}",
+                                "verify"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"token\": \"PASTE_TOKEN_HERE\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Verifies WhatsApp number. Employee submits the token received via WhatsApp."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('Employee verified', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.message).to.include('verified');",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Shift Templates",
+            "item": [
+                {
+                    "name": "List Shift Templates",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/shift-templates?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "shift-templates"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "description": "Returns all active shift templates, sorted by day_of_week + start_time."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('Templates array returned', function () {",
+                                    "  pm.expect(pm.response.json()).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "// Save first template id for subsequent requests",
+                                    "var templates = pm.response.json();",
+                                    "if (templates.length > 0) {",
+                                    "  pm.collectionVariables.set('template_id', templates[0].id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Create Shift Template",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/shift-templates?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "shift-templates"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Turno Mañana — Cocinero\",\n  \"dayOfWeek\": 1,\n  \"startTime\": \"08:00\",\n  \"endTime\": \"16:00\",\n  \"demandScore\": 2.0,\n  \"undesirableWeight\": 0.0\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Creates a recurring shift template. dayOfWeek: 0=Sun, 1=Mon ... 6=Sat."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200 or 201', function () {",
+                                    "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                                    "});",
+                                    "",
+                                    "pm.test('Template has id', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.id).to.exist;",
+                                    "  pm.collectionVariables.set('template_id', json.id);",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Instantiate Week from Templates",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/shift-templates/instantiate?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "shift-templates",
+                                "instantiate"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"weekStart\": \"{{week_start}}\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Generates concrete Shift records for the week from all active templates. weekStart must be a Monday."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('generated count is a number', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.generated).to.be.a('number');",
+                                    "});",
+                                    "",
+                                    "pm.test('shifts array returned', function () {",
+                                    "  pm.expect(pm.response.json().shifts).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "// Save first shift id",
+                                    "var shifts = pm.response.json().shifts;",
+                                    "if (shifts && shifts.length > 0) {",
+                                    "  pm.collectionVariables.set('shift_id', shifts[0].id);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Delete Shift Template",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/shift-templates/{{template_id}}?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "shift-templates",
+                                "{{template_id}}"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "description": "Hard-deletes a template. Existing shifts generated from it are preserved (templateId set to NULL)."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('success is true', function () {",
+                                    "  pm.expect(pm.response.json().success).to.be.true;",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Schedules",
+            "item": [
+                {
+                    "name": "Generate Schedule (Deterministic)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/schedules/generate?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "schedules",
+                                "generate"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"weekStart\": \"{{week_start}}\",\n  \"strategy\": \"cost\",\n  \"maxFairnessDeviation\": 2\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Runs the deterministic scheduling engine. strategy: 'cost' | 'fairness' | 'hybrid'. Respects availability, 11h gap, and preference soft constraints from Phase 1."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('assignments array returned', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.assignments).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "pm.test('unfilledShifts array returned', function () {",
+                                    "  pm.expect(pm.response.json().unfilledShifts).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "pm.test('No more than 0 unfilled shifts', function () {",
+                                    "  // Soft check — informational",
+                                    "  var unfilled = pm.response.json().unfilledShifts.length;",
+                                    "  console.log('Unfilled shifts:', unfilled);",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Generate Schedule (Hybrid AI)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/schedules/generate/hybrid?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "schedules",
+                                "generate",
+                                "hybrid"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"weekStart\": \"{{week_start}}\",\n  \"maxFairnessDeviation\": 1\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Prompt Orchestrator mode. LLM (Gemini) proposes assignments → algorithm validates and corrects. Includes traceability metrics."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('llmAccepted is a number', function () {",
+                                    "  pm.expect(pm.response.json().llmAccepted).to.be.a('number');",
+                                    "});",
+                                    "",
+                                    "pm.test('algorithmCorrected is a number', function () {",
+                                    "  pm.expect(pm.response.json().algorithmCorrected).to.be.a('number');",
+                                    "});",
+                                    "",
+                                    "pm.test('explanation is present', function () {",
+                                    "  pm.expect(pm.response.json().explanation).to.exist;",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Weekly Schedule",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/schedules?companyId={{company_id}}&weekStart={{week_start}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "schedules"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                },
+                                {
+                                    "key": "weekStart",
+                                    "value": "{{week_start}}"
+                                }
+                            ]
+                        },
+                        "description": "Returns all shift assignments for the company in the given week."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('Response is an array', function () {",
+                                    "  pm.expect(pm.response.json()).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "pm.test('Each assignment has employeeId and shiftId', function () {",
+                                    "  var assignments = pm.response.json();",
+                                    "  if (assignments.length > 0) {",
+                                    "    pm.expect(assignments[0].employeeId).to.exist;",
+                                    "  }",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Semantic Rules",
+            "item": [
+                {
+                    "name": "Create Semantic Rule",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/rules/semantic?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "rules",
+                                "semantic"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"ruleText\": \"Never assign employees with less than 6 months experience to opening shifts\",\n  \"priorityLevel\": \"high\",\n  \"ruleType\": \"restriction\",\n  \"createdBy\": \"manager-001\",\n  \"metadata\": {}\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Creates a natural-language rule. Gemini generates an embedding vector automatically."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 201', function () {",
+                                    "  pm.response.to.have.status(201);",
+                                    "});",
+                                    "",
+                                    "pm.test('Rule has id', function () {",
+                                    "  var json = pm.response.json();",
+                                    "  pm.expect(json.id).to.exist;",
+                                    "  pm.collectionVariables.set('rule_id', json.id);",
+                                    "});",
+                                    "",
+                                    "pm.test('Embedding generated', function () {",
+                                    "  pm.expect(pm.response.json().embeddingGenerated).to.be.true;",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "List Semantic Rules",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/rules/semantic?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "rules",
+                                "semantic"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "description": "Returns all active semantic rules. Filter by type with ?ruleType=restriction|preference|requirement"
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('Response is array', function () {",
+                                    "  pm.expect(pm.response.json()).to.be.an('array');",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Delete Semantic Rule",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/rules/semantic/{{rule_id}}?companyId={{company_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "rules",
+                                "semantic",
+                                "{{rule_id}}"
+                            ],
+                            "query": [
+                                {
+                                    "key": "companyId",
+                                    "value": "{{company_id}}"
+                                }
+                            ]
+                        },
+                        "description": "Soft-deletes a rule (is_active = false). Preserved for audit."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test('deleted is true', function () {",
+                                    "  pm.expect(pm.response.json().deleted).to.be.true;",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Webhooks",
+            "item": [
+                {
+                    "name": "WhatsApp Webhook (Twilio simulation)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/x-www-form-urlencoded"
+                            },
+                            {
+                                "key": "x-twilio-signature",
+                                "value": "SKIP_IN_TEST_ENV"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/webhooks/whatsapp",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "webhooks",
+                                "whatsapp"
+                            ]
+                        },
+                        "body": {
+                            "mode": "urlencoded",
+                            "urlencoded": [
+                                {
+                                    "key": "From",
+                                    "value": "whatsapp:+34600000001"
+                                },
+                                {
+                                    "key": "Body",
+                                    "value": "¿Cuándo trabajo esta semana?"
+                                }
+                            ]
+                        },
+                        "description": "Simulates an incoming WhatsApp message. Requires APP_ENV=test to skip Twilio HMAC validation."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200 (fire-and-forget)', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

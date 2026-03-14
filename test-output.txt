@@ -1,0 +1,49 @@
+
+> ai-scheduling-orchestrator@0.0.1 test
+> jest
+
+[dotenv@17.2.3] injecting env (9) from .env.test -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mLLM returned 2 proposed assignments[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s1 employee=e1 confidence=0.90[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s2 employee=e2 confidence=0.85[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=2 algorithmCorrected=0 unfilled=0[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mLLM returned 1 proposed assignments[39m
+[33m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [33m   WARN[39m [38;5;3m[PromptOrchestratorService] [39m[33mLLM proposal rejected for shift=s1: Employee NON_EXISTENT not found in current employee pool[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mFallback: algorithm covering 2 shifts not accepted from LLM[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=0 algorithmCorrected=2 unfilled=0[39m
+[33m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [33m   WARN[39m [38;5;3m[PromptOrchestratorService] [39m[33mPromptOrchestrator: LLM call failed, falling back to algorithm. Error: Gemini API timeout[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mFallback: algorithm covering 2 shifts not accepted from LLM[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=0 algorithmCorrected=2 unfilled=0[39m
+[33m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [33m   WARN[39m [38;5;3m[PromptOrchestratorService] [39m[33mPromptOrchestrator: LLM call failed, falling back to algorithm. Error: LLMScheduleProposal: no JSON block found in LLM response[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mFallback: algorithm covering 2 shifts not accepted from LLM[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=0 algorithmCorrected=2 unfilled=0[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mLLM returned 2 proposed assignments[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s2 employee=e2 confidence=0.90[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mFallback: algorithm covering 1 shifts not accepted from LLM[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=1 algorithmCorrected=1 unfilled=0[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mLLM returned 2 proposed assignments[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s1 employee=e1 confidence=0.90[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s2 employee=e1 confidence=0.95[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=2 algorithmCorrected=0 unfilled=0[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mLLM returned 1 proposed assignments[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s1 employee=e1 confidence=0.90[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mFallback: algorithm covering 1 shifts not accepted from LLM[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=1 algorithmCorrected=1 unfilled=0[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mLLM returned 1 proposed assignments[39m
+[95m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [95m  DEBUG[39m [38;5;3m[PromptOrchestratorService] [39m[95mLLM accepted: shift=s1 employee=e1 confidence=0.90[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mFallback: algorithm covering 1 shifts not accepted from LLM[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:21 PM [32m    LOG[39m [38;5;3m[PromptOrchestratorService] [39m[32mOrchestration complete — total=2 llmAccepted=1 algorithmCorrected=1 unfilled=0[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[CreateSemanticRuleHandler] [39m[32mCreating semantic rule — company=company-1 priority=1 type=restriction[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[CreateSemanticRuleHandler] [39m[32mSemantic rule created — id=aca2a948-fb57-495b-9406-b1835d5e898e embeddingGenerated=true[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[CreateSemanticRuleHandler] [39m[32mCreating semantic rule — company=company-1 priority=2 type=preference[39m
+[33m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [33m   WARN[39m [38;5;3m[CreateSemanticRuleHandler] [39m[33mCreateSemanticRuleHandler: embedding generation failed, rule saved without vector. Error: Gemini API unavailable[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[CreateSemanticRuleHandler] [39m[32mSemantic rule created — id=318adb23-ce53-487a-ae06-45fd20ce7f59 embeddingGenerated=false[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[CreateSemanticRuleHandler] [39m[32mCreating semantic rule — company=company-2 priority=3 type=requirement[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[CreateSemanticRuleHandler] [39m[32mSemantic rule created — id=f19b12a5-3649-40c5-a9cf-253c3b61b2cf embeddingGenerated=true[39m
+[32m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [32m    LOG[39m [38;5;3m[DeleteSemanticRuleHandler] [39m[32mSemantic rule soft-deleted — id=rule-to-delete[39m
+[33m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [33m   WARN[39m [38;5;3m[DeleteSemanticRuleHandler] [39m[33mDeleteSemanticRuleHandler: rule non-existent not found for company company-1[39m
+[33m[Nest] 2886690  - [39m03/09/2026, 6:11:22 PM [33m   WARN[39m [38;5;3m[DeleteSemanticRuleHandler] [39m[33mDeleteSemanticRuleHandler: rule rule-1 not found for company wrong-company[39m
+[32m[Nest] 2886709  - [39m03/09/2026, 6:11:23 PM [32m    LOG[39m [38;5;3m[TwilioService] [39m[32mWhatsApp sent → +34612345678 | SID: SM123 | Status: queued[39m
+[32m[Nest] 2886709  - [39m03/09/2026, 6:11:23 PM [32m    LOG[39m [38;5;3m[TwilioService] [39m[32mWhatsApp sent → +12025550101 | SID: SM456 | Status: sent[39m
+[32m[Nest] 2886709  - [39m03/09/2026, 6:11:23 PM [32m    LOG[39m [38;5;3m[TwilioService] [39m[32mWhatsApp sent → +34699887766 | SID: SM789 | Status: queued[39m
+[32m[Nest] 2886709  - [39m03/09/2026, 6:11:23 PM [32m    LOG[39m [38;5;3m[TwilioService] [39m[32mWhatsApp sent → +34612345678 | SID: SM000 | Status: queued[39m

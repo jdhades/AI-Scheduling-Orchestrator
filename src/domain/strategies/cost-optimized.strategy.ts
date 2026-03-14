@@ -63,7 +63,7 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
         );
 
         for (const shift of sortedShifts) {
-            const candidates = this.getCandidates(shift, skillIndex, busySlots);
+            const candidates = this.getCandidates(shift, employees, skillIndex, busySlots);
 
             if (candidates.length === 0) {
                 unfilledShifts.push(shift);
@@ -72,8 +72,8 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
 
             // Ordenar por costo efectivo (base + penalización por fairness)
             const ranked = candidates.sort((a, b) => {
-                const costA = this.effectiveCost(a, historyIndex.get(a.id));
-                const costB = this.effectiveCost(b, historyIndex.get(b.id));
+                const costA = this.effectiveCost(a, shift, historyIndex.get(a.id));
+                const costB = this.effectiveCost(b, shift, historyIndex.get(b.id));
                 return costA - costB;
             });
 
@@ -93,7 +93,7 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
         return { assignments, unfilledShifts };
     }
 
-    private effectiveCost(employee: Employee, history?: FairnessHistoryVO): number {
+    private effectiveCost(employee: Employee, shift: Shift, history?: FairnessHistoryVO): number {
         const baseCost = CostOptimizedStrategy.EXPERIENCE_COST[
             employee.experienceMonths >= 24 ? 'senior'
                 : employee.experienceMonths >= 6 ? 'intermediate'
@@ -105,7 +105,10 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
             ? CostOptimizedStrategy.FAIRNESS_PENALTY_FACTOR
             : 1;
 
-        return baseCost * fairnessMultiplier;
+        // Soft Constraint: apply preference bias
+        const preferenceMultiplier = employee.getPreferenceMultiplier(shift.startTime);
+
+        return baseCost * fairnessMultiplier * preferenceMultiplier;
     }
 
     private buildSkillIndex(employees: Employee[]): Map<string, Employee[]> {
@@ -121,16 +124,49 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
 
     private getCandidates(
         shift: Shift,
+        employees: Employee[],
         skillIndex: Map<string, Employee[]>,
         busySlots: Map<string, Shift[]>,
     ): Employee[] {
         const pool = shift.requiredSkillId
             ? (skillIndex.get(shift.requiredSkillId) ?? [])
-            : [...skillIndex.values()].flat();
+            : employees;
 
-        return pool.filter(emp => {
+        const uniquePool = Array.from(new Set(pool));
+
+        return uniquePool.filter(emp => {
             const busy = busySlots.get(emp.id) ?? [];
-            return !busy.some(s => s.overlapsWith(shift));
+            if (busy.some(s => s.overlapsWith(shift))) return false;
+
+            const MAX_HOURS_PER_DAY = 8;
+            const MAX_HOURS_PER_WEEK = 40;
+            const MIN_GAP_HOURS = 11;
+            const proposedDuration = shift.getDuration();
+
+            // Hard: weekly hours cap
+            const weeklyHours = busy.reduce((acc, s) => acc + s.getDuration(), 0);
+            if (weeklyHours + proposedDuration > MAX_HOURS_PER_WEEK) return false;
+
+            // Hard: daily hours cap
+            const proposedStartStr = shift.startTime.toISOString().split('T')[0];
+            const dailyHours = busy
+                .filter(s => s.startTime.toISOString().split('T')[0] === proposedStartStr)
+                .reduce((acc, s) => acc + s.getDuration(), 0);
+            if (dailyHours + proposedDuration > MAX_HOURS_PER_DAY) return false;
+
+            // Hard: structural availability
+            if (!emp.isAvailable(shift.startTime, shift.endTime)) return false;
+
+            // Hard: minimum gap between shifts (anti-clopening)
+            const minGapMs = MIN_GAP_HOURS * 60 * 60 * 1000;
+            const gapViolation = busy.some(prev => {
+                const gapAfter = shift.startTime.getTime() - prev.endTime.getTime();
+                const gapBefore = prev.startTime.getTime() - shift.endTime.getTime();
+                return (gapAfter >= 0 && gapAfter < minGapMs) || (gapBefore >= 0 && gapBefore < minGapMs);
+            });
+            if (gapViolation) return false;
+
+            return true;
         });
     }
 

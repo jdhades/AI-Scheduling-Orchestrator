@@ -4,21 +4,10 @@ import { IEmployeeRepository } from '../../domain/repositories/employee.reposito
 import { Employee } from '../../domain/aggregates/employee.aggregate';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo';
+import { EmployeeAvailability } from '../../domain/value-objects/employee-availability.vo';
+import { EmployeePreference, PreferenceType } from '../../domain/value-objects/employee-preference.vo';
 import { TenantContext } from '../tenant/tenant.context';
 
-/**
- * SupabaseEmployeeRepository — Adapter (DDD)
- *
- * Implementación concreta del IEmployeeRepository usando Supabase JS.
- * El domain layer no sabe que este archivo existe.
- *
- * Convenciones:
- *  - Siempre filtra por company_id (multi-tenant)
- *  - TenantContext inyectado para obtener el tenant actual
- *  - fromPersistence() reconstruye el aggregate sin disparar eventos
- *
- * Rangos de ExperienceLevel por defecto (pueden configurarse por empresa en el futuro):
- */
 const DEFAULT_EXPERIENCE_RANGES = { junior: 6, intermediate: 24, senior: 999 };
 
 @Injectable()
@@ -34,7 +23,8 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
             .upsert({
                 id: employee.id,
                 company_id: employee.companyId,
-                name: 'pending',          // TODO: add name field to Employee aggregate
+                name: employee.name,
+                role: employee.role,
                 phone_number: employee.phone,
                 experience_months: employee.experienceMonths,
                 hire_date: new Date().toISOString().split('T')[0],
@@ -70,7 +60,24 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     async findAllByCompany(companyId: string): Promise<Employee[]> {
         const { data, error } = await this.supabase
             .from('employees')
-            .select('*')
+            .select(`
+                *,
+                employee_skills (
+                    company_skill_id,
+                    level
+                ),
+                employee_availability (
+                    id,
+                    day_of_week,
+                    start_time,
+                    end_time
+                ),
+                employee_preferences (
+                    id,
+                    preference_type,
+                    weight
+                )
+            `)
             .eq('company_id', companyId);
 
         if (error) throw new Error(`EmployeeRepository.findAllByCompany failed: ${error.message}`);
@@ -89,11 +96,37 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     }
 
     private toDomain(row: Record<string, any>): Employee {
-        return Employee.fromPersistence({
+        // Map availability rows → EmployeeAvailability VOs
+        const availability: EmployeeAvailability[] = (row.employee_availability ?? []).map(
+            (a: any) => new EmployeeAvailability(a.id, a.day_of_week, a.start_time, a.end_time),
+        );
+
+        // Map preference rows → EmployeePreference VOs
+        const preferences: EmployeePreference[] = (row.employee_preferences ?? []).map(
+            (p: any) => new EmployeePreference(p.id, p.preference_type as PreferenceType, p.weight),
+        );
+
+        const employee = Employee.fromPersistence({
             id: row.id,
             companyId: row.company_id,
+            name: row.name,
+            role: row.role || 'employee',
             phoneNumber: PhoneNumber.create(row.phone_number),
             experience: new ExperienceLevel(row.experience_months, DEFAULT_EXPERIENCE_RANGES),
+            availability,
+            preferences,
         });
+
+        // Hydrate skills
+        if (row.employee_skills && Array.isArray(row.employee_skills)) {
+            for (const es of row.employee_skills) {
+                employee.assignSkill(
+                    { id: es.company_skill_id, companyId: row.company_id, globalSkillId: 'any', equals: (other: any) => other.id === es.company_skill_id } as any,
+                    { validateEmployee: () => true } as any,
+                );
+            }
+        }
+
+        return employee;
     }
 }
