@@ -156,8 +156,18 @@ export class PromptOrchestratorService {
                 semanticRules,
             );
 
-            algorithmAssignments = strategyResult.assignments;
-            unfilledShifts = strategyResult.unfilledShifts;
+            // Filtro posterior: asegurar que las asignaciones del algoritmo no se solapen con las del LLM
+            for (const a of strategyResult.assignments) {
+                const shift = shifts.find(s => s.id === a.shiftId)!;
+                const empBusy = alreadyAssigned.get(a.employeeId)!;
+                if (empBusy.some(bs => bs.overlapsWith(shift))) {
+                    unfilledShifts.push(shift);
+                    continue;
+                }
+                algorithmAssignments.push(a);
+                empBusy.push(shift); // Evitar futuros solapamientos en caso de que hubiese
+            }
+            unfilledShifts.push(...strategyResult.unfilledShifts);
         }
 
         const allAssignments = [...llmAssignments, ...algorithmAssignments];

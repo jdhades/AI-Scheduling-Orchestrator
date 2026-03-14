@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import type { IEmbeddingService } from './embedding.service.interface';
+import { EMBEDDING_SERVICE_TOKEN } from './embedding.service.interface';
 import type { ISemanticRuleRepository } from '../repositories/semantic-rule.repository.interface';
+import { SEMANTIC_RULE_REPOSITORY_TOKEN } from '../repositories/semantic-rule.repository.interface';
 import { ConflictResolutionEngine } from './conflict-resolution.engine';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
 
@@ -31,7 +33,9 @@ export class SemanticRetrievalService {
     static readonly TOP_K = 15;
 
     constructor(
+        @Inject(EMBEDDING_SERVICE_TOKEN)
         private readonly embeddingService: IEmbeddingService,
+        @Inject(SEMANTIC_RULE_REPOSITORY_TOKEN)
         private readonly ruleRepository: ISemanticRuleRepository,
         private readonly conflictEngine: ConflictResolutionEngine,
     ) { }

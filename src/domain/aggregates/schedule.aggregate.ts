@@ -66,7 +66,7 @@ export class ScheduleAggregate extends AggregateRoot {
      * Valida las invariantes del schedule generado.
      * Falla si hay empleados en dos turnos solapados.
      */
-    validate(): { valid: boolean; violations: string[] } {
+    validate(shifts: Shift[]): { valid: boolean; violations: string[] } {
         const violations: string[] = [];
         const byEmployee = new Map<string, ShiftAssignment[]>();
 
@@ -79,9 +79,14 @@ export class ScheduleAggregate extends AggregateRoot {
         for (const [empId, assignments] of byEmployee) {
             for (let i = 0; i < assignments.length; i++) {
                 for (let j = i + 1; j < assignments.length; j++) {
-                    violations.push(
-                        `Overlap detected for employee ${empId}: shift ${assignments[i].shiftId} and ${assignments[j].shiftId}`,
-                    );
+                    const shiftA = shifts.find(s => s.id === assignments[i].shiftId);
+                    const shiftB = shifts.find(s => s.id === assignments[j].shiftId);
+
+                    if (shiftA && shiftB && shiftA.overlapsWith(shiftB)) {
+                        violations.push(
+                            `Overlap detected for employee ${empId}: shift ${assignments[i].shiftId} and ${assignments[j].shiftId}`,
+                        );
+                    }
                 }
             }
         }

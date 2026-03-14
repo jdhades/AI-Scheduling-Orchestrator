@@ -25,6 +25,8 @@ describe('Employee Aggregate', () => {
         Employee.create(
             'employee-1',
             companyId,
+            'John Doe',
+            'Waiter',
             PhoneNumber.create('+12025550100'),
             new ExperienceLevel(12, RANGES),
         );

@@ -17,6 +17,7 @@ import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggreg
 import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.vo';
 import type { Shift } from '../../domain/aggregates/shift.aggregate';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 export interface GenerateScheduleResult {
     assignmentsCount: number;
@@ -49,6 +50,7 @@ export class GenerateScheduleHandler
         private readonly fairnessRepository: IFairnessHistoryRepository,
         private readonly eventBus: EventBus,
         private readonly semanticRetrievalService: SemanticRetrievalService,
+        private readonly notificationsGateway: NotificationsGateway,
     ) { }
 
     async execute(command: GenerateScheduleCommand): Promise<GenerateScheduleResult> {
@@ -92,7 +94,7 @@ export class GenerateScheduleHandler
         });
 
         // 4. Validar invariantes (solapamientos, etc.)
-        const validation = scheduleAggregate.validate();
+        const validation = scheduleAggregate.validate(shifts);
         if (!validation.valid) {
             this.logger.error(`Schedule invariant violations: ${validation.violations.join(', ')}`);
             throw new Error(`Schedule generated with violations: ${validation.violations[0]}`);
@@ -113,6 +115,9 @@ export class GenerateScheduleHandler
         // 7. Publicar eventos del aggregate al EventBus
         scheduleAggregate.getUncommittedEvents().forEach(event => this.eventBus.publish(event));
         scheduleAggregate.commit();
+
+        // 8. Notificar al frontend vía WebSocket
+        this.notificationsGateway.notifyScheduleGenerated(command.companyId, command.weekStart);
 
         const quality = scheduleAggregate.result!.quality;
 

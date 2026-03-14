@@ -3,6 +3,7 @@ import { Inject, Logger } from '@nestjs/common';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { PromptOrchestratorService } from '../../domain/services/prompt-orchestrator.service';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
 import type { IFairnessHistoryRepository } from '../../domain/repositories/fairness-history.repository';
@@ -50,6 +51,7 @@ export class GenerateHybridScheduleHandler
         private readonly eventBus: EventBus,
         private readonly semanticRetrievalService: SemanticRetrievalService,
         private readonly promptOrchestrator: PromptOrchestratorService,
+        private readonly notificationsGateway: NotificationsGateway,
     ) { }
 
     async execute(command: GenerateHybridScheduleCommand): Promise<HybridScheduleResult> {
@@ -99,6 +101,9 @@ export class GenerateHybridScheduleHandler
             result.assignments, shifts, histories, weekStart, command.companyId,
         );
         await this.fairnessRepository.upsertBatch(updatedHistories);
+
+        // 6. Notificar al frontend vía WebSocket
+        this.notificationsGateway.notifyScheduleGenerated(command.companyId, command.weekStart);
 
         this.logger.log(
             `Hybrid schedule complete — assignments=${result.assignments.length} ` +

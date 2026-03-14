@@ -13,6 +13,7 @@ export interface CreateShiftProps {
     requiredExperienceMonths: number;
     demandScore: DemandWeight;
     undesirableWeight: UndesirableWeight;
+    templateId?: string | null;  // Phase 2: traceability back to the originating template
 }
 
 /**
@@ -34,6 +35,7 @@ export class Shift {
         public readonly requiredExperienceMonths: number,
         public readonly demandScore: DemandWeight,
         public readonly undesirableWeight: UndesirableWeight,
+        public readonly templateId: string | null = null,
     ) {
         if (_endTime <= _startTime) {
             throw new Error('Shift endTime must be after startTime');
@@ -51,6 +53,7 @@ export class Shift {
             props.requiredExperienceMonths,
             props.demandScore,
             props.undesirableWeight,
+            props.templateId ?? null,
         );
     }
 

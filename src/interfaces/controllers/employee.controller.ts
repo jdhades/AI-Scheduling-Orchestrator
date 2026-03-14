@@ -12,6 +12,7 @@ import {
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { RegisterEmployeeCommand } from '../../application/commands/register-employee.command';
 import { GetEmployeeCalendarQuery } from '../../application/queries/get-employee-calendar.query';
+import { GetCompanyEmployeesQuery } from '../../application/queries/get-company-employees.query';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo';
 import { RegisterEmployeeDto } from '../dtos/register-employee.dto';
@@ -62,6 +63,20 @@ export class EmployeeController {
         );
 
         return { employeeId: dto.employeeId };
+    }
+
+    /**
+     * GET /employees
+     * Devuelve todos los empleados de la empresa.
+     */
+    @Get()
+    async getEmployees(
+        @Headers('x-company-id') companyIdHeader: string,
+        @Query('companyId') companyIdQuery: string,
+    ): Promise<unknown> {
+        // Fallback for easy testing from frontend without setting headers
+        const companyId = companyIdHeader || companyIdQuery;
+        return this.queryBus.execute(new GetCompanyEmployeesQuery(companyId));
     }
 
     /**

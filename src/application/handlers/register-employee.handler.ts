@@ -18,7 +18,7 @@ export class RegisterEmployeeHandler
         const { employeeId, companyId, phone, experience } = command;
 
         const employee = this.publisher.mergeObjectContext(
-            Employee.create(employeeId, companyId, phone, experience),
+            Employee.create(employeeId, companyId, 'Desconocido', 'employee', phone, experience),
         );
 
         await this.employeeRepository.save(employee);

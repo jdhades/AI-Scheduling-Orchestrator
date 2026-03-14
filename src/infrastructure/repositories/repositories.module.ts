@@ -6,6 +6,7 @@ import { SupabaseHandshakeRepository } from './supabase-handshake.repository';
 import { SupabaseShiftRepository } from './supabase-shift.repository';
 import { SupabaseFairnessHistoryRepository } from './supabase-fairness-history.repository';
 import { SupabaseSemanticRuleRepository } from './supabase-semantic-rule.repository';
+import { SupabaseShiftTemplateRepository } from './supabase-shift-template.repository';
 import { GeminiEmbeddingService } from '../services/gemini-embedding.service';
 import { GeminiLLMService } from '../services/gemini-llm.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
@@ -60,6 +61,11 @@ import { TenantModule } from '../tenant/tenant.module';
             provide: LLM_SERVICE,
             useClass: GeminiLLMService,
         },
+        // Phase 2 — Shift Templates
+        {
+            provide: 'SHIFT_TEMPLATE_REPOSITORY',
+            useClass: SupabaseShiftTemplateRepository,
+        },
     ],
     exports: [
         EMPLOYEE_REPOSITORY,
@@ -69,6 +75,7 @@ import { TenantModule } from '../tenant/tenant.module';
         SEMANTIC_RULE_REPOSITORY_TOKEN,
         EMBEDDING_SERVICE_TOKEN,
         LLM_SERVICE,
+        'SHIFT_TEMPLATE_REPOSITORY',
     ],
 })
 export class RepositoriesModule { }
