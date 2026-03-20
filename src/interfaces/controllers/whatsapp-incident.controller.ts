@@ -11,6 +11,7 @@ import type { Request, Response } from 'express';
 import { CommandBus } from '@nestjs/cqrs';
 import { CreateIncidentCommand } from '../../application/commands/create-incident.command';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
+import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 
 @Controller('webhooks/twilio')
 export class WhatsAppIncidentController {
@@ -25,7 +26,7 @@ export class WhatsAppIncidentController {
 
     constructor(
         private readonly commandBus: CommandBus,
-        @Inject('IEmployeeRepository') private readonly employeeRepository: IEmployeeRepository,
+        @Inject(EMPLOYEE_REPOSITORY) private readonly employeeRepository: IEmployeeRepository,
     ) { }
 
     @Post()
@@ -59,11 +60,9 @@ export class WhatsAppIncidentController {
                 return;
             }
 
-            // 3. Lookup employee by phone (Mocking global lookup since we only have company-scoped repos)
-            // In a real multi-tenant scenario, we'd query a master index `employee_phones` to find the companyId
+            // 3. Lookup employee by phone across all companies (wildcard lookup)
             const cleanPhone = From.replace('whatsapp:', '');
-            const simulatedCompanyId = 'comp-abc';
-            const employee = await this.employeeRepository.findByPhone(cleanPhone, simulatedCompanyId);
+            const employee = await this.employeeRepository.findByPhone(cleanPhone, '*');
 
             if (!employee) {
                 this.logger.warn(`Phone number ${cleanPhone} not registered in our system.`);

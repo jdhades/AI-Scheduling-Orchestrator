@@ -9,6 +9,8 @@ import { InstantiateWeekHandler } from '../application/commands/instantiate-week
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 
+import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
+
 @Module({
     imports: [ApplicationModule, RepositoriesModule],
     controllers: [
@@ -17,6 +19,7 @@ import { RepositoriesModule } from '../infrastructure/repositories/repositories.
         ScheduleController,
         RuleController,
         WhatsAppController,
+        WhatsAppIncidentController,
         ShiftTemplatesController,
     ],
     providers: [

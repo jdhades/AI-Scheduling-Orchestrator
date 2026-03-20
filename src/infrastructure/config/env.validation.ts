@@ -17,6 +17,7 @@ export const envValidationSchema = Joi.object({
     TWILIO_ACCOUNT_SID: Joi.string().optional().allow(''),
     TWILIO_AUTH_TOKEN: Joi.string().optional().allow(''),
     TWILIO_FROM_NUMBER: Joi.string().optional().allow(''),
+    TWILIO_WEBHOOK_URL: Joi.string().optional().allow(''),
 
     // Gemini — opcional en test (mockeado), requerido para EmbeddingService en producción
     GEMINI_API_KEY: Joi.string().optional().allow(''),

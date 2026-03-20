@@ -46,12 +46,17 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     }
 
     async findByPhone(phone: string, companyId: string): Promise<Employee | null> {
-        const { data, error } = await this.supabase
+        let query = this.supabase
             .from('employees')
             .select('*')
-            .eq('phone_number', phone)
-            .eq('company_id', companyId)
-            .single();
+            .eq('phone_number', phone);
+
+        // Wildcard '*' = search across all companies (used by WhatsApp webhook)
+        if (companyId !== '*') {
+            query = query.eq('company_id', companyId);
+        }
+
+        const { data, error } = await query.single();
 
         if (error || !data) return null;
         return this.toDomain(data);
