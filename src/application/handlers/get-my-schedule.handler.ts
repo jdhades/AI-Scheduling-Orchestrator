@@ -39,18 +39,26 @@ export class GetMyScheduleHandler implements IQueryHandler<
     );
 
     if (assignments.length === 0) {
+      if (weekStart) {
+        return `📅 No tienes turnos asignados para la semana del ${monday.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}.`;
+      }
       return '📅 No tienes turnos asignados esta semana.';
     }
 
     const shifts = await this.shiftRepo.findByCompanyAndWeek(companyId, monday);
-    return this._formatSchedule(assignments, shifts);
+    return this._formatSchedule(assignments, shifts, weekStart, monday);
   }
 
   private _formatSchedule(
     assignments: ShiftAssignment[],
     shifts: Shift[],
+    hasWeekStart?: string,
+    monday?: Date,
   ): string {
-    const lines: string[] = ['📅 *Tu horario esta semana:*', ''];
+    const title = hasWeekStart && monday
+      ? `📅 *Tu horario para la semana del ${monday.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}:*`
+      : '📅 *Tu horario esta semana:*';
+    const lines: string[] = [title, ''];
     const dayEmoji: Record<number, string> = {
       0: '🌞',
       1: '📅',

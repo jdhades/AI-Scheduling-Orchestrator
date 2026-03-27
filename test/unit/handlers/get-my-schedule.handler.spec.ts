@@ -94,10 +94,10 @@ describe('GetMyScheduleHandler', () => {
     mockShiftRepo.findByCompanyAndWeek.mockResolvedValue([shift1, shift2]);
 
     const result = await handler.execute(
-      new GetMyScheduleQuery('emp-1', 'comp-1', monday.toISOString()),
+      new GetMyScheduleQuery('emp-1', 'comp-1', '2026-03-02'),
     );
 
-    expect(result).toContain('📅 *Tu horario esta semana:*');
+    expect(result).toContain('📅 *Tu horario para la semana del');
     expect(result).toContain('(ID: shift-');
     expect(result).toContain('¿Necesitas algo más?');
   });
