@@ -2,20 +2,20 @@ import { Module } from '@nestjs/common';
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 
 @Module({
-    imports: [
-        PinoLoggerModule.forRoot({
-            pinoHttp: {
-                transport:
-                    process.env.NODE_ENV !== 'production'
-                        ? { target: 'pino-pretty', options: { colorize: true } }
-                        : undefined,
-                level: process.env.NODE_ENV !== 'production' ? 'debug' : 'info',
-                customProps: (req, res) => ({
-                    context: 'HTTP',
-                }),
-            },
+  imports: [
+    PinoLoggerModule.forRoot({
+      pinoHttp: {
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? { target: 'pino-pretty', options: { colorize: true } }
+            : undefined,
+        level: process.env.NODE_ENV !== 'production' ? 'debug' : 'info',
+        customProps: (req, res) => ({
+          context: 'HTTP',
         }),
-    ],
-    exports: [PinoLoggerModule],
+      },
+    }),
+  ],
+  exports: [PinoLoggerModule],
 })
-export class LoggerConfigModule { }
+export class LoggerConfigModule {}

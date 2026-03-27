@@ -6,22 +6,28 @@ import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.reposito
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 
 @CommandHandler(RegisterEmployeeCommand)
-export class RegisterEmployeeHandler
-    implements ICommandHandler<RegisterEmployeeCommand> {
-    constructor(
-        private readonly publisher: EventPublisher,
-        @Inject(EMPLOYEE_REPOSITORY)
-        private readonly employeeRepository: IEmployeeRepository,
-    ) { }
+export class RegisterEmployeeHandler implements ICommandHandler<RegisterEmployeeCommand> {
+  constructor(
+    private readonly publisher: EventPublisher,
+    @Inject(EMPLOYEE_REPOSITORY)
+    private readonly employeeRepository: IEmployeeRepository,
+  ) {}
 
-    async execute(command: RegisterEmployeeCommand): Promise<void> {
-        const { employeeId, companyId, phone, experience } = command;
+  async execute(command: RegisterEmployeeCommand): Promise<void> {
+    const { employeeId, companyId, phone, experience } = command;
 
-        const employee = this.publisher.mergeObjectContext(
-            Employee.create(employeeId, companyId, 'Desconocido', 'employee', phone, experience),
-        );
+    const employee = this.publisher.mergeObjectContext(
+      Employee.create(
+        employeeId,
+        companyId,
+        'Desconocido',
+        'employee',
+        phone,
+        experience,
+      ),
+    );
 
-        await this.employeeRepository.save(employee);
-        employee.commit();
-    }
+    await this.employeeRepository.save(employee);
+    employee.commit();
+  }
 }

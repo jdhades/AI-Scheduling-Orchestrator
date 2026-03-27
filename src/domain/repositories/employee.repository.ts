@@ -13,9 +13,9 @@ import { Employee } from '../aggregates/employee.aggregate';
 export const EMPLOYEE_REPOSITORY = 'EMPLOYEE_REPOSITORY';
 
 export interface IEmployeeRepository {
-    save(employee: Employee): Promise<void>;
-    findById(id: string, companyId: string): Promise<Employee | null>;
-    findByPhone(phone: string, companyId: string): Promise<Employee | null>;
-    findAllByCompany(companyId: string): Promise<Employee[]>;
-    markWhatsappVerified(employeeId: string): Promise<void>;
+  save(employee: Employee): Promise<void>;
+  findById(id: string, companyId: string): Promise<Employee | null>;
+  findByPhone(phone: string, companyId: string): Promise<Employee | null>;
+  findAllByCompany(companyId: string): Promise<Employee[]>;
+  markWhatsappVerified(employeeId: string): Promise<void>;
 }

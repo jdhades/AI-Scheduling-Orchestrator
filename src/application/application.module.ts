@@ -17,6 +17,7 @@ import { SwapShiftHandler } from './handlers/swap-shift.handler';
 import { ReportAbsenceHandler } from './handlers/report-absence.handler';
 import { RequestDayOffHandler } from './handlers/request-day-off.handler';
 import { GetMyScheduleHandler } from './handlers/get-my-schedule.handler';
+import { GetUpcomingShiftsHandler } from './handlers/get-upcoming-shifts.handler';
 import { GetCompanyEmployeesHandler } from './handlers/get-company-employees.handler';
 import { ShiftSwapRequestedHandler } from './handlers/shift-swap-requested.handler';
 import { AbsenceReportedHandler } from './handlers/absence-reported.handler';
@@ -31,7 +32,6 @@ import { ConflictResolutionEngine } from '../domain/services/conflict-resolution
 import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
 import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
 
-
 /**
  * ApplicationModule
  *
@@ -41,56 +41,59 @@ import { ScheduleValidatorService } from '../domain/services/schedule-validator.
  * Exporta CqrsModule para que la interfaces layer acceda al CommandBus/QueryBus.
  */
 const CommandHandlers = [
-    RegisterEmployeeHandler,
-    InitiateHandshakeHandler,
-    VerifyHandshakeHandler,
-    GenerateScheduleHandler,
-    GenerateHybridScheduleHandler,
-    CreateSemanticRuleHandler,
-    DeleteSemanticRuleHandler,
-    // E4 — Conversational
-    SwapShiftHandler,
-    ReportAbsenceHandler,
-    RequestDayOffHandler,
+  RegisterEmployeeHandler,
+  InitiateHandshakeHandler,
+  VerifyHandshakeHandler,
+  GenerateScheduleHandler,
+  GenerateHybridScheduleHandler,
+  CreateSemanticRuleHandler,
+  DeleteSemanticRuleHandler,
+  // E4 — Conversational
+  SwapShiftHandler,
+  ReportAbsenceHandler,
+  RequestDayOffHandler,
 ];
 const QueryHandlers = [
-    GetEmployeeCalendarHandler,
-    GetCompanyScheduleHandler,
-    GetCompanyEmployeesHandler,
-    GetSemanticRulesHandler,
-    GetMyScheduleHandler,
+  GetEmployeeCalendarHandler,
+  GetCompanyScheduleHandler,
+  GetCompanyEmployeesHandler,
+  GetSemanticRulesHandler,
+  GetMyScheduleHandler,
+  GetUpcomingShiftsHandler,
 ];
 const EventHandlers = [
-    EmployeeRegisteredHandler,
-    HandshakeInitiatedHandler,
-    HandshakeVerifiedHandler,
-    // E4 — Conversational events
-    ShiftSwapRequestedHandler,
-    AbsenceReportedHandler,
+  EmployeeRegisteredHandler,
+  HandshakeInitiatedHandler,
+  HandshakeVerifiedHandler,
+  // E4 — Conversational events
+  ShiftSwapRequestedHandler,
+  AbsenceReportedHandler,
 ];
 
-const ConversationalServices = [
-    MessageRouterService,
-    CommandMapperService,
-];
+const ConversationalServices = [MessageRouterService, CommandMapperService];
 
 const DomainServices = [
-    SemanticRetrievalService,
-    ConflictResolutionEngine,
-    PromptOrchestratorService,
-    ScheduleValidatorService,
+  SemanticRetrievalService,
+  ConflictResolutionEngine,
+  PromptOrchestratorService,
+  ScheduleValidatorService,
 ];
 
 @Module({
-    imports: [CqrsModule, RepositoriesModule, NotificationsModule, ConversationalModule, WebsocketModule],
-    providers: [
-        ...CommandHandlers,
-        ...QueryHandlers,
-        ...EventHandlers,
-        ...ConversationalServices,
-        ...DomainServices,
-    ],
-    exports: [CqrsModule, ...DomainServices, ...ConversationalServices],
+  imports: [
+    CqrsModule,
+    RepositoriesModule,
+    NotificationsModule,
+    ConversationalModule,
+    WebsocketModule,
+  ],
+  providers: [
+    ...CommandHandlers,
+    ...QueryHandlers,
+    ...EventHandlers,
+    ...ConversationalServices,
+    ...DomainServices,
+  ],
+  exports: [CqrsModule, ...DomainServices, ...ConversationalServices],
 })
-export class ApplicationModule { }
-
+export class ApplicationModule {}

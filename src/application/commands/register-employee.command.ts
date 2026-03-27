@@ -11,10 +11,10 @@ import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo'
  *         La lógica vive en el Handler y el Aggregate.
  */
 export class RegisterEmployeeCommand {
-    constructor(
-        public readonly employeeId: string,
-        public readonly companyId: string,
-        public readonly phone: PhoneNumber,
-        public readonly experience: ExperienceLevel,
-    ) { }
+  constructor(
+    public readonly employeeId: string,
+    public readonly companyId: string,
+    public readonly phone: PhoneNumber,
+    public readonly experience: ExperienceLevel,
+  ) {}
 }

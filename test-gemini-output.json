@@ -1,0 +1,30 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"intent\": \"get_schedule\",\n  \"confidence\": 0.9,\n  \"entities\": {\n    \"date\": null,\n    \"targetEmployeePhone\": null,\n    \"shiftId\": null,\n    \"reason\": null,\n    \"weekStart\": null\n  },\n  \"transcription\": null\n}"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 140,
+    "candidatesTokenCount": 77,
+    "totalTokenCount": 562,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 140
+      }
+    ],
+    "thoughtsTokenCount": 345
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "Ffa9acKkC-CumtkPmsCf0Qc"
+}

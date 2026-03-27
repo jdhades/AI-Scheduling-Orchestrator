@@ -9,44 +9,46 @@ import type { INotificationService } from '../../../src/domain/services/notifica
  * El servicio de notificaciones está completamente mockeado — sin Twilio real.
  */
 describe('EmployeeRegisteredHandler', () => {
-    let handler: EmployeeRegisteredHandler;
-    let notificationService: jest.Mocked<INotificationService>;
+  let handler: EmployeeRegisteredHandler;
+  let notificationService: jest.Mocked<INotificationService>;
 
-    beforeEach(() => {
-        notificationService = { sendWhatsApp: jest.fn().mockResolvedValue(undefined) };
-        handler = new EmployeeRegisteredHandler(notificationService);
-    });
+  beforeEach(() => {
+    notificationService = {
+      sendWhatsApp: jest.fn().mockResolvedValue(undefined),
+    };
+    handler = new EmployeeRegisteredHandler(notificationService);
+  });
 
-    it('should send a welcome WhatsApp message to the employee phone', async () => {
-        const event = new EmployeeRegisteredEvent(
-            'employee-1',
-            'company-1',
-            '+12025550100',
-        );
+  it('should send a welcome WhatsApp message to the employee phone', async () => {
+    const event = new EmployeeRegisteredEvent(
+      'employee-1',
+      'company-1',
+      '+12025550100',
+    );
 
-        await handler.handle(event);
+    await handler.handle(event);
 
-        expect(notificationService.sendWhatsApp).toHaveBeenCalledTimes(1);
-        const [toArg, bodyArg] = notificationService.sendWhatsApp.mock.calls[0];
-        expect(toArg).toBe('+12025550100');
-        expect(bodyArg).toContain('Bienvenido');
-    });
+    expect(notificationService.sendWhatsApp).toHaveBeenCalledTimes(1);
+    const [toArg, bodyArg] = notificationService.sendWhatsApp.mock.calls[0];
+    expect(toArg).toBe('+12025550100');
+    expect(bodyArg).toContain('Bienvenido');
+  });
 
-    it('should use event.phone — no hardcoded phone numbers', async () => {
-        const phone = '+19995551234';
-        const event = new EmployeeRegisteredEvent('emp-2', 'co-2', phone);
+  it('should use event.phone — no hardcoded phone numbers', async () => {
+    const phone = '+19995551234';
+    const event = new EmployeeRegisteredEvent('emp-2', 'co-2', phone);
 
-        await handler.handle(event);
+    await handler.handle(event);
 
-        expect(notificationService.sendWhatsApp.mock.calls[0][0]).toBe(phone);
-    });
+    expect(notificationService.sendWhatsApp.mock.calls[0][0]).toBe(phone);
+  });
 
-    it('should propagate errors from notificationService', async () => {
-        notificationService.sendWhatsApp.mockRejectedValueOnce(
-            new Error('Notification failed: Twilio error'),
-        );
-        const event = new EmployeeRegisteredEvent('emp-3', 'co-3', '+12025550103');
+  it('should propagate errors from notificationService', async () => {
+    notificationService.sendWhatsApp.mockRejectedValueOnce(
+      new Error('Notification failed: Twilio error'),
+    );
+    const event = new EmployeeRegisteredEvent('emp-3', 'co-3', '+12025550103');
 
-        await expect(handler.handle(event)).rejects.toThrow('Notification failed');
-    });
+    await expect(handler.handle(event)).rejects.toThrow('Notification failed');
+  });
 });

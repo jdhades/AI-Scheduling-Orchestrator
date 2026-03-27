@@ -8,15 +8,15 @@ import { IsString, IsNotEmpty, IsIn, IsNumber, Min } from 'class-validator';
  * por eso los VOs del dominio no necesitan validar formatos básicos dos veces.
  */
 export class RegisterEmployeeDto {
-    @IsString()
-    @IsNotEmpty()
-    employeeId: string;
+  @IsString()
+  @IsNotEmpty()
+  employeeId: string;
 
-    @IsString()
-    @IsNotEmpty()
-    phone: string;
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
 
-    @IsNumber()
-    @Min(0)
-    experienceMonths: number;
+  @IsNumber()
+  @Min(0)
+  experienceMonths: number;
 }

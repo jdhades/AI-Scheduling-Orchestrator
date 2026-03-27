@@ -11,16 +11,20 @@ import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.a
  * Devuelve todos los turnos de la empresa para una semana con sus asignaciones.
  */
 @QueryHandler(GetCompanyScheduleQuery)
-export class GetCompanyScheduleHandler
-    implements IQueryHandler<GetCompanyScheduleQuery, ShiftAssignment[]> {
+export class GetCompanyScheduleHandler implements IQueryHandler<
+  GetCompanyScheduleQuery,
+  ShiftAssignment[]
+> {
+  constructor(
+    @Inject(SHIFT_REPOSITORY)
+    private readonly shiftRepository: IShiftRepository,
+  ) {}
 
-    constructor(
-        @Inject(SHIFT_REPOSITORY)
-        private readonly shiftRepository: IShiftRepository,
-    ) { }
-
-    async execute(query: GetCompanyScheduleQuery): Promise<ShiftAssignment[]> {
-        const weekStart = new Date(`${query.weekStart}T00:00:00.000Z`);
-        return this.shiftRepository.findAssignmentsByCompanyAndWeek(query.companyId, weekStart);
-    }
+  async execute(query: GetCompanyScheduleQuery): Promise<ShiftAssignment[]> {
+    const weekStart = new Date(`${query.weekStart}T00:00:00.000Z`);
+    return this.shiftRepository.findAssignmentsByCompanyAndWeek(
+      query.companyId,
+      weekStart,
+    );
+  }
 }

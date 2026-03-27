@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "backend-security-coder": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "40ba13976f13a958f38bb34a89547b1bfaaa517785dd2f2738faaff3ed0c8cdb"
+    }
+  }
+}

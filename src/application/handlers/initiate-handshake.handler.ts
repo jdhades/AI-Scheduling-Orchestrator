@@ -6,23 +6,25 @@ import { HANDSHAKE_REPOSITORY } from '../../domain/repositories/handshake.reposi
 import type { IHandshakeRepository } from '../../domain/repositories/handshake.repository';
 
 @CommandHandler(InitiateHandshakeCommand)
-export class InitiateHandshakeHandler
-    implements ICommandHandler<InitiateHandshakeCommand> {
-    constructor(
-        private readonly publisher: EventPublisher,
-        @Inject(HANDSHAKE_REPOSITORY)
-        private readonly handshakeRepository: IHandshakeRepository,
-    ) { }
+export class InitiateHandshakeHandler implements ICommandHandler<InitiateHandshakeCommand> {
+  constructor(
+    private readonly publisher: EventPublisher,
+    @Inject(HANDSHAKE_REPOSITORY)
+    private readonly handshakeRepository: IHandshakeRepository,
+  ) {}
 
-    async execute(command: InitiateHandshakeCommand): Promise<void> {
-        const { handshakeId, employeeId, phone, token } = command;
+  async execute(command: InitiateHandshakeCommand): Promise<void> {
+    const { handshakeId, employeeId, phone, token } = command;
 
-        const handshake = this.publisher.mergeObjectContext(
-            WhatsappHandshake.initiate(handshakeId, employeeId, phone, token),
-        );
+    const handshake = this.publisher.mergeObjectContext(
+      WhatsappHandshake.initiate(handshakeId, employeeId, phone, token),
+    );
 
-        await this.handshakeRepository.save(handshake, token.value, token.expiresAt);
-        handshake.commit();
-    }
+    await this.handshakeRepository.save(
+      handshake,
+      token.value,
+      token.expiresAt,
+    );
+    handshake.commit();
+  }
 }
-

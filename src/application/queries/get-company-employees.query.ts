@@ -1,3 +1,3 @@
 export class GetCompanyEmployeesQuery {
-    constructor(public readonly companyId: string) { }
+  constructor(public readonly companyId: string) {}
 }

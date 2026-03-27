@@ -8,10 +8,10 @@
  *         Se optimizan para lectura directa sin pasar por el domain.
  */
 export class GetEmployeeCalendarQuery {
-    constructor(
-        public readonly employeeId: string,
-        public readonly companyId: string,
-        public readonly from: Date,
-        public readonly to: Date,
-    ) { }
+  constructor(
+    public readonly employeeId: string,
+    public readonly companyId: string,
+    public readonly from: Date,
+    public readonly to: Date,
+  ) {}
 }

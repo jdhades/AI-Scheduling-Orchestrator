@@ -5,8 +5,8 @@
  * Use this to signal business rule failures (not infrastructure errors).
  */
 export class DomainError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'DomainError';
-    }
+  constructor(message: string) {
+    super(message);
+    this.name = 'DomainError';
+  }
 }

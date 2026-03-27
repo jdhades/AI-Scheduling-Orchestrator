@@ -12,56 +12,64 @@ import { ConversationSessionVO } from '../../domain/value-objects/conversation-s
  */
 @Injectable()
 export class ConversationSessionRepository {
-    private readonly logger = new Logger(ConversationSessionRepository.name);
-    private static readonly KEY_PREFIX = 'conversation:session:';
+  private readonly logger = new Logger(ConversationSessionRepository.name);
+  private static readonly KEY_PREFIX = 'conversation:session:';
 
-    constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) { }
+  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
 
-    async getSession(phone: string): Promise<ConversationSessionVO | null> {
-        const key = this._key(phone);
-        try {
-            const raw = await this.redis.get(key);
-            if (!raw) return null;
+  async getSession(phone: string): Promise<ConversationSessionVO | null> {
+    const key = this._key(phone);
+    try {
+      const raw = await this.redis.get(key);
+      if (!raw) return null;
 
-            const data = JSON.parse(raw) as Parameters<typeof ConversationSessionVO.fromSnapshot>[0];
-            const session = ConversationSessionVO.fromSnapshot(data);
+      const data = JSON.parse(raw) as Parameters<
+        typeof ConversationSessionVO.fromSnapshot
+      >[0];
+      const session = ConversationSessionVO.fromSnapshot(data);
 
-            // Guard against stale sessions that Redis hasn't evicted yet
-            if (session.isExpired()) {
-                await this.redis.del(key);
-                return null;
-            }
+      // Guard against stale sessions that Redis hasn't evicted yet
+      if (session.isExpired()) {
+        await this.redis.del(key);
+        return null;
+      }
 
-            return session;
-        } catch (err) {
-            this.logger.error(`getSession(${phone}) failed: ${(err as Error).message}`);
-            return null;
-        }
+      return session;
+    } catch (err) {
+      this.logger.error(
+        `getSession(${phone}) failed: ${(err as Error).message}`,
+      );
+      return null;
     }
+  }
 
-    async saveSession(session: ConversationSessionVO): Promise<void> {
-        const key = this._key(session.getEmployeePhone());
-        try {
-            await this.redis.set(
-                key,
-                JSON.stringify(session.toSnapshot()),
-                'EX',
-                ConversationSessionVO.SESSION_TTL_SECONDS,
-            );
-        } catch (err) {
-            this.logger.error(`saveSession(${session.getEmployeePhone()}) failed: ${(err as Error).message}`);
-        }
+  async saveSession(session: ConversationSessionVO): Promise<void> {
+    const key = this._key(session.getEmployeePhone());
+    try {
+      await this.redis.set(
+        key,
+        JSON.stringify(session.toSnapshot()),
+        'EX',
+        ConversationSessionVO.SESSION_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.error(
+        `saveSession(${session.getEmployeePhone()}) failed: ${(err as Error).message}`,
+      );
     }
+  }
 
-    async clearSession(phone: string): Promise<void> {
-        try {
-            await this.redis.del(this._key(phone));
-        } catch (err) {
-            this.logger.error(`clearSession(${phone}) failed: ${(err as Error).message}`);
-        }
+  async clearSession(phone: string): Promise<void> {
+    try {
+      await this.redis.del(this._key(phone));
+    } catch (err) {
+      this.logger.error(
+        `clearSession(${phone}) failed: ${(err as Error).message}`,
+      );
     }
+  }
 
-    private _key(phone: string): string {
-        return `${ConversationSessionRepository.KEY_PREFIX}${phone}`;
-    }
+  private _key(phone: string): string {
+    return `${ConversationSessionRepository.KEY_PREFIX}${phone}`;
+  }
 }

@@ -1,6 +1,6 @@
 export class VerifyHandshakeCommand {
-    constructor(
-        public readonly handshakeId: string,
-        public readonly providedToken: string,
-    ) { }
+  constructor(
+    public readonly handshakeId: string,
+    public readonly providedToken: string,
+  ) {}
 }

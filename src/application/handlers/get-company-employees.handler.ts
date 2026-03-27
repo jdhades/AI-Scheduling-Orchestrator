@@ -10,14 +10,17 @@ import { EmployeeDto, toEmployeeDto } from '../dtos/employee.dto';
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 @QueryHandler(GetCompanyEmployeesQuery)
-export class GetCompanyEmployeesHandler implements IQueryHandler<GetCompanyEmployeesQuery, EmployeeDto[]> {
-    constructor(
-        @Inject(EMPLOYEE_REPOSITORY)
-        private readonly employeeRepo: IEmployeeRepository,
-    ) { }
+export class GetCompanyEmployeesHandler implements IQueryHandler<
+  GetCompanyEmployeesQuery,
+  EmployeeDto[]
+> {
+  constructor(
+    @Inject(EMPLOYEE_REPOSITORY)
+    private readonly employeeRepo: IEmployeeRepository,
+  ) {}
 
-    async execute(query: GetCompanyEmployeesQuery): Promise<EmployeeDto[]> {
-        const employees = await this.employeeRepo.findAllByCompany(query.companyId);
-        return employees.map(toEmployeeDto);
-    }
+  async execute(query: GetCompanyEmployeesQuery): Promise<EmployeeDto[]> {
+    const employees = await this.employeeRepo.findAllByCompany(query.companyId);
+    return employees.map(toEmployeeDto);
+  }
 }

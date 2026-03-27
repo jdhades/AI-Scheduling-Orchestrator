@@ -164,3 +164,15 @@ Entre los logros destacan:
 La solución desarrollada se ajusta fielmente al espíritu de la arquitectura de la aplicación en Dominio, y abraza la moderna disrrupción *Voice-to-JSON* que brinda **Gemini 1.5 Pro**. Todo el código base es agnóstico del medio, respetando la segregación de Command Query Responsability (CQRS), permitiendo que la App Core trabaje transparentemente de si el evento se solicitó por un Clic de ratón o por una nota de voz. 
 
 Con los tests pasando y la infraestructura inyectada, el Escenario 4 está consolidado y listo para cualquier demo en producción.
+
+---
+
+## 8. Actualización Reciente: Reporte Dinámico y Conversacional de Ausencias
+
+Se implementó una mejora sustancial en cómo el motor conversacional maneja el reporte de ausencias (`report_absence`), combinando tres estrategias que reducen la fricción para el empleado:
+
+1. **Extracción Avanzada por NLP:** Se robusteció el prompt de Gemini 1.5 Pro en `GeminiConversationalService` para extraer no solo fechas, sino también referencias relativas de tiempo (entidad `timeOfDay` como "mañana", "tarde", "noche").
+2. **Detección Implícita (Lookup Dinámico):** Si el empleado no especifica explícitamente el ID de turno (comportamiento normal), el sistema delega en la nueva consulta CQRS `GetUpcomingShiftsQuery` para consultar directamente los turnos en el repositorio en base al tiempo actual. Si solo hay un turno próximo o filtrado lógicamente por el NLP que coincida, el bot asume ese turno y pide una simple confirmación de "Sí/No", resguardando el UUID mapeado temporalmente en la sesión (`ConversationSessionVO`).
+3. **Listado Interactivo (Fallback):** Si el motor detecta múltiples turnos próximos que se solapan con la intención abstracta del usuario, emite un listado enumerado claro por WhatsApp. El empleado responde sencillamente seleccionando el número (capturado bajo la nueva intención `select_option`).
+
+Esta actualización acopla nativamente el entendimiento de lenguaje natural difuso extraído por Gemini con las invariantes estrictas de las llaves primarias de la base de datos SQL.

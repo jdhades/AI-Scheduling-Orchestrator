@@ -20,9 +20,9 @@ import { SemanticRetrievalService } from '../../domain/services/semantic-retriev
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 export interface GenerateScheduleResult {
-    assignmentsCount: number;
-    unfilledShiftsCount: number;
-    quality: ScheduleQualityReport;
+  assignmentsCount: number;
+  unfilledShiftsCount: number;
+  quality: ScheduleQualityReport;
 }
 
 /**
@@ -36,137 +36,167 @@ export interface GenerateScheduleResult {
  *   5. Persiste asignaciones y actualiza historiales
  */
 @CommandHandler(GenerateScheduleCommand)
-export class GenerateScheduleHandler
-    implements ICommandHandler<GenerateScheduleCommand, GenerateScheduleResult> {
+export class GenerateScheduleHandler implements ICommandHandler<
+  GenerateScheduleCommand,
+  GenerateScheduleResult
+> {
+  private readonly logger = new Logger(GenerateScheduleHandler.name);
 
-    private readonly logger = new Logger(GenerateScheduleHandler.name);
+  constructor(
+    @Inject(EMPLOYEE_REPOSITORY)
+    private readonly employeeRepository: IEmployeeRepository,
+    @Inject(SHIFT_REPOSITORY)
+    private readonly shiftRepository: IShiftRepository,
+    @Inject(FAIRNESS_HISTORY_REPOSITORY)
+    private readonly fairnessRepository: IFairnessHistoryRepository,
+    private readonly eventBus: EventBus,
+    private readonly semanticRetrievalService: SemanticRetrievalService,
+    private readonly notificationsGateway: NotificationsGateway,
+  ) {}
 
-    constructor(
-        @Inject(EMPLOYEE_REPOSITORY)
-        private readonly employeeRepository: IEmployeeRepository,
-        @Inject(SHIFT_REPOSITORY)
-        private readonly shiftRepository: IShiftRepository,
-        @Inject(FAIRNESS_HISTORY_REPOSITORY)
-        private readonly fairnessRepository: IFairnessHistoryRepository,
-        private readonly eventBus: EventBus,
-        private readonly semanticRetrievalService: SemanticRetrievalService,
-        private readonly notificationsGateway: NotificationsGateway,
-    ) { }
+  async execute(
+    command: GenerateScheduleCommand,
+  ): Promise<GenerateScheduleResult> {
+    const weekStart = new Date(`${command.weekStart}T00:00:00.000Z`);
 
-    async execute(command: GenerateScheduleCommand): Promise<GenerateScheduleResult> {
-        const weekStart = new Date(`${command.weekStart}T00:00:00.000Z`);
+    this.logger.log(
+      `Generating schedule — company=${command.companyId} week=${command.weekStart} strategy=${command.strategyType}`,
+    );
 
-        this.logger.log(
-            `Generating schedule — company=${command.companyId} week=${command.weekStart} strategy=${command.strategyType}`,
-        );
+    // 1. Cargar datos
+    const [employees, shifts, histories] = await Promise.all([
+      this.employeeRepository.findAllByCompany(command.companyId),
+      this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart),
+      this.fairnessRepository.findByWeek(command.companyId, weekStart),
+    ]);
 
-        // 1. Cargar datos
-        const [employees, shifts, histories] = await Promise.all([
-            this.employeeRepository.findAllByCompany(command.companyId),
-            this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart),
-            this.fairnessRepository.findByWeek(command.companyId, weekStart),
-        ]);
+    this.logger.log(
+      `Loaded — employees=${employees.length} shifts=${shifts.length} histories=${histories.length}`,
+    );
 
-        this.logger.log(
-            `Loaded — employees=${employees.length} shifts=${shifts.length} histories=${histories.length}`,
-        );
+    // 2. Seleccionar estrategia
+    const strategy = this.selectStrategy(command.strategyType);
 
-        // 2. Seleccionar estrategia
-        const strategy = this.selectStrategy(command.strategyType);
+    // 2b. Recuperar reglas semánticas relevantes via RAG (Escenario 3)
+    // Si el servicio falla, semanticRules = [] y el scheduling continúa normalmente
+    const semanticRules = await this.semanticRetrievalService.retrieveForShift({
+      shiftContext: `empresa ${command.companyId} semana ${command.weekStart} estrategia ${command.strategyType}`,
+      companyId: command.companyId,
+      shiftDate: weekStart,
+    });
 
-        // 2b. Recuperar reglas semánticas relevantes via RAG (Escenario 3)
-        // Si el servicio falla, semanticRules = [] y el scheduling continúa normalmente
-        const semanticRules = await this.semanticRetrievalService.retrieveForShift({
-            shiftContext: `empresa ${command.companyId} semana ${command.weekStart} estrategia ${command.strategyType}`,
-            companyId: command.companyId,
-            shiftDate: weekStart,
-        });
-
-        if (semanticRules.length > 0) {
-            this.logger.log(`RAG: ${semanticRules.length} semantic rules applied to schedule generation`);
-        }
-
-        // 3. Crear aggregate y generar
-        const scheduleAggregate = ScheduleAggregate.create(command.companyId, weekStart);
-        scheduleAggregate.generate(employees, shifts, histories, strategy, {
-            maxFairnessDeviation: command.maxFairnessDeviation,
-            semanticConstraints: semanticRules,
-        });
-
-        // 4. Validar invariantes (solapamientos, etc.)
-        const validation = scheduleAggregate.validate(shifts);
-        if (!validation.valid) {
-            this.logger.error(`Schedule invariant violations: ${validation.violations.join(', ')}`);
-            throw new Error(`Schedule generated with violations: ${validation.violations[0]}`);
-        }
-
-        // 5. Persistir asignaciones
-        const assignments = scheduleAggregate.assignments;
-        const unfilledShifts = scheduleAggregate.unfilledShifts;
-
-        await Promise.all(
-            assignments.map(a => this.shiftRepository.saveAssignment(a)),
-        );
-
-        // 6. Actualizar historial de fairness
-        const updatedHistories = this.buildUpdatedHistories(assignments, shifts, histories, weekStart, command.companyId);
-        await this.fairnessRepository.upsertBatch(updatedHistories);
-
-        // 7. Publicar eventos del aggregate al EventBus
-        scheduleAggregate.getUncommittedEvents().forEach(event => this.eventBus.publish(event));
-        scheduleAggregate.commit();
-
-        // 8. Notificar al frontend vía WebSocket
-        this.notificationsGateway.notifyScheduleGenerated(command.companyId, command.weekStart);
-
-        const quality = scheduleAggregate.result!.quality;
-
-        this.logger.log(
-            `Schedule generated — assignments=${assignments.length} unfilled=${unfilledShifts.length} ` +
-            `coverage=${quality.demandCoveragePercent}% fairnessVariance=${quality.fairnessVariance.toFixed(2)}`,
-        );
-
-        return {
-            assignmentsCount: assignments.length,
-            unfilledShiftsCount: unfilledShifts.length,
-            quality,
-        };
+    if (semanticRules.length > 0) {
+      this.logger.log(
+        `RAG: ${semanticRules.length} semantic rules applied to schedule generation`,
+      );
     }
 
-    private selectStrategy(type: string): SchedulingStrategy {
-        switch (type) {
-            case 'cost': return new CostOptimizedStrategy();
-            case 'fairness': return new FairnessOptimizedStrategy();
-            case 'hybrid':
-            default: return new HybridStrategy();
-        }
+    // 3. Crear aggregate y generar
+    const scheduleAggregate = ScheduleAggregate.create(
+      command.companyId,
+      weekStart,
+    );
+    scheduleAggregate.generate(employees, shifts, histories, strategy, {
+      maxFairnessDeviation: command.maxFairnessDeviation,
+      semanticConstraints: semanticRules,
+    });
+
+    // 4. Validar invariantes (solapamientos, etc.)
+    const validation = scheduleAggregate.validate(shifts);
+    if (!validation.valid) {
+      this.logger.error(
+        `Schedule invariant violations: ${validation.violations.join(', ')}`,
+      );
+      throw new Error(
+        `Schedule generated with violations: ${validation.violations[0]}`,
+      );
     }
 
-    private buildUpdatedHistories(
-        assignments: ShiftAssignment[],
-        shifts: Shift[],
-        existingHistories: FairnessHistoryVO[],
-        weekStart: Date,
-        companyId: string,
-    ): FairnessHistoryVO[] {
-        const historyMap = new Map<string, FairnessHistoryVO>(
-            existingHistories.map(h => [h.employeeId, h]),
-        );
+    // 5. Persistir asignaciones
+    const assignments = scheduleAggregate.assignments;
+    const unfilledShifts = scheduleAggregate.unfilledShifts;
 
-        for (const assignment of assignments) {
-            const shift = shifts.find(s => s.id === assignment.shiftId);
-            if (!shift) continue;
+    await Promise.all(
+      assignments.map((a) => this.shiftRepository.saveAssignment(a)),
+    );
 
-            const current = historyMap.get(assignment.employeeId)
-                ?? FairnessHistoryVO.empty(assignment.employeeId, companyId, weekStart);
+    // 6. Actualizar historial de fairness
+    const updatedHistories = this.buildUpdatedHistories(
+      assignments,
+      shifts,
+      histories,
+      weekStart,
+      command.companyId,
+    );
+    await this.fairnessRepository.upsertBatch(updatedHistories);
 
-            historyMap.set(assignment.employeeId, current.addShift(shift.getDuration(), {
-                isUndesirable: shift.undesirableWeight.isHeavy(),
-                isNight: shift.isNightShift(),
-                isWeekend: shift.isWeekendShift(),
-            }));
-        }
+    // 7. Publicar eventos del aggregate al EventBus
+    scheduleAggregate
+      .getUncommittedEvents()
+      .forEach((event) => this.eventBus.publish(event));
+    scheduleAggregate.commit();
 
-        return [...historyMap.values()];
+    // 8. Notificar al frontend vía WebSocket
+    this.notificationsGateway.notifyScheduleGenerated(
+      command.companyId,
+      command.weekStart,
+    );
+
+    const quality = scheduleAggregate.result!.quality;
+
+    this.logger.log(
+      `Schedule generated — assignments=${assignments.length} unfilled=${unfilledShifts.length} ` +
+        `coverage=${quality.demandCoveragePercent}% fairnessVariance=${quality.fairnessVariance.toFixed(2)}`,
+    );
+
+    return {
+      assignmentsCount: assignments.length,
+      unfilledShiftsCount: unfilledShifts.length,
+      quality,
+    };
+  }
+
+  private selectStrategy(type: string): SchedulingStrategy {
+    switch (type) {
+      case 'cost':
+        return new CostOptimizedStrategy();
+      case 'fairness':
+        return new FairnessOptimizedStrategy();
+      case 'hybrid':
+      default:
+        return new HybridStrategy();
     }
+  }
+
+  private buildUpdatedHistories(
+    assignments: ShiftAssignment[],
+    shifts: Shift[],
+    existingHistories: FairnessHistoryVO[],
+    weekStart: Date,
+    companyId: string,
+  ): FairnessHistoryVO[] {
+    const historyMap = new Map<string, FairnessHistoryVO>(
+      existingHistories.map((h) => [h.employeeId, h]),
+    );
+
+    for (const assignment of assignments) {
+      const shift = shifts.find((s) => s.id === assignment.shiftId);
+      if (!shift) continue;
+
+      const current =
+        historyMap.get(assignment.employeeId) ??
+        FairnessHistoryVO.empty(assignment.employeeId, companyId, weekStart);
+
+      historyMap.set(
+        assignment.employeeId,
+        current.addShift(shift.getDuration(), {
+          isUndesirable: shift.undesirableWeight.isHeavy(),
+          isNight: shift.isNightShift(),
+          isWeekend: shift.isWeekendShift(),
+        }),
+      );
+    }
+
+    return [...historyMap.values()];
+  }
 }

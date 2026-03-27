@@ -13,13 +13,13 @@ import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service
  *    sin necesidad de modificar los handlers.
  */
 @Module({
-    imports: [ConfigModule],
-    providers: [
-        {
-            provide: NOTIFICATION_SERVICE,
-            useClass: TwilioService,
-        },
-    ],
-    exports: [NOTIFICATION_SERVICE],
+  imports: [ConfigModule],
+  providers: [
+    {
+      provide: NOTIFICATION_SERVICE,
+      useClass: TwilioService,
+    },
+  ],
+  exports: [NOTIFICATION_SERVICE],
 })
-export class NotificationsModule { }
+export class NotificationsModule {}

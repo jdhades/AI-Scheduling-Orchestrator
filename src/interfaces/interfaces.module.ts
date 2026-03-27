@@ -12,19 +12,19 @@ import { RepositoriesModule } from '../infrastructure/repositories/repositories.
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
 @Module({
-    imports: [ApplicationModule, RepositoriesModule],
-    controllers: [
-        EmployeeController,
-        HandshakeController,
-        ScheduleController,
-        RuleController,
-        WhatsAppController,
-        WhatsAppIncidentController,
-        ShiftTemplatesController,
-    ],
-    providers: [
-        // Phase 2: instantiate-week command handler needs SHIFT_REPOSITORY from RepositoriesModule
-        InstantiateWeekHandler,
-    ],
+  imports: [ApplicationModule, RepositoriesModule],
+  controllers: [
+    EmployeeController,
+    HandshakeController,
+    ScheduleController,
+    RuleController,
+    WhatsAppController,
+    WhatsAppIncidentController,
+    ShiftTemplatesController,
+  ],
+  providers: [
+    // Phase 2: instantiate-week command handler needs SHIFT_REPOSITORY from RepositoriesModule
+    InstantiateWeekHandler,
+  ],
 })
-export class InterfacesModule { }
+export class InterfacesModule {}

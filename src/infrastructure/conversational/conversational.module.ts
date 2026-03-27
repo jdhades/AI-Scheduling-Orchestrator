@@ -13,14 +13,14 @@ import { ConfigModule } from '@nestjs/config';
  *   - ConversationSessionRepository (uses REDIS_CLIENT from RedisModule)
  */
 @Module({
-    imports: [ConfigModule, RedisModule],
-    providers: [
-        {
-            provide: CONVERSATIONAL_SERVICE,
-            useClass: GeminiConversationalService,
-        },
-        ConversationSessionRepository,
-    ],
-    exports: [CONVERSATIONAL_SERVICE, ConversationSessionRepository],
+  imports: [ConfigModule, RedisModule],
+  providers: [
+    {
+      provide: CONVERSATIONAL_SERVICE,
+      useClass: GeminiConversationalService,
+    },
+    ConversationSessionRepository,
+  ],
+  exports: [CONVERSATIONAL_SERVICE, ConversationSessionRepository],
 })
-export class ConversationalModule { }
+export class ConversationalModule {}

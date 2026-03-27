@@ -15,14 +15,14 @@ import { TenantMiddleware } from './tenant.middleware';
  * Se importa en AppModule y otros módulos que necesiten TenantContext.
  */
 @Module({
-    providers: [
-        {
-            provide: TenantContext,
-            scope: Scope.REQUEST,
-            useClass: TenantContext,
-        },
-        TenantMiddleware,
-    ],
-    exports: [TenantContext],
+  providers: [
+    {
+      provide: TenantContext,
+      scope: Scope.REQUEST,
+      useClass: TenantContext,
+    },
+    TenantMiddleware,
+  ],
+  exports: [TenantContext],
 })
-export class TenantModule { }
+export class TenantModule {}

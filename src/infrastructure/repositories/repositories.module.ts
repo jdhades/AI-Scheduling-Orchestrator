@@ -29,53 +29,53 @@ import { TenantModule } from '../tenant/tenant.module';
  *    En tests se puede proveer un mock con el mismo token.
  */
 @Module({
-    imports: [SupabaseModule, TenantModule, ConfigModule],
-    providers: [
-        {
-            provide: EMPLOYEE_REPOSITORY,
-            useClass: SupabaseEmployeeRepository,
-        },
-        {
-            provide: HANDSHAKE_REPOSITORY,
-            useClass: SupabaseHandshakeRepository,
-        },
-        {
-            provide: SHIFT_REPOSITORY,
-            useClass: SupabaseShiftRepository,
-        },
-        {
-            provide: FAIRNESS_HISTORY_REPOSITORY,
-            useClass: SupabaseFairnessHistoryRepository,
-        },
-        // Escenario 3 — Semantic Rule Engine
-        {
-            provide: SEMANTIC_RULE_REPOSITORY_TOKEN,
-            useClass: SupabaseSemanticRuleRepository,
-        },
-        {
-            provide: EMBEDDING_SERVICE_TOKEN,
-            useClass: GeminiEmbeddingService,
-        },
-        // Prompt Orchestrator — LLM Service
-        {
-            provide: LLM_SERVICE,
-            useClass: GeminiLLMService,
-        },
-        // Phase 2 — Shift Templates
-        {
-            provide: 'SHIFT_TEMPLATE_REPOSITORY',
-            useClass: SupabaseShiftTemplateRepository,
-        },
-    ],
-    exports: [
-        EMPLOYEE_REPOSITORY,
-        HANDSHAKE_REPOSITORY,
-        SHIFT_REPOSITORY,
-        FAIRNESS_HISTORY_REPOSITORY,
-        SEMANTIC_RULE_REPOSITORY_TOKEN,
-        EMBEDDING_SERVICE_TOKEN,
-        LLM_SERVICE,
-        'SHIFT_TEMPLATE_REPOSITORY',
-    ],
+  imports: [SupabaseModule, TenantModule, ConfigModule],
+  providers: [
+    {
+      provide: EMPLOYEE_REPOSITORY,
+      useClass: SupabaseEmployeeRepository,
+    },
+    {
+      provide: HANDSHAKE_REPOSITORY,
+      useClass: SupabaseHandshakeRepository,
+    },
+    {
+      provide: SHIFT_REPOSITORY,
+      useClass: SupabaseShiftRepository,
+    },
+    {
+      provide: FAIRNESS_HISTORY_REPOSITORY,
+      useClass: SupabaseFairnessHistoryRepository,
+    },
+    // Escenario 3 — Semantic Rule Engine
+    {
+      provide: SEMANTIC_RULE_REPOSITORY_TOKEN,
+      useClass: SupabaseSemanticRuleRepository,
+    },
+    {
+      provide: EMBEDDING_SERVICE_TOKEN,
+      useClass: GeminiEmbeddingService,
+    },
+    // Prompt Orchestrator — LLM Service
+    {
+      provide: LLM_SERVICE,
+      useClass: GeminiLLMService,
+    },
+    // Phase 2 — Shift Templates
+    {
+      provide: 'SHIFT_TEMPLATE_REPOSITORY',
+      useClass: SupabaseShiftTemplateRepository,
+    },
+  ],
+  exports: [
+    EMPLOYEE_REPOSITORY,
+    HANDSHAKE_REPOSITORY,
+    SHIFT_REPOSITORY,
+    FAIRNESS_HISTORY_REPOSITORY,
+    SEMANTIC_RULE_REPOSITORY_TOKEN,
+    EMBEDDING_SERVICE_TOKEN,
+    LLM_SERVICE,
+    'SHIFT_TEMPLATE_REPOSITORY',
+  ],
 })
-export class RepositoriesModule { }
+export class RepositoriesModule {}

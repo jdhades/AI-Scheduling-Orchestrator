@@ -4,20 +4,21 @@ import { RedisStreamService } from '../../infrastructure/redis/redis-stream.serv
 import { Logger } from '@nestjs/common';
 
 @EventsHandler(EvidenceAttachedEvent)
-export class PublishIncidentToStreamHandler
-    implements IEventHandler<EvidenceAttachedEvent> {
-    private readonly logger = new Logger(PublishIncidentToStreamHandler.name);
+export class PublishIncidentToStreamHandler implements IEventHandler<EvidenceAttachedEvent> {
+  private readonly logger = new Logger(PublishIncidentToStreamHandler.name);
 
-    constructor(private readonly redisStreamService: RedisStreamService) { }
+  constructor(private readonly redisStreamService: RedisStreamService) {}
 
-    async handle(event: EvidenceAttachedEvent) {
-        this.logger.log(`Handling EvidenceAttachedEvent for incident ${event.incidentId}`);
+  async handle(event: EvidenceAttachedEvent) {
+    this.logger.log(
+      `Handling EvidenceAttachedEvent for incident ${event.incidentId}`,
+    );
 
-        // Tarea 9: Publicar al stream
-        await this.redisStreamService.publishIncidentCreated(
-            event.incidentId,
-            event.employeeId,
-            event.payload.evidenceUrl,
-        );
-    }
+    // Tarea 9: Publicar al stream
+    await this.redisStreamService.publishIncidentCreated(
+      event.incidentId,
+      event.employeeId,
+      event.payload.evidenceUrl,
+    );
+  }
 }

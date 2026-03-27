@@ -5,8 +5,8 @@
  * Read side puro — sin lógica de dominio.
  */
 export class GetSemanticRulesQuery {
-    constructor(
-        public readonly companyId: string,
-        public readonly ruleType?: 'restriction' | 'preference' | 'requirement',
-    ) { }
+  constructor(
+    public readonly companyId: string,
+    public readonly ruleType?: 'restriction' | 'preference' | 'requirement',
+  ) {}
 }

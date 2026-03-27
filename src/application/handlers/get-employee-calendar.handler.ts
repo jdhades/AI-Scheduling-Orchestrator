@@ -15,23 +15,24 @@ import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.a
  * 💡 Multi-tenant: companyId incluido en todos los filtros.
  */
 @QueryHandler(GetEmployeeCalendarQuery)
-export class GetEmployeeCalendarHandler
-    implements IQueryHandler<GetEmployeeCalendarQuery, ShiftAssignment[]> {
+export class GetEmployeeCalendarHandler implements IQueryHandler<
+  GetEmployeeCalendarQuery,
+  ShiftAssignment[]
+> {
+  constructor(
+    @Inject(SHIFT_REPOSITORY)
+    private readonly shiftRepository: IShiftRepository,
+  ) {}
 
-    constructor(
-        @Inject(SHIFT_REPOSITORY)
-        private readonly shiftRepository: IShiftRepository,
-    ) { }
+  async execute(query: GetEmployeeCalendarQuery): Promise<ShiftAssignment[]> {
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
 
-    async execute(query: GetEmployeeCalendarQuery): Promise<ShiftAssignment[]> {
-        const from = query.from ? new Date(query.from) : undefined;
-        const to = query.to ? new Date(query.to) : undefined;
-
-        return this.shiftRepository.findAssignmentsByEmployee(
-            query.employeeId,
-            query.companyId,
-            from,
-            to,
-        );
-    }
+    return this.shiftRepository.findAssignmentsByEmployee(
+      query.employeeId,
+      query.companyId,
+      from,
+      to,
+    );
+  }
 }

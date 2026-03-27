@@ -19,25 +19,24 @@ import type { INotificationService } from '../../domain/services/notification.se
  *    sin que el aggregate conozca ninguno de los dos.
  */
 @EventsHandler(HandshakeVerifiedEvent)
-export class HandshakeVerifiedHandler
-    implements IEventHandler<HandshakeVerifiedEvent> {
-    constructor(
-        @Inject(EMPLOYEE_REPOSITORY)
-        private readonly employeeRepository: IEmployeeRepository,
-        @Inject(NOTIFICATION_SERVICE)
-        private readonly notificationService: INotificationService,
-    ) { }
+export class HandshakeVerifiedHandler implements IEventHandler<HandshakeVerifiedEvent> {
+  constructor(
+    @Inject(EMPLOYEE_REPOSITORY)
+    private readonly employeeRepository: IEmployeeRepository,
+    @Inject(NOTIFICATION_SERVICE)
+    private readonly notificationService: INotificationService,
+  ) {}
 
-    async handle(event: HandshakeVerifiedEvent): Promise<void> {
-        // 1. Persistir: marcar en base de datos
-        await this.employeeRepository.markWhatsappVerified(event.employeeId);
+  async handle(event: HandshakeVerifiedEvent): Promise<void> {
+    // 1. Persistir: marcar en base de datos
+    await this.employeeRepository.markWhatsappVerified(event.employeeId);
 
-        // 2. Notificar: confirmación al empleado
-        const message =
-            `✅ ¡Tu WhatsApp ha sido verificado correctamente!\n\n` +
-            `Ya puedes usar el asistente de turnos. Envía un mensaje de audio ` +
-            `o texto para empezar.`;
+    // 2. Notificar: confirmación al empleado
+    const message =
+      `✅ ¡Tu WhatsApp ha sido verificado correctamente!\n\n` +
+      `Ya puedes usar el asistente de turnos. Envía un mensaje de audio ` +
+      `o texto para empezar.`;
 
-        await this.notificationService.sendWhatsApp(event.phone, message);
-    }
+    await this.notificationService.sendWhatsApp(event.phone, message);
+  }
 }

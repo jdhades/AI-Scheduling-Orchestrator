@@ -19,21 +19,20 @@ import type { INotificationService } from '../../domain/services/notification.se
  *    transparente para el dominio.
  */
 @EventsHandler(EmployeeRegisteredEvent)
-export class EmployeeRegisteredHandler
-    implements IEventHandler<EmployeeRegisteredEvent> {
-    constructor(
-        @Inject(NOTIFICATION_SERVICE)
-        private readonly notificationService: INotificationService,
-    ) { }
+export class EmployeeRegisteredHandler implements IEventHandler<EmployeeRegisteredEvent> {
+  constructor(
+    @Inject(NOTIFICATION_SERVICE)
+    private readonly notificationService: INotificationService,
+  ) {}
 
-    async handle(event: EmployeeRegisteredEvent): Promise<void> {
-        const message =
-            `👋 ¡Bienvenido al sistema de turnos!\n\n` +
-            `Para completar tu registro, un administrador iniciará la ` +
-            `verificación de tu cuenta. Recibirás un código de confirmación ` +
-            `en breve.\n\n` +
-            `_Este mensaje es automático — no respondas a este número._`;
+  async handle(event: EmployeeRegisteredEvent): Promise<void> {
+    const message =
+      `👋 ¡Bienvenido al sistema de turnos!\n\n` +
+      `Para completar tu registro, un administrador iniciará la ` +
+      `verificación de tu cuenta. Recibirás un código de confirmación ` +
+      `en breve.\n\n` +
+      `_Este mensaje es automático — no respondas a este número._`;
 
-        await this.notificationService.sendWhatsApp(event.phone, message);
-    }
+    await this.notificationService.sendWhatsApp(event.phone, message);
+  }
 }

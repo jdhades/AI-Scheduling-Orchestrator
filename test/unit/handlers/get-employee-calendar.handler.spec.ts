@@ -9,46 +9,56 @@ import type { IShiftRepository } from '../../../src/domain/repositories/shift.re
  * Mockeamos IShiftRepository para verificar que se llama correctamente.
  */
 describe('GetEmployeeCalendarHandler', () => {
-    let handler: GetEmployeeCalendarHandler;
-    let mockShiftRepo: jest.Mocked<IShiftRepository>;
+  let handler: GetEmployeeCalendarHandler;
+  let mockShiftRepo: jest.Mocked<IShiftRepository>;
 
-    beforeEach(() => {
-        mockShiftRepo = {
-            save: jest.fn(),
-            findByCompanyAndWeek: jest.fn(),
-            saveAssignment: jest.fn(),
-            findAssignmentsByEmployee: jest.fn().mockResolvedValue([]),
-            findAssignmentsByCompanyAndWeek: jest.fn(),
-        };
-        handler = new GetEmployeeCalendarHandler(mockShiftRepo);
-    });
+  beforeEach(() => {
+    mockShiftRepo = {
+      save: jest.fn(),
+      findByCompanyAndWeek: jest.fn(),
+      saveAssignment: jest.fn(),
+      deleteAssignment: jest.fn(),
+      findAssignmentsByEmployee: jest.fn().mockResolvedValue([]),
+      findAssignmentsByCompanyAndWeek: jest.fn(),
+      resolveShortId: jest.fn(),
+    };
+    handler = new GetEmployeeCalendarHandler(mockShiftRepo);
+  });
 
-    it('should return an array from the repository', async () => {
-        const query = new GetEmployeeCalendarQuery(
-            'employee-1',
-            'company-1',
-            new Date('2024-01-01'),
-            new Date('2024-01-31'),
-        );
+  it('should return an array from the repository', async () => {
+    const query = new GetEmployeeCalendarQuery(
+      'employee-1',
+      'company-1',
+      new Date('2024-01-01'),
+      new Date('2024-01-31'),
+    );
 
-        const result = await handler.execute(query);
+    const result = await handler.execute(query);
 
-        expect(Array.isArray(result)).toBe(true);
-        expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
-            'employee-1',
-            'company-1',
-            expect.any(Date),
-            expect.any(Date),
-        );
-    });
+    expect(Array.isArray(result)).toBe(true);
+    expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
+      'employee-1',
+      'company-1',
+      expect.any(Date),
+      expect.any(Date),
+    );
+  });
 
-    it('should pass companyId for multi-tenant isolation', async () => {
-        const query = new GetEmployeeCalendarQuery('emp-1', 'co-1', new Date(), new Date());
+  it('should pass companyId for multi-tenant isolation', async () => {
+    const query = new GetEmployeeCalendarQuery(
+      'emp-1',
+      'co-1',
+      new Date(),
+      new Date(),
+    );
 
-        await handler.execute(query);
+    await handler.execute(query);
 
-        expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
-            'emp-1', 'co-1', expect.any(Date), expect.any(Date),
-        );
-    });
+    expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
+      'emp-1',
+      'co-1',
+      expect.any(Date),
+      expect.any(Date),
+    );
+  });
 });

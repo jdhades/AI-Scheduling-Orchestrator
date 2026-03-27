@@ -4,12 +4,20 @@ import { AppService } from './app.service';
 import { AppConfigModule } from './infrastructure/config/config.module';
 import { ApplicationModule } from './application/application.module';
 import { TenantModule } from './infrastructure/tenant/tenant.module';
+import { AuthModule } from './infrastructure/auth/auth.module';
 import { TenantMiddleware } from './infrastructure/tenant/tenant.middleware';
 import { RepositoriesModule } from './infrastructure/repositories/repositories.module';
 import { InterfacesModule } from './interfaces/interfaces.module';
 
 @Module({
-  imports: [AppConfigModule, ApplicationModule, TenantModule, RepositoriesModule, InterfacesModule],
+  imports: [
+    AppConfigModule,
+    ApplicationModule,
+    TenantModule,
+    RepositoriesModule,
+    InterfacesModule,
+    AuthModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
@@ -18,7 +26,13 @@ export class AppModule implements NestModule {
     // Aplicar TenantMiddleware a todas las rutas excepto health/auth/root
     consumer
       .apply(TenantMiddleware)
-      .exclude('/', '/health', '/auth/(.*)')
+      .exclude(
+        '/',
+        '/health',
+        '/auth/(.*)',
+        '/webhooks/whatsapp',
+        '/webhooks/twilio',
+      )
       .forRoutes('*');
   }
 }
