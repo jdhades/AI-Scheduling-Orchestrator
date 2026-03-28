@@ -14,6 +14,7 @@ import { CreateSemanticRuleHandler } from './handlers/create-semantic-rule.handl
 import { DeleteSemanticRuleHandler } from './handlers/delete-semantic-rule.handler';
 import { GetSemanticRulesHandler } from './handlers/get-semantic-rules.handler';
 import { SwapShiftHandler } from './handlers/swap-shift.handler';
+import { TakeOpenShiftHandler } from './handlers/take-open-shift.handler';
 import { ReportAbsenceHandler } from './handlers/report-absence.handler';
 import { RequestDayOffHandler } from './handlers/request-day-off.handler';
 import { GetMyScheduleHandler } from './handlers/get-my-schedule.handler';
@@ -50,6 +51,7 @@ const CommandHandlers = [
   DeleteSemanticRuleHandler,
   // E4 — Conversational
   SwapShiftHandler,
+  TakeOpenShiftHandler,
   ReportAbsenceHandler,
   RequestDayOffHandler,
 ];

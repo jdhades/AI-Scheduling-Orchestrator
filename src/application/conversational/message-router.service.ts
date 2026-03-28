@@ -16,6 +16,7 @@ import { GetUpcomingShiftsQuery } from '../queries/get-upcoming-shifts.query';
 import type { UpcomingShiftDto } from '../handlers/get-upcoming-shifts.handler';
 import { CommandMapperService } from './command-mapper.service';
 import { SwapShiftCommand } from '../commands/swap-shift.command';
+import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { I18nService } from 'nestjs-i18n';
 
@@ -424,12 +425,15 @@ export class MessageRouterService {
       const allShifts = [...shiftsW1, ...shiftsW2];
       const allAssignments = [...assignmentsW1, ...assignmentsW2];
 
+      const assignedShiftIds = new Set(allAssignments.map((a) => a.shiftId));
+      const openShifts = allShifts.filter((s) => !assignedShiftIds.has(s.id) && s.endTime > now);
+
       // Find other employees' assignments (exclude current user)
       const otherAssignments = allAssignments.filter(
         (a) => a.employeeId !== employeeId,
       );
 
-      if (otherAssignments.length === 0) {
+      if (otherAssignments.length === 0 && openShifts.length === 0) {
         await this.sessionRepository.clearSession(from);
         this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
         return true;
@@ -453,6 +457,23 @@ export class MessageRouterService {
       };
 
       let count = 0;
+      
+      // 1. Add Open Shifts first
+      for (const shift of openShifts) {
+        if (count >= 5) break;
+        count++;
+        const desc = this._formatShiftLine({
+          shiftId: shift.id,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+        }, locale);
+        const openLabel = this.i18n.t('bot.swap.open_shift_label', { lang: locale, defaultValue: 'Turno Libre' });
+        responseText += `${count}. *[${openLabel}]* — ${desc}\n`;
+        optionsEntities[`option${count}_shiftId`] = shift.id;
+        optionsEntities[`option${count}_type`] = 'OPEN';
+      }
+
+      // 2. Add Colleague Shifts
       for (const assignment of otherAssignments) {
         if (count >= 5) break;
         const shift = allShifts.find((s) => s.id === assignment.shiftId);
@@ -468,6 +489,7 @@ export class MessageRouterService {
         responseText += `${count}. *${empName}* — ${desc}\n`;
         optionsEntities[`option${count}_shiftId`] = shift.id;
         optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
+        optionsEntities[`option${count}_type`] = 'SWAP';
       }
 
       if (count === 0) {
@@ -485,8 +507,10 @@ export class MessageRouterService {
     // ── Step 3: User selected target shift → ask for confirmation ──
     if (step === 'SELECT_TARGET') {
       const targetShiftId = sessionEntities[`option${selection}_shiftId`];
+      const targetType = sessionEntities[`option${selection}_type`];
       const targetEmployeeId = sessionEntities[`option${selection}_employeeId`];
-      if (!targetShiftId || !targetEmployeeId) {
+      
+      if (!targetShiftId || !targetType) {
         this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
         return true;
       }
@@ -516,10 +540,19 @@ export class MessageRouterService {
         ? this._formatShiftLine({ shiftId: targetShift.id, startTime: targetShift.startTime, endTime: targetShift.endTime }, locale)
         : targetShiftId;
 
-      const confirmMsg = this.i18n.t('bot.swap.confirm_prompt', {
-        lang: locale,
-        args: { myShift: ownDesc, targetShift: targetDesc, targetName }
-      });
+      let confirmMsg = '';
+      if (targetType === 'OPEN') {
+        confirmMsg = this.i18n.t('bot.swap.confirm_open_prompt', {
+          lang: locale,
+          args: { myShift: ownDesc, targetShift: targetDesc }
+        });
+      } else {
+        const targetName = employees.find((e) => e.id === targetEmployeeId)?.name || 'Compañero';
+        confirmMsg = this.i18n.t('bot.swap.confirm_prompt', {
+          lang: locale,
+          args: { myShift: ownDesc, targetShift: targetDesc, targetName }
+        });
+      }
 
       session = session.withIntent('swap_shift', {
         pendingAction: 'swap_shift',
@@ -527,6 +560,7 @@ export class MessageRouterService {
         selectedOwnShiftId: ownShiftId,
         selectedTargetShiftId: targetShiftId,
         selectedTargetEmployeeId: targetEmployeeId,
+        selectedTargetType: targetType,
       });
       await this.sessionRepository.saveSession(session);
       this._reply(from, confirmMsg);
@@ -539,19 +573,33 @@ export class MessageRouterService {
         const ownShiftId = sessionEntities.selectedOwnShiftId;
         const targetShiftId = sessionEntities.selectedTargetShiftId;
         const targetEmployeeId = sessionEntities.selectedTargetEmployeeId;
+        const targetType = sessionEntities.selectedTargetType;
 
-        const command = new SwapShiftCommand(
-          employeeId,
-          ownShiftId,
-          targetEmployeeId,
-          targetShiftId,
-          companyId,
-        );
+        if (targetType === 'OPEN') {
+          const command = new TakeOpenShiftCommand(
+            employeeId,
+            ownShiftId,
+            targetShiftId,
+            companyId,
+          );
+          await this.commandBus.execute(command);
+          await this.sessionRepository.clearSession(from);
+          this._reply(from, this.i18n.t('bot.swap.open_shift_success', { lang: locale }));
+          return true;
+        } else {
+          const command = new SwapShiftCommand(
+            employeeId,
+            ownShiftId,
+            targetEmployeeId,
+            targetShiftId,
+            companyId,
+          );
 
-        await this.commandBus.execute(command);
-        await this.sessionRepository.clearSession(from);
-        this._reply(from, this.i18n.t('bot.swap.request_received', { lang: locale }));
-        return true;
+          await this.commandBus.execute(command);
+          await this.sessionRepository.clearSession(from);
+          this._reply(from, this.i18n.t('bot.swap.request_received', { lang: locale }));
+          return true;
+        }
       }
 
       if (['no', 'n', '2'].includes(selection)) {
