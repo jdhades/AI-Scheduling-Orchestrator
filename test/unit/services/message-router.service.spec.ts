@@ -38,6 +38,7 @@ describe('MessageRouterService', () => {
   let mockQueryBus: jest.Mocked<QueryBus>;
   let mockShiftRepo: jest.Mocked<IShiftRepository>;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
+  let mockShiftTemplateRepo: any;
 
   beforeEach(async () => {
     mockConversationalService = {
@@ -85,6 +86,10 @@ describe('MessageRouterService', () => {
       markWhatsappVerified: jest.fn(),
     } as any;
 
+    mockShiftTemplateRepo = {
+      findAllByCompany: jest.fn(),
+    } as any;
+
     const mockI18nService = {
       t: jest.fn().mockImplementation((key) => {
         if (key === 'bot.general.success') return '✅ Tu solicitud fue procesada correctamente.';
@@ -112,6 +117,7 @@ describe('MessageRouterService', () => {
         { provide: CommandBus, useValue: mockCommandBus },
         { provide: QueryBus, useValue: mockQueryBus },
         { provide: I18nService, useValue: mockI18nService },
+        { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockShiftTemplateRepo },
       ],
     }).compile();
 

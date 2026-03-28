@@ -8,6 +8,7 @@ import type { IShiftRepository } from '../../domain/repositories/shift.repositor
 import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
+import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import { ConversationSessionRepository } from '../../infrastructure/conversational/conversation-session.repository';
 import { ConversationSessionVO } from '../../domain/value-objects/conversation-session.vo';
 import { ConversationIntentVO } from '../../domain/value-objects/conversation-intent.vo';
@@ -18,6 +19,7 @@ import { CommandMapperService } from './command-mapper.service';
 import { SwapShiftCommand } from '../commands/swap-shift.command';
 import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
+import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { I18nService } from 'nestjs-i18n';
 
 export interface IncomingMessage {
@@ -55,6 +57,8 @@ export class MessageRouterService {
     private readonly shiftRepo: IShiftRepository,
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepo: IEmployeeRepository,
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly shiftTemplateRepo: IShiftTemplateRepository,
     private readonly sessionRepository: ConversationSessionRepository,
     private readonly commandMapper: CommandMapperService,
     private readonly commandBus: CommandBus,
@@ -149,6 +153,25 @@ export class MessageRouterService {
         const handled = await this._handleSwapSelection(
           from,
           employeeId,
+          companyId,
+          session,
+          sessionEntities,
+          selection,
+          locale,
+        );
+        if (handled) return;
+      }
+
+      // Handle Option Selection for generate_schedule (SELECT_TEMPLATE)
+      if (
+        (currentIntent === 'select_option' || currentIntent === 'unknown' || currentIntent === 'generate_schedule') &&
+        sessionEntities.pendingAction === 'generate_schedule'
+      ) {
+        const rawText = intent.getRawText().trim().toLowerCase();
+        const selection = intentEntities.selection?.toLowerCase() || rawText;
+
+        const handled = await this._handleGenerateSelection(
+          from,
           companyId,
           session,
           sessionEntities,
@@ -298,6 +321,41 @@ export class MessageRouterService {
         return;
       }
 
+      // 4c. Handle GENERATE_SELECT_TEMPLATE
+      if (mapResult.actionRequired === 'GENERATE_SELECT_TEMPLATE') {
+        const templates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+
+        if (templates.length <= 1) {
+            const weekStart = mergedEntities.weekStart || this._getNextMondayStr();
+            const command = new GenerateHybridScheduleCommand(companyId, weekStart);
+            await this._execute(command);
+            await this.sessionRepository.clearSession(from);
+            this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+            return;
+        }
+
+        let responseText = `Veo que tienes turnos configurados. ¿Quieres generar el horario para todos automáticamente o elegir uno en específico?\n\n`;
+        responseText += `1. Todos los turnos\n`;
+        const optionsEntities: Record<string, string> = {
+            pendingAction: 'generate_schedule',
+            generateStep: 'SELECT_TEMPLATE',
+            weekStart: mergedEntities.weekStart || this._getNextMondayStr(),
+        };
+        templates.slice(0, 5).forEach((t, idx) => {
+            const num = idx + 2;
+            responseText += `${num}. ${t.name}\n`;
+            optionsEntities[`option${num}_templateId`] = t.id;
+        });
+
+        session = session.withIntent('generate_schedule', {
+            ...mergedEntities,
+            ...optionsEntities
+        });
+        await this.sessionRepository.saveSession(session);
+        this._reply(from, responseText.trim());
+        return;
+      }
+
       if (mapResult.clarificationMessage) {
         // Missing fields — save session state and ask the user
         await this.sessionRepository.saveSession(session);
@@ -341,6 +399,50 @@ export class MessageRouterService {
         this.i18n.t('bot.general.error', { lang: locale }),
       );
     }
+  }
+
+  // ─── Generate Schedule Helpers ───────────────────────────────────────────
+  
+  private async _handleGenerateSelection(
+    from: string,
+    companyId: string,
+    session: ConversationSessionVO,
+    sessionEntities: Readonly<Record<string, any>>,
+    selection: string,
+    locale: string,
+  ): Promise<boolean> {
+     const step = sessionEntities.generateStep;
+     if (step === 'SELECT_TEMPLATE') {
+         if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
+             const cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart);
+             await this.commandBus.execute(cmd);
+             await this.sessionRepository.clearSession(from);
+             this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+             return true;
+         }
+
+         const templateId = sessionEntities[`option${selection}_templateId`];
+         if (!templateId) {
+             this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+             return true; 
+         }
+
+         const cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId);
+         await this.commandBus.execute(cmd);
+         await this.sessionRepository.clearSession(from);
+         this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+         return true;
+     }
+
+     return false;
+  }
+
+  private _getNextMondayStr(): string {
+    const d = new Date();
+    const day = d.getDay();
+    const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
+    d.setDate(d.getDate() + daysUntilMonday);
+    return d.toISOString().split('T')[0];
   }
 
   // ─── Swap Flow Helpers ───────────────────────────────────────────────────

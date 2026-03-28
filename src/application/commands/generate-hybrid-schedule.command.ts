@@ -12,5 +12,6 @@ export class GenerateHybridScheduleCommand {
     public readonly companyId: string,
     public readonly weekStart: string, // ISO date 'YYYY-MM-DD'
     public readonly maxFairnessDeviation?: number,
+    public readonly shiftTemplateId?: string,
   ) {}
 }

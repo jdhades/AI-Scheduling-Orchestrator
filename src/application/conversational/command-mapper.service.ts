@@ -18,7 +18,7 @@ export interface CommandMapperResult {
     | null;
   missingFields: string[];
   clarificationMessage: string | null;
-  actionRequired?: 'FETCH_SHIFTS' | 'SWAP_SELECT_SHIFT' | null;
+  actionRequired?: 'FETCH_SHIFTS' | 'SWAP_SELECT_SHIFT' | 'GENERATE_SELECT_TEMPLATE' | null;
 }
 
 /**
@@ -129,22 +129,11 @@ export class CommandMapperService {
       }
 
       case 'generate_schedule': {
-        if (!mergedEntities.weekStart) {
-          // Default to next Monday if not specified
-          const nextMonday = this._getNextMonday();
-          return {
-            command: new GenerateHybridScheduleCommand(companyId, nextMonday),
-            missingFields: [],
-            clarificationMessage: null,
-          };
-        }
         return {
-          command: new GenerateHybridScheduleCommand(
-            companyId,
-            mergedEntities.weekStart,
-          ),
+          command: null,
           missingFields: [],
           clarificationMessage: null,
+          actionRequired: 'GENERATE_SELECT_TEMPLATE',
         };
       }
 

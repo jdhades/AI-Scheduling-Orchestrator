@@ -64,11 +64,16 @@ export class GenerateScheduleHandler implements ICommandHandler<
     );
 
     // 1. Cargar datos
-    const [employees, shifts, histories] = await Promise.all([
+    let [employees, shifts, histories] = await Promise.all([
       this.employeeRepository.findAllByCompany(command.companyId),
       this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart),
       this.fairnessRepository.findByWeek(command.companyId, weekStart),
     ]);
+
+    if (command.shiftTemplateId) {
+      shifts = shifts.filter((s) => s.templateId === command.shiftTemplateId);
+      this.logger.log(`Filtered shifts to template ${command.shiftTemplateId} — ${shifts.length} remain`);
+    }
 
     this.logger.log(
       `Loaded — employees=${employees.length} shifts=${shifts.length} histories=${histories.length}`,

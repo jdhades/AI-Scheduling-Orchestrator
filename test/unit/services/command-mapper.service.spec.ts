@@ -167,11 +167,7 @@ describe('CommandMapperService', () => {
   });
 
   describe('generate_schedule', () => {
-    it('should map to next monday when date is not specified', () => {
-      // Monday is 1, next Monday will be + days
-      const now = new Date('2026-03-05T12:00:00.000Z'); // Represents Thursday
-      jest.setSystemTime(now);
-
+    it('should flag actionRequired as GENERATE_SELECT_TEMPLATE', () => {
       const intent = ConversationIntentVO.create({
         intent: 'generate_schedule',
         confidence: 0.9,
@@ -181,30 +177,9 @@ describe('CommandMapperService', () => {
 
       const result = service.map(intent, 'empId', 'compId', {});
 
-      expect(result.command).toBeInstanceOf(GenerateHybridScheduleCommand);
-      const cmd = result.command as GenerateHybridScheduleCommand;
-      expect(cmd.companyId).toBe('compId');
-      // Next Monday of 2026-03-05 (Thursday) is 2026-03-09
-      expect(cmd.weekStart).toBe('2026-03-09');
+      expect(result.command).toBeNull();
+      expect(result.actionRequired).toBe('GENERATE_SELECT_TEMPLATE');
       expect(result.missingFields).toEqual([]);
-    });
-
-    it('should map to specific date when specified', () => {
-      const intent = ConversationIntentVO.create({
-        intent: 'generate_schedule',
-        confidence: 0.9,
-        entities: {},
-        rawText: 'genera horario',
-      });
-
-      const result = service.map(intent, 'empId', 'compId', {
-        weekStart: '2026-03-16',
-      });
-
-      expect(result.command).toBeInstanceOf(GenerateHybridScheduleCommand);
-      expect((result.command as GenerateHybridScheduleCommand).weekStart).toBe(
-        '2026-03-16',
-      );
     });
   });
 

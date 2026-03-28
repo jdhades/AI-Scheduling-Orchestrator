@@ -14,5 +14,6 @@ export class GenerateScheduleCommand implements ICommand {
     public readonly strategyType: StrategyType,
     /** Score máximo permitido antes de bloquear turnos pesados (0–1000) */
     public readonly maxFairnessDeviation: number = 700,
+    public readonly shiftTemplateId?: string,
   ) {}
 }
