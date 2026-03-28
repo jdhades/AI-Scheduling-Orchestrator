@@ -19,7 +19,7 @@ export class Employee extends AggregateRoot {
     public readonly role: string,
     private phoneNumber: PhoneNumber,
     private experience: ExperienceLevel,
-    public readonly locale: string = 'es',
+    public locale: string = 'es',
   ) {
     super();
   }
@@ -64,6 +64,14 @@ export class Employee extends AggregateRoot {
     emp.availability = data.availability ?? [];
     emp.preferences = data.preferences ?? [];
     return emp;
+  }
+
+  // ─── Locale ──────────────────────────────────────────────────────────────
+
+  updateLocale(newLocale: string): void {
+    if (newLocale && newLocale.length === 2) {
+      this.locale = newLocale.toLowerCase();
+    }
   }
 
   // ─── Skills ──────────────────────────────────────────────────────────────

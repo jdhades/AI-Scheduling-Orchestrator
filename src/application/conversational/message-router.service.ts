@@ -70,7 +70,13 @@ export class MessageRouterService {
       const intent = await this._classifyMessage(msg);
       
       const employee = await this.employeeRepo.findById(employeeId, companyId);
-      if (employee?.locale) {
+      if (employee) {
+        const detectedLang = intent.getEntities().detectedLanguage;
+        if (detectedLang && detectedLang.length === 2 && detectedLang.toLowerCase() !== employee.locale) {
+          employee.updateLocale(detectedLang);
+          await this.employeeRepo.save(employee);
+          this.logger.log(`Updated employee ${employeeId} locale to ${employee.locale}`);
+        }
         locale = employee.locale;
       }
 

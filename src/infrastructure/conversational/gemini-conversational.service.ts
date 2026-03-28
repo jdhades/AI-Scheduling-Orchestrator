@@ -118,6 +118,7 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - weekStart: primer día de la semana (lunes) en formato YYYY-MM-DD si el usuario pregunta por una semana en particular
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
+- detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
 {
@@ -130,7 +131,8 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     "reason": <string|null>,
     "weekStart": <string|null>,
     "timeOfDay": <string|null>,
-    "selection": <string|null>
+    "selection": <string|null>,
+    "detectedLanguage": <string|null>
   },
   "transcription": null
 }
@@ -163,6 +165,7 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - weekStart: primer día de la semana (lunes) en formato YYYY-MM-DD si el usuario pregunta por una semana en particular
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
+- detectedLanguage: el código de idioma ISO 639-1 del audio (ej. "es", "en", "pt")
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
 {
@@ -175,7 +178,8 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     "reason": <string|null>,
     "weekStart": <string|null>,
     "timeOfDay": <string|null>,
-    "selection": <string|null>
+    "selection": <string|null>,
+    "detectedLanguage": <string|null>
   },
   "transcription": "<transcripcion del audio>"
 }`;

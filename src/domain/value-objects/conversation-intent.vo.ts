@@ -19,6 +19,7 @@ export interface IntentEntities {
   weekStart?: string; // ISO 8601 date (YYYY-MM-DD) — for generate_schedule
   timeOfDay?: string; // 'morning', 'afternoon', 'night', etc.
   selection?: string; // '1', '2', 'yes', 'no'
+  detectedLanguage?: string; // ISO 639-1 code (e.g. 'en', 'es', 'pt')
   [key: string]: any; // Allow dynamic properties for session state
 }
 
