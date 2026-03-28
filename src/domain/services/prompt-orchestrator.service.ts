@@ -76,7 +76,7 @@ export class PromptOrchestratorService {
     } = params;
 
     // Estado compartido: turnos ya asignados por empleado (para validación de solapamientos)
-    const alreadyAssigned = new Map<string, Shift[]>(
+    const alreadyAssigned = new Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>(
       employees.map((e) => [e.id, []]),
     );
 
@@ -129,7 +129,12 @@ export class PromptOrchestratorService {
 
         llmAssignments.push(assignment);
         coveredByLLM.add(shift.id);
-        alreadyAssigned.get(proposedAssignment.employeeId)!.push(shift);
+        alreadyAssigned.get(proposedAssignment.employeeId)!.push({
+          id: shift.id,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          overlapsWith: (other: Shift) => shift.overlapsWith(other),
+        });
         llmAccepted++;
 
         this.logger.debug(
@@ -177,7 +182,12 @@ export class PromptOrchestratorService {
           continue;
         }
         algorithmAssignments.push(a);
-        empBusy.push(shift); // Evitar futuros solapamientos en caso de que hubiese
+        empBusy.push({
+          id: shift.id,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          overlapsWith: (other: Shift) => shift.overlapsWith(other),
+        }); // Evitar futuros solapamientos en caso de que hubiese
       }
       unfilledShifts.push(...strategyResult.unfilledShifts);
     }

@@ -68,8 +68,8 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     return this.toDomain(data);
   }
 
-  async findAllByCompany(companyId: string): Promise<Employee[]> {
-    const { data, error } = await this.supabase
+  async findAllByCompany(companyId: string, options?: { departmentId?: string; branchId?: string }): Promise<Employee[]> {
+    let query = this.supabase
       .from('employees')
       .select(
         `
@@ -92,6 +92,12 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
             `,
       )
       .eq('company_id', companyId);
+
+    if (options?.departmentId) {
+      query = query.eq('department_id', options.departmentId);
+    }
+
+    const { data, error } = await query;
 
     if (error)
       throw new Error(
@@ -148,6 +154,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       locale: row.locale,
       availability,
       preferences,
+      departmentId: row.department_id,
     });
 
     // Hydrate skills

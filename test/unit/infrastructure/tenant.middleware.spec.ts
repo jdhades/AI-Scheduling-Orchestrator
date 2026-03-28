@@ -47,7 +47,7 @@ describe('TenantMiddleware', () => {
       expect(mockNext).toHaveBeenCalledTimes(1);
     });
 
-    it('should prefer X-Company-Id header over JWT when both present', () => {
+    it('should prefer JWT claims over X-Company-Id header when both present', () => {
       const req = {
         headers: { 'x-company-id': 'company-header' },
         user: { company_id: 'company-jwt' },
@@ -55,7 +55,7 @@ describe('TenantMiddleware', () => {
 
       middleware.use(req, mockRes, mockNext);
 
-      expect(tenantContext.get()).toBe('company-header');
+      expect(tenantContext.get()).toBe('company-jwt');
     });
   });
 

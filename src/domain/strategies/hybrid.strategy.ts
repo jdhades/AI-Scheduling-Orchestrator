@@ -76,7 +76,7 @@ export class HybridStrategy implements SchedulingStrategy {
     );
 
     const skillIndex = this.buildSkillIndex(employees);
-    const busySlots = new Map<string, Shift[]>();
+    const busySlots = new Map<string, { id: string; startTime: Date; endTime: Date; getDuration: () => number; overlapsWith: (other: Shift) => boolean }[]>();
     for (const e of employees) busySlots.set(e.id, []);
 
     // Max score para normalización
@@ -123,7 +123,13 @@ export class HybridStrategy implements SchedulingStrategy {
       });
 
       const winner = ranked[0];
-      busySlots.get(winner.id)!.push(shift);
+      busySlots.get(winner.id)!.push({
+        id: shift.id,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        getDuration: () => shift.getDuration(),
+        overlapsWith: (other: Shift) => shift.overlapsWith(other),
+      });
 
       const snapshot = this.buildSnapshot(liveHistory);
       assignments.push(
@@ -202,7 +208,7 @@ export class HybridStrategy implements SchedulingStrategy {
     shift: Shift,
     employees: Employee[],
     skillIndex: Map<string, Employee[]>,
-    busySlots: Map<string, Shift[]>,
+    busySlots: Map<string, { id: string; startTime: Date; endTime: Date; getDuration: () => number; overlapsWith: (other: Shift) => boolean }[]>,
   ): Employee[] {
     const pool = shift.requiredSkillId
       ? (skillIndex.get(shift.requiredSkillId) ?? [])

@@ -72,7 +72,7 @@ describe('PromptOrchestratorService', () => {
   beforeEach(() => {
     validator = new ScheduleValidatorService();
     employees = [makeEmployee('e1'), makeEmployee('e2')];
-    shifts = [makeShift('s1', 8, 16), makeShift('s2', 16, 24)];
+    shifts = [makeShift('s1', 8, 16), makeShift('s2', 12, 20)];
   });
 
   it('should accept LLM proposals that pass validation', async () => {
@@ -222,7 +222,7 @@ describe('PromptOrchestratorService', () => {
     const overlapResponse = JSON.stringify({
       assignments: [
         { shiftId: 's1', employeeId: 'e1', reason: 'OK', confidence: 0.9 },
-        { shiftId: 's2', employeeId: 'e1', reason: 'OK', confidence: 0.95 }, // s2 no solapa con s1 (8-16, 16-24)
+        { shiftId: 's2', employeeId: 'e1', reason: 'OK', confidence: 0.95 }, // s2 solapa con s1 (8-16, 12-20)
       ],
     });
 
@@ -239,8 +239,10 @@ describe('PromptOrchestratorService', () => {
       semanticRules: [],
     });
 
-    // Ambos turnos no se solapan (uno 8-16 otro 16-24), ambos son aceptados
-    expect(result.llmAccepted).toBe(2);
+    // El primer turno s1 se asigna. El segundo s2 solapa, por lo tanto s2 es rechazado.
+    // llmAccepted = 1.
+    expect(result.llmAccepted).toBe(1);
+    expect(result.algorithmCorrected).toBe(1);
   });
 
   it('should produce explanation mentioning LLM and algorithm stats', async () => {

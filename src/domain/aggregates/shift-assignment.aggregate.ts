@@ -20,7 +20,13 @@ export class ShiftAssignment {
      * Clave: employeeId, Valor: FairnessScore.value
      */
     public readonly fairnessSnapshot: Record<string, number>,
-  ) {}
+    public readonly actualStartTime?: Date,
+    public readonly actualEndTime?: Date,
+  ) {
+    if (actualStartTime && actualEndTime && actualEndTime <= actualStartTime) {
+      throw new Error('actualEndTime must be after actualStartTime');
+    }
+  }
 
   static create(props: {
     id: string;
@@ -29,6 +35,8 @@ export class ShiftAssignment {
     companyId: string;
     strategyType: StrategyType;
     fairnessSnapshot: Record<string, number>;
+    actualStartTime?: Date;
+    actualEndTime?: Date;
   }): ShiftAssignment {
     return new ShiftAssignment(
       props.id,
@@ -38,6 +46,8 @@ export class ShiftAssignment {
       new Date(),
       props.strategyType,
       { ...props.fairnessSnapshot },
+      props.actualStartTime,
+      props.actualEndTime,
     );
   }
 
@@ -49,6 +59,8 @@ export class ShiftAssignment {
     assignedAt: Date;
     assignedByStrategy: StrategyType;
     fairnessSnapshot: Record<string, number>;
+    actualStartTime?: Date;
+    actualEndTime?: Date;
   }): ShiftAssignment {
     return new ShiftAssignment(
       props.id,
@@ -58,6 +70,8 @@ export class ShiftAssignment {
       props.assignedAt,
       props.assignedByStrategy,
       { ...props.fairnessSnapshot },
+      props.actualStartTime,
+      props.actualEndTime,
     );
   }
 }

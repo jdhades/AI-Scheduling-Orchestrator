@@ -44,10 +44,13 @@ function makeShift(
   requiredSkillId: string | null,
   startHour = 8,
   endHour = 16,
+  offsetDays = 0,
 ): Shift {
   const start = new Date('2026-03-04T00:00:00Z');
+  start.setDate(start.getDate() + offsetDays);
   start.setUTCHours(startHour, 0, 0, 0);
   const end = new Date('2026-03-04T00:00:00Z');
+  end.setDate(end.getDate() + offsetDays);
   end.setUTCHours(endHour, 0, 0, 0);
 
   return Shift.create({
@@ -69,7 +72,7 @@ const NO_SEMANTIC_RULES: any[] = [];
 
 describe('ScheduleValidatorService', () => {
   let validator: ScheduleValidatorService;
-  let emptyAssigned: Map<string, Shift[]>;
+  let emptyAssigned: Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>;
 
   beforeEach(() => {
     validator = new ScheduleValidatorService();
@@ -184,11 +187,12 @@ describe('ScheduleValidatorService', () => {
     expect(result.violations[0]).toContain('overlapping shift');
   });
 
-  it('should return valid when shifts are consecutive (no overlap)', () => {
+  it('should return valid when shifts have minimum 11h gap', () => {
     const emp = makeEmployee('e1');
-    const shift1 = makeShift('s1', null, 8, 16);
-    const shift2 = makeShift('s2', null, 16, 24); // consecutivo, no solapado
-    emptyAssigned.set('e1', [shift1]);
+    const shift1 = makeShift('s1', null, 8, 16); // 08:00 - 16:00
+    const shift2 = makeShift('s2', null, 4, 12, 1); // 04:00 - 12:00 (next day)
+
+    emptyAssigned.set('e1', [{ id: shift1.id, startTime: shift1.startTime, endTime: shift1.endTime, overlapsWith: (other: Shift) => shift1.overlapsWith(other) }]);
 
     const result = validator.validate(
       's2',
@@ -199,6 +203,7 @@ describe('ScheduleValidatorService', () => {
       NO_SEMANTIC_RULES,
     );
 
+    if (!result.valid) console.log(result.violations);
     expect(result.valid).toBe(true);
   });
 

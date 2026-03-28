@@ -605,3 +605,14 @@ interface SemanticConstraint {
 ```
 
 El Escenario 3 conecta este contrato con embeddings de `text-embedding-004` de Gemini y búsquedas vectoriales en `pgvector`, permitiendo que managers escriban reglas en lenguaje natural como *"Los viernes por la noche siempre necesitamos a alguien con certificación de primeros auxilios"*.
+
+---
+
+## 15. Actualización Reciente: Enterprise SaaS Architecture (V2)
+
+El motor de scheduling fue refactorizado para soportar jerarquías organizacionales reales y turnos parciales:
+
+1. **Nuevo Modelo de Datos Jerárquico:** Introducidas las entidades `Branch` (Sucursales con zona horaria propia), `Department` y `ShiftTemplate`. Los agregados de `Employee` ahora pertenecen a un departamento específico.
+2. **Turnos Parciales (Partial Shift Coverage):** El `ShiftAssignment` fue modificado para rastrear `actual_start_time` y `actual_end_time`. Esto permite que un empleado cubra solo una fracción del bloque de tiempo definido por un `ShiftInstance`.
+3. **Validación Duck-Typed:** Las estrategias de programación y el `ScheduleValidatorService` fueron reescritos para utilizar comprobaciones de "duck typing" mediante bounding boxes. Al no depender de hidratar el objeto `Shift` completo de memoria, el algoritmo detecta exactamente las intersecciones precisas en fracciones de turnos sin penalizar la performance.
+4. **Protección Anti-Clopening (11h gap):** Se introdujo una regla inquebrantable de separación legal mínima de 11 horas de descanso entre turnos consecutivos evaluados matemáticamente sin fallos.

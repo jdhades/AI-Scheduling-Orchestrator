@@ -176,3 +176,13 @@ Se implementó una mejora sustancial en cómo el motor conversacional maneja el 
 3. **Listado Interactivo (Fallback):** Si el motor detecta múltiples turnos próximos que se solapan con la intención abstracta del usuario, emite un listado enumerado claro por WhatsApp. El empleado responde sencillamente seleccionando el número (capturado bajo la nueva intención `select_option`).
 
 Esta actualización acopla nativamente el entendimiento de lenguaje natural difuso extraído por Gemini con las invariantes estrictas de las llaves primarias de la base de datos SQL.
+
+---
+
+## 9. Actualización Reciente: Agrupación Conversacional por Bloques (Shift Templates)
+
+La interfaz en WhatsApp para el intercambio de turnos (`swap_shift`) fue mejorada drásticamente delegando el trabajo visual al nuevo modelo de datos jerárquico V2:
+
+1. **Visualización Agrupada (Grouped Options):** El `MessageRouterService` fue refactorizado para que las opciones devueltas a los empleados en el paso `SELECT_TARGET` ya no se muestren como una lista plana y confusa de horarios solapados. Ahora, los turnos de sus colegas se agrupan en tiempo real por el bloque base del `ShiftTemplate`.
+2. **Claridad del UX:** En vez de duplicados textuales (`1. Pedro - 08:00 a 16:00, 2. María - 08:00 a 16:00`), el trabajador observa el bloque titular unificado (`*08:00 - 16:00*`) y subordinada a éste, la enumeración corta de los compañeros elegibles y los puestos libres.
+3. **Optimización Cognitiva:** Este cambio reconcilia la mente humana del operario front-line con la base de datos (entendiendo el turno como un slot espacial, no como una asignación individual) reduciendo la ambigüedad en la selección y acortando los mensajes de WhatsApp para evitar colapsar la pantalla del dispositivo.

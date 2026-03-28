@@ -513,22 +513,40 @@ export class MessageRouterService {
 
       // 2. Add Colleague Shifts
       if (targetTypeFilter === 'SWAP') {
+        // Group assignments by Shift ID / Time Block
+        const groupedShifts = new Map<string, { shift: any, assignments: any[] }>();
         for (const assignment of otherAssignments) {
-          if (count >= 5) break;
           const shift = allShifts.find((s) => s.id === assignment.shiftId);
           if (!shift || shift.endTime <= now) continue;
+          
+          if (!groupedShifts.has(shift.id)) {
+            groupedShifts.set(shift.id, { shift, assignments: [] });
+          }
+          groupedShifts.get(shift.id)!.assignments.push(assignment);
+        }
 
-          count++;
-          const empName = empMap.get(assignment.employeeId) || 'Compañero';
-          const desc = this._formatShiftLine({
-            shiftId: shift.id,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
+        // Render groups
+        for (const group of groupedShifts.values()) {
+          if (count >= 5) break; 
+          
+          const timeDesc = this._formatShiftLine({
+            shiftId: group.shift.id,
+            startTime: group.shift.startTime,
+            endTime: group.shift.endTime,
           }, locale);
-          responseText += `${count}. *${empName}* — ${desc}\n`;
-          optionsEntities[`option${count}_shiftId`] = shift.id;
-          optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
-          optionsEntities[`option${count}_type`] = 'SWAP';
+          
+          responseText += `\n*${timeDesc}*\n`;
+          
+          for (const assignment of group.assignments) {
+             if (count >= 5) break;
+             count++;
+             const empName = empMap.get(assignment.employeeId) || 'Compañero';
+             responseText += `${count}. ${empName}\n`;
+             
+             optionsEntities[`option${count}_shiftId`] = group.shift.id;
+             optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
+             optionsEntities[`option${count}_type`] = 'SWAP';
+          }
         }
       }
 

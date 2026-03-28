@@ -44,7 +44,7 @@ export class ScheduleValidatorService {
     employeeId: string,
     employees: Employee[],
     shifts: Shift[],
-    alreadyAssigned: Map<string, Shift[]>,
+    alreadyAssigned: Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>,
     semanticRules: SemanticConstraint[],
   ): AssignmentValidationResult {
     const violations: string[] = [];
@@ -143,7 +143,7 @@ export class ScheduleValidatorService {
   isAvailable(
     employee: Employee,
     shift: Shift,
-    alreadyAssigned: Map<string, Shift[]>,
+    alreadyAssigned: Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>,
   ): boolean {
     const busy = alreadyAssigned.get(employee.id) ?? [];
     return !busy.some((s) => s.overlapsWith(shift));

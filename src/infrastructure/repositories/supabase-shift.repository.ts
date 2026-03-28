@@ -34,16 +34,23 @@ export class SupabaseShiftRepository implements IShiftRepository {
   async findByCompanyAndWeek(
     companyId: string,
     weekStart: Date,
+    options?: { departmentId?: string },
   ): Promise<Shift[]> {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('shifts')
-      .select('*')
+      .select('*, shift_templates!inner(department_id)')
       .eq('company_id', companyId)
       .gte('start_time', weekStart.toISOString())
       .lt('start_time', weekEnd.toISOString());
+
+    if (options?.departmentId) {
+      query = query.eq('shift_templates.department_id', options.departmentId);
+    }
+
+    const { data, error } = await query;
 
     if (error)
       throw new Error(
@@ -61,6 +68,8 @@ export class SupabaseShiftRepository implements IShiftRepository {
       assigned_at: assignment.assignedAt.toISOString(),
       assigned_by_strategy: assignment.assignedByStrategy,
       fairness_snapshot: assignment.fairnessSnapshot,
+      actual_start_time: assignment.actualStartTime?.toISOString() ?? null,
+      actual_end_time: assignment.actualEndTime?.toISOString() ?? null,
     });
     if (error)
       throw new Error(
@@ -106,16 +115,23 @@ export class SupabaseShiftRepository implements IShiftRepository {
   async findAssignmentsByCompanyAndWeek(
     companyId: string,
     weekStart: Date,
+    options?: { departmentId?: string },
   ): Promise<ShiftAssignment[]> {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('shift_assignments')
-      .select('*, shifts(*)')
+      .select('*, shifts!inner(*, shift_templates!inner(department_id))')
       .eq('company_id', companyId)
       .gte('shifts.start_time', weekStart.toISOString())
       .lt('shifts.start_time', weekEnd.toISOString());
+
+    if (options?.departmentId) {
+      query = query.eq('shifts.shift_templates.department_id', options.departmentId);
+    }
+
+    const { data, error } = await query;
 
     if (error)
       throw new Error(
@@ -144,6 +160,7 @@ export class SupabaseShiftRepository implements IShiftRepository {
       requiredExperienceMonths: row.required_experience_months ?? 0,
       demandScore: DemandWeight.create(row.demand_score ?? 5),
       undesirableWeight: UndesirableWeight.create(row.undesirable_weight ?? 0),
+      templateId: row.template_id ?? row.shift_template_id,
     });
   }
 
@@ -157,6 +174,8 @@ export class SupabaseShiftRepository implements IShiftRepository {
       assignedByStrategy: (row.assigned_by_strategy ??
         'hybrid') as StrategyType,
       fairnessSnapshot: row.fairness_snapshot ?? {},
+      actualStartTime: row.actual_start_time ? new Date(row.actual_start_time) : undefined,
+      actualEndTime: row.actual_end_time ? new Date(row.actual_end_time) : undefined,
     });
   }
 
