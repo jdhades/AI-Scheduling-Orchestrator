@@ -19,6 +19,7 @@ export class Employee extends AggregateRoot {
     public readonly role: string,
     private phoneNumber: PhoneNumber,
     private experience: ExperienceLevel,
+    public readonly locale: string = 'es',
   ) {
     super();
   }
@@ -30,8 +31,9 @@ export class Employee extends AggregateRoot {
     role: string,
     phone: PhoneNumber,
     experience: ExperienceLevel,
+    locale: string = 'es',
   ): Employee {
-    const employee = new Employee(id, companyId, name, role, phone, experience);
+    const employee = new Employee(id, companyId, name, role, phone, experience, locale);
     employee.apply(new EmployeeRegisteredEvent(id, companyId, phone.value));
     return employee;
   }
@@ -46,6 +48,7 @@ export class Employee extends AggregateRoot {
     role: string;
     phoneNumber: PhoneNumber;
     experience: ExperienceLevel;
+    locale?: string;
     availability?: EmployeeAvailability[];
     preferences?: EmployeePreference[];
   }): Employee {
@@ -56,6 +59,7 @@ export class Employee extends AggregateRoot {
       data.role,
       data.phoneNumber,
       data.experience,
+      data.locale ?? 'es',
     );
     emp.availability = data.availability ?? [];
     emp.preferences = data.preferences ?? [];

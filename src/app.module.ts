@@ -1,4 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { I18nModule, AcceptLanguageResolver } from 'nestjs-i18n';
+import * as path from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppConfigModule } from './infrastructure/config/config.module';
@@ -11,6 +13,14 @@ import { InterfacesModule } from './interfaces/interfaces.module';
 
 @Module({
   imports: [
+    I18nModule.forRoot({
+      fallbackLanguage: 'es',
+      loaderOptions: {
+        path: path.join(__dirname, '/i18n/'),
+        watch: true,
+      },
+      resolvers: [AcceptLanguageResolver],
+    }),
     AppConfigModule,
     ApplicationModule,
     TenantModule,

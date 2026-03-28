@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { I18nService } from 'nestjs-i18n';
 import {
   ConversationIntentVO,
   IntentEntities,
@@ -30,24 +31,20 @@ export interface CommandMapperResult {
 export class CommandMapperService {
   private readonly logger = new Logger(CommandMapperService.name);
 
+  constructor(private readonly i18n: I18nService) {}
+
   map(
     intent: ConversationIntentVO,
     employeeId: string,
     companyId: string,
     mergedEntities: IntentEntities,
+    locale: string = 'es',
   ): CommandMapperResult {
     if (intent.isUnknown() || !intent.isActionable()) {
       return {
         command: null,
         missingFields: [],
-        clarificationMessage:
-          '🤔 No entendí bien tu solicitud. Puedo ayudarte a:\n' +
-          '• Ver tu horario\n' +
-          '• Reportar una ausencia\n' +
-          '• Pedir intercambio de turno\n' +
-          '• Solicitar día libre\n' +
-          '• Generar el horario de la semana (managers)\n' +
-          '¿Qué necesitas?',
+        clarificationMessage: this.i18n.t('bot.general.unknown_intent', { lang: locale }),
       };
     }
 
@@ -60,6 +57,7 @@ export class CommandMapperService {
             employeeId,
             companyId,
             mergedEntities.weekStart || mergedEntities.date,
+            locale,
           ),
           missingFields: [],
           clarificationMessage: null,
@@ -95,7 +93,7 @@ export class CommandMapperService {
           return {
             command: null,
             missingFields,
-            clarificationMessage: this._askForAbsenceFields(mergedEntities),
+            clarificationMessage: this._askForAbsenceFields(mergedEntities, locale),
           };
         }
         return {
@@ -115,8 +113,7 @@ export class CommandMapperService {
           return {
             command: null,
             missingFields: ['date'],
-            clarificationMessage:
-              '📅 ¿Para qué fecha quieres pedir el día libre? (ej: "el viernes 10 de marzo")',
+            clarificationMessage: this.i18n.t('bot.day_off.missing_date', { lang: locale }),
           };
         }
         return {
@@ -157,14 +154,14 @@ export class CommandMapperService {
     }
   }
 
-  private _askForAbsenceFields(entities: IntentEntities): string {
+  private _askForAbsenceFields(entities: IntentEntities, locale: string): string {
     if (!entities.shiftId && !entities.reason) {
-      return '⚠️ Para reportar tu ausencia necesito:\n1️⃣ ¿El ID del turno al que no puedes asistir?\n2️⃣ ¿Cuál es el motivo?';
+      return this.i18n.t('bot.absence.missing_both', { lang: locale });
     }
     if (!entities.shiftId) {
-      return '⚠️ ¿Cuál es el ID del turno al que no puedes asistir?';
+      return this.i18n.t('bot.absence.missing_shift', { lang: locale });
     }
-    return '⚠️ ¿Cuál es el motivo de tu ausencia?';
+    return this.i18n.t('bot.absence.missing_reason', { lang: locale });
   }
 
   /** Returns next Monday in YYYY-MM-DD format. Used when generate_schedule has no weekStart. */

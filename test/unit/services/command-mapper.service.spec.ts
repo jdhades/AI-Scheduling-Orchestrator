@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { I18nService } from 'nestjs-i18n';
 import { CommandMapperService } from '../../../src/application/conversational/command-mapper.service';
 import { ConversationIntentVO } from '../../../src/domain/value-objects/conversation-intent.vo';
 import { ReportAbsenceCommand } from '../../../src/application/commands/report-absence.command';
@@ -10,8 +11,22 @@ describe('CommandMapperService', () => {
   let service: CommandMapperService;
 
   beforeEach(async () => {
+    const mockI18nService = {
+      t: jest.fn().mockImplementation((key) => {
+        if (key === 'bot.general.unknown_intent') return 'No entendí bien. ¿Qué necesitas?';
+        if (key === 'bot.day_off.missing_date') return 'fecha';
+        if (key === 'bot.absence.missing_both') return 'motivo';
+        if (key === 'bot.absence.missing_shift') return 'turno';
+        if (key === 'bot.absence.missing_reason') return 'motivo';
+        return key;
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CommandMapperService],
+      providers: [
+        CommandMapperService,
+        { provide: I18nService, useValue: mockI18nService },
+      ],
     }).compile();
 
     service = module.get<CommandMapperService>(CommandMapperService);

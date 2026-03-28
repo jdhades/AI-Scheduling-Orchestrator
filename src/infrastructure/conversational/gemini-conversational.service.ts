@@ -99,7 +99,7 @@ export class GeminiConversationalService implements IConversationalService {
     const today = new Date().toISOString().split('T')[0];
     return `Eres un clasificador de intenciones para un sistema de gestión de turnos de trabajo.
 Hoy es ${today}.
-Analiza el siguiente mensaje de un empleado y extrae la intención y entidades relevantes.
+Analiza el siguiente mensaje de un empleado (que puede estar en español, inglés u otro idioma) y extrae la intención y entidades relevantes.
 
 INTENCIONES DISPONIBLES:
 - swap_shift: el empleado quiere intercambiar su turno con otro
@@ -142,9 +142,9 @@ Mensaje del empleado: "${text.replace(/"/g, '\\"')}"`;
     const today = new Date().toISOString().split('T')[0];
     return `Eres un clasificador de intenciones para un sistema de gestión de turnos de trabajo.
 Hoy es ${today}.
-El archivo de audio adjunto contiene un mensaje de un empleado o manager.
+El archivo de audio adjunto contiene un mensaje de un empleado o manager (que puede estar en español, inglés u otro idioma).
 
-Primero transcribe el audio fielmente. Luego clasifica la intención y extrae entidades.
+Primero transcribe el audio fielmente (en su idioma original). Luego clasifica la intención y extrae entidades.
 
 INTENCIONES DISPONIBLES:
 - swap_shift: el empleado quiere intercambiar su turno con otro

@@ -17,6 +17,7 @@ import type { UpcomingShiftDto } from '../handlers/get-upcoming-shifts.handler';
 import { CommandMapperService } from './command-mapper.service';
 import { SwapShiftCommand } from '../commands/swap-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
+import { I18nService } from 'nestjs-i18n';
 
 export interface IncomingMessage {
   from: string; // E.164 phone number of sender
@@ -57,14 +58,21 @@ export class MessageRouterService {
     private readonly commandMapper: CommandMapperService,
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly i18n: I18nService,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
     const { from, employeeId, companyId } = msg;
+    let locale = 'es';
 
     try {
       // 1. Detect type and classify intent
       const intent = await this._classifyMessage(msg);
+      
+      const employee = await this.employeeRepo.findById(employeeId, companyId);
+      if (employee?.locale) {
+        locale = employee.locale;
+      }
 
       // 2. Load or create session, merge entities
       let session = await this.sessionRepository.getSession(from);
@@ -106,7 +114,7 @@ export class MessageRouterService {
             await this.sessionRepository.clearSession(from);
             this._reply(
               from,
-              'Entendido. Cancelando el reporte. Para intentar de nuevo, dime qué turno faltarás.',
+              this.i18n.t('bot.absence.cancelled', { lang: locale }),
             );
             return;
           }
@@ -117,7 +125,7 @@ export class MessageRouterService {
         } else {
           this._reply(
             from,
-            'Respuesta no válida. Por favor responde con el número de la opción o "sí"/"no".',
+            this.i18n.t('bot.general.invalid_choice', { lang: locale }),
           );
           return;
         }
@@ -138,6 +146,7 @@ export class MessageRouterService {
           session,
           sessionEntities,
           selection,
+          locale,
         );
         if (handled) return;
       }
@@ -158,11 +167,12 @@ export class MessageRouterService {
         employeeId,
         companyId,
         mergedEntities,
+        locale,
       );
 
       // 4a. Handle SWAP_SELECT_SHIFT — start the guided swap flow
       if (mapResult.actionRequired === 'SWAP_SELECT_SHIFT') {
-        await this._startSwapFlow(from, employeeId, companyId, session, mergedEntities);
+        await this._startSwapFlow(from, employeeId, companyId, session, mergedEntities, locale);
         return;
       }
 
@@ -176,7 +186,7 @@ export class MessageRouterService {
         if (rawShifts.length === 0) {
           this._reply(
             from,
-            'No encontré turnos asignados a ti en los próximos días.',
+            this.i18n.t('bot.absence.no_shifts', { lang: locale }),
           );
           return;
         }
@@ -228,17 +238,19 @@ export class MessageRouterService {
           });
           await this.sessionRepository.saveSession(session);
 
-          let resp = `Veo que tienes un turno el *${startStr}*. ¿Es para este turno que reportas tu ausencia? (Responde Sí/No)`;
-          if (!mergedEntities.reason)
-            resp +=
-              '\n(También asegúrate de mencionar el motivo de tu ausencia)';
-          this._reply(from, resp);
+          let resp = this.i18n.t('bot.absence.confirm_single_shift', { 
+            lang: locale, 
+            args: { 
+              shiftStr: startStr,
+              reasonPrompt: mergedEntities.reason ? '' : this.i18n.t('bot.absence.reason_prompt', { lang: locale })
+            }
+          });
+          this._reply(from, resp.trim());
           return;
         }
 
         // Multiple shifts -> List options
-        let responseText =
-          'Tienes varios turnos próximos que coinciden. Responde con el número del turno para reportar tu ausencia:\n';
+        let responseText = this.i18n.t('bot.absence.select_shift', { lang: locale });
         const optionsEntities: Record<string, string> = {
           pendingAction: 'report_absence',
         };
@@ -272,8 +284,7 @@ export class MessageRouterService {
         await this.sessionRepository.saveSession(session);
 
         if (!mergedEntities.reason) {
-          responseText +=
-            '\n(Por favor incluye también el motivo de tu ausencia).';
+          responseText += this.i18n.t('bot.absence.reason_prompt_inline', { lang: locale });
         }
 
         this._reply(from, responseText.trim());
@@ -290,7 +301,7 @@ export class MessageRouterService {
       if (!mapResult.command) {
         this._reply(
           from,
-          '❓ No pude entender tu solicitud. ¿Puedes reformularla?',
+          this.i18n.t('bot.general.clarification', { lang: locale }),
         );
         return;
       }
@@ -300,6 +311,7 @@ export class MessageRouterService {
         mapResult.command,
         companyId,
         from,
+        locale,
       );
       if (!command) return; // resolution failed, user was notified
 
@@ -311,7 +323,7 @@ export class MessageRouterService {
       const reply =
         typeof result === 'string'
           ? result
-          : '✅ Tu solicitud fue procesada correctamente.';
+          : this.i18n.t('bot.general.success', { lang: locale });
       this._reply(from, reply);
     } catch (err) {
       this.logger.error(
@@ -319,7 +331,7 @@ export class MessageRouterService {
       );
       this._reply(
         from,
-        '⚠️ Ocurrió un error procesando tu mensaje. Por favor inténtalo de nuevo.',
+        this.i18n.t('bot.general.error', { lang: locale }),
       );
     }
   }
@@ -335,6 +347,7 @@ export class MessageRouterService {
     companyId: string,
     session: ConversationSessionVO,
     mergedEntities: Record<string, any>,
+    locale: string,
   ): Promise<void> {
     const rawShifts = await this.queryBus.execute<
       GetUpcomingShiftsQuery,
@@ -342,11 +355,11 @@ export class MessageRouterService {
     >(new GetUpcomingShiftsQuery(employeeId, companyId, 5));
 
     if (rawShifts.length === 0) {
-      this._reply(from, 'No tienes turnos asignados próximamente para intercambiar.');
+      this._reply(from, this.i18n.t('bot.swap.no_upcoming_shifts', { lang: locale }));
       return;
     }
 
-    let responseText = '🔄 *Intercambio de turno*\n\nEstos son tus turnos próximos. ¿Cuál quieres intercambiar?\n\n';
+    let responseText = this.i18n.t('bot.swap.select_own_shift', { lang: locale }) + '\n\n';
     const optionsEntities: Record<string, string> = {
       pendingAction: 'swap_shift',
       swapStep: 'SELECT_OWN',
@@ -354,12 +367,10 @@ export class MessageRouterService {
 
     rawShifts.slice(0, 5).forEach((shift, index) => {
       const num = index + 1;
-      const desc = this._formatShiftLine(shift);
+      const desc = this._formatShiftLine(shift, locale);
       responseText += `${num}. ${desc}\n`;
       optionsEntities[`option${num}_shiftId`] = shift.shiftId;
     });
-
-    responseText += '\nResponde con el número del turno.';
 
     session = session.withIntent('swap_shift', {
       ...mergedEntities,
@@ -380,6 +391,7 @@ export class MessageRouterService {
     session: ConversationSessionVO,
     sessionEntities: Readonly<Record<string, any>>,
     selection: string,
+    locale: string,
   ): Promise<boolean> {
     const step = sessionEntities.swapStep;
 
@@ -387,7 +399,7 @@ export class MessageRouterService {
     if (step === 'SELECT_OWN') {
       const shiftId = sessionEntities[`option${selection}_shiftId`];
       if (!shiftId) {
-        this._reply(from, 'Respuesta no válida. Por favor responde con el número del turno.');
+        this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
         return true;
       }
 
@@ -413,7 +425,7 @@ export class MessageRouterService {
 
       if (otherAssignments.length === 0) {
         await this.sessionRepository.clearSession(from);
-        this._reply(from, 'No hay turnos de otros compañeros disponibles para intercambio en este momento.');
+        this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
         return true;
       }
 
@@ -422,7 +434,12 @@ export class MessageRouterService {
       const empMap = new Map(employees.map((e) => [e.id, e.name]));
 
       // Build options list (cap at 5)
-      let responseText = '🔄 Turnos disponibles para intercambio:\n\n';
+      const ownShiftRecord = allShifts.find((s) => s.id === shiftId);
+      const ownShiftDate = ownShiftRecord 
+        ? ownShiftRecord.startTime.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { weekday: 'short', month: 'short', day: 'numeric' })
+        : '';
+        
+      let responseText = this.i18n.t('bot.swap.select_target_shift', { lang: locale, args: { date: ownShiftDate } }) + '\n\n';
       const optionsEntities: Record<string, string> = {
         pendingAction: 'swap_shift',
         swapStep: 'SELECT_TARGET',
@@ -441,7 +458,7 @@ export class MessageRouterService {
           shiftId: shift.id,
           startTime: shift.startTime,
           endTime: shift.endTime,
-        });
+        }, locale);
         responseText += `${count}. *${empName}* — ${desc}\n`;
         optionsEntities[`option${count}_shiftId`] = shift.id;
         optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
@@ -449,11 +466,9 @@ export class MessageRouterService {
 
       if (count === 0) {
         await this.sessionRepository.clearSession(from);
-        this._reply(from, 'No hay turnos de otros compañeros disponibles para intercambio en este momento.');
+        this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
         return true;
       }
-
-      responseText += '\nResponde con el número del turno que deseas recibir.';
 
       session = session.withIntent('swap_shift', optionsEntities);
       await this.sessionRepository.saveSession(session);
@@ -466,7 +481,7 @@ export class MessageRouterService {
       const targetShiftId = sessionEntities[`option${selection}_shiftId`];
       const targetEmployeeId = sessionEntities[`option${selection}_employeeId`];
       if (!targetShiftId || !targetEmployeeId) {
-        this._reply(from, 'Respuesta no válida. Por favor responde con el número del turno.');
+        this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
         return true;
       }
 
@@ -489,17 +504,16 @@ export class MessageRouterService {
       const targetName = employees.find((e) => e.id === targetEmployeeId)?.name || 'Compañero';
 
       const ownDesc = ownShift
-        ? this._formatShiftLine({ shiftId: ownShift.id, startTime: ownShift.startTime, endTime: ownShift.endTime })
+        ? this._formatShiftLine({ shiftId: ownShift.id, startTime: ownShift.startTime, endTime: ownShift.endTime }, locale)
         : ownShiftId;
       const targetDesc = targetShift
-        ? this._formatShiftLine({ shiftId: targetShift.id, startTime: targetShift.startTime, endTime: targetShift.endTime })
+        ? this._formatShiftLine({ shiftId: targetShift.id, startTime: targetShift.startTime, endTime: targetShift.endTime }, locale)
         : targetShiftId;
 
-      const confirmMsg =
-        `🔄 *Confirmar intercambio*\n\n` +
-        `Tu turno: ${ownDesc}\n` +
-        `Turno de *${targetName}*: ${targetDesc}\n\n` +
-        `¿Confirmas el intercambio? (Sí/No)`;
+      const confirmMsg = this.i18n.t('bot.swap.confirm_prompt', {
+        lang: locale,
+        args: { myShift: ownDesc, targetShift: targetDesc, targetName }
+      });
 
       session = session.withIntent('swap_shift', {
         pendingAction: 'swap_shift',
@@ -530,17 +544,17 @@ export class MessageRouterService {
 
         await this.commandBus.execute(command);
         await this.sessionRepository.clearSession(from);
-        this._reply(from, '✅ Solicitud de intercambio enviada. Te notificaremos cuando tu compañero responda.');
+        this._reply(from, this.i18n.t('bot.swap.request_received', { lang: locale }));
         return true;
       }
 
       if (['no', 'n', '2'].includes(selection)) {
         await this.sessionRepository.clearSession(from);
-        this._reply(from, 'Entendido. Intercambio cancelado.');
+        this._reply(from, this.i18n.t('bot.swap.swap_cancelled', { lang: locale }));
         return true;
       }
 
-      this._reply(from, 'Por favor responde *Sí* o *No* para confirmar el intercambio.');
+      this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
       return true;
     }
 
@@ -587,6 +601,7 @@ export class MessageRouterService {
     command: object,
     companyId: string,
     from: string,
+    locale: string,
   ): Promise<object | null> {
     const UUID_LENGTH = 36;
     let shiftId: string | undefined;
@@ -603,7 +618,7 @@ export class MessageRouterService {
     if (!fullId) {
       this._reply(
         from,
-        `⚠️ No pude encontrar un turno con ID "${shiftId}". Verifica el ID e inténtalo de nuevo.`,
+        this.i18n.t('bot.general.shift_not_found', { lang: locale, args: { shiftId } }),
       );
       return null;
     }
@@ -621,19 +636,20 @@ export class MessageRouterService {
   }
 
   /** Format a shift as a human-readable line for WhatsApp. */
-  private _formatShiftLine(shift: { shiftId: string; startTime: Date; endTime: Date }): string {
+  private _formatShiftLine(shift: { shiftId: string; startTime: Date; endTime: Date }, locale: string = 'es'): string {
     const start = new Date(shift.startTime);
     const end = new Date(shift.endTime);
-    const dateStr = start.toLocaleDateString('es-ES', {
+    const code = locale === 'en' ? 'en-US' : 'es-ES';
+    const dateStr = start.toLocaleDateString(code, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
     });
-    const startHora = start.toLocaleTimeString('es-ES', {
+    const startHora = start.toLocaleTimeString(code, {
       hour: '2-digit',
       minute: '2-digit',
     });
-    const endHora = end.toLocaleTimeString('es-ES', {
+    const endHora = end.toLocaleTimeString(code, {
       hour: '2-digit',
       minute: '2-digit',
     });

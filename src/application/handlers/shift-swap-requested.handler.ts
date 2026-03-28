@@ -1,4 +1,5 @@
 import { EventsHandler, IEventHandler } from '@nestjs/cqrs';
+import { I18nService } from 'nestjs-i18n';
 import { Inject, Logger } from '@nestjs/common';
 import { ShiftSwapRequestedEvent } from '../../domain/events/shift-swap-requested.event';
 import type { INotificationService } from '../../domain/services/notification.service';
@@ -20,6 +21,7 @@ export class ShiftSwapRequestedHandler implements IEventHandler<ShiftSwapRequest
     private readonly employeeRepo: IEmployeeRepository,
     @Inject(NOTIFICATION_SERVICE)
     private readonly notificationService: INotificationService,
+    private readonly i18n: I18nService,
   ) {}
 
   async handle(event: ShiftSwapRequestedEvent): Promise<void> {
@@ -41,17 +43,19 @@ export class ShiftSwapRequestedHandler implements IEventHandler<ShiftSwapRequest
       // Notify the target employee about the swap request
       await this.notificationService.sendWhatsApp(
         target.phone,
-        `🔄 *Solicitud de intercambio de turno*\n\n` +
-          `*${requester.name}* te está pidiendo intercambiar un turno.\n\n` +
-          `Para aceptar responde: "acepto el intercambio"\n` +
-          `Para rechazar responde: "rechazo el intercambio"`,
+        this.i18n.t('bot.swap.notification_target', {
+          lang: target.locale,
+          args: { requesterName: requester.name },
+        }),
       );
 
       // Confirm to the requester
       await this.notificationService.sendWhatsApp(
         requester.phone,
-        `✉️ Tu solicitud de intercambio fue enviada a *${target.name}*. ` +
-          `Te notificaremos cuando responda.`,
+        this.i18n.t('bot.swap.notification_requester', {
+          lang: requester.locale,
+          args: { targetName: target.name },
+        }),
       );
     } catch (err) {
       this.logger.error(

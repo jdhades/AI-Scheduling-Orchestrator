@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { I18nService } from 'nestjs-i18n';
 import { GetMyScheduleHandler } from '../../../src/application/handlers/get-my-schedule.handler';
 import { GetMyScheduleQuery } from '../../../src/application/queries/get-my-schedule.query';
 import {
@@ -23,10 +24,20 @@ describe('GetMyScheduleHandler', () => {
       resolveShortId: jest.fn(),
     } as any;
 
+    const mockI18nService = {
+      t: jest.fn().mockImplementation((key) => {
+        if (key === 'bot.schedule.none_this_week') return '📅 No tienes turnos asignados esta semana.';
+        if (key === 'bot.schedule.title_that_week') return '📅 *Tu horario para la semana del';
+        if (key === 'bot.schedule.anything_else') return '¿Necesitas algo más?';
+        return key;
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GetMyScheduleHandler,
         { provide: SHIFT_REPOSITORY, useValue: mockShiftRepo },
+        { provide: I18nService, useValue: mockI18nService },
       ],
     }).compile();
 

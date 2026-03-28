@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { I18nService } from 'nestjs-i18n';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
   MessageRouterService,
@@ -84,6 +85,15 @@ describe('MessageRouterService', () => {
       markWhatsappVerified: jest.fn(),
     } as any;
 
+    const mockI18nService = {
+      t: jest.fn().mockImplementation((key) => {
+        if (key === 'bot.general.success') return '✅ Tu solicitud fue procesada correctamente.';
+        if (key === 'bot.general.clarification') return '❓ No pude entender tu solicitud. ¿Puedes reformularla?';
+        if (key === 'bot.swap.select_own_shift') return 'Intercambio de turno';
+        return key;
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MessageRouterService,
@@ -101,6 +111,7 @@ describe('MessageRouterService', () => {
         { provide: CommandMapperService, useValue: mockCommandMapper },
         { provide: CommandBus, useValue: mockCommandBus },
         { provide: QueryBus, useValue: mockQueryBus },
+        { provide: I18nService, useValue: mockI18nService },
       ],
     }).compile();
 

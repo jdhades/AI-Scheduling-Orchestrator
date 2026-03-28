@@ -28,6 +28,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       role: employee.role,
       phone_number: employee.phone,
       experience_months: employee.experienceMonths,
+      locale: employee.locale,
       hire_date: new Date().toISOString().split('T')[0],
     });
 
@@ -144,6 +145,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
         row.experience_months,
         DEFAULT_EXPERIENCE_RANGES,
       ),
+      locale: row.locale,
       availability,
       preferences,
     });

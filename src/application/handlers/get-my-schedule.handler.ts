@@ -1,5 +1,6 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
+import { I18nService } from 'nestjs-i18n';
 import { GetMyScheduleQuery } from '../queries/get-my-schedule.query';
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
 import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
@@ -13,10 +14,11 @@ export class GetMyScheduleHandler implements IQueryHandler<
 > {
   constructor(
     @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
+    private readonly i18n: I18nService,
   ) {}
 
   async execute(query: GetMyScheduleQuery): Promise<string> {
-    const { employeeId, companyId, weekStart } = query;
+    const { employeeId, companyId, weekStart, locale } = query;
 
     let monday = this._getCurrentMonday();
     if (weekStart) {
@@ -40,24 +42,26 @@ export class GetMyScheduleHandler implements IQueryHandler<
 
     if (assignments.length === 0) {
       if (weekStart) {
-        return `📅 No tienes turnos asignados para la semana del ${monday.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}.`;
+        const dateStr = monday.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { day: 'numeric', month: 'short' });
+        return this.i18n.t('bot.schedule.none_that_week', { lang: locale, args: { date: dateStr } });
       }
-      return '📅 No tienes turnos asignados esta semana.';
+      return this.i18n.t('bot.schedule.none_this_week', { lang: locale });
     }
 
     const shifts = await this.shiftRepo.findByCompanyAndWeek(companyId, monday);
-    return this._formatSchedule(assignments, shifts, weekStart, monday);
+    return this._formatSchedule(assignments, shifts, locale, weekStart, monday);
   }
 
   private _formatSchedule(
     assignments: ShiftAssignment[],
     shifts: Shift[],
+    locale: string,
     hasWeekStart?: string,
     monday?: Date,
   ): string {
     const title = hasWeekStart && monday
-      ? `📅 *Tu horario para la semana del ${monday.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}:*`
-      : '📅 *Tu horario esta semana:*';
+      ? this.i18n.t('bot.schedule.title_that_week', { lang: locale, args: { date: monday.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { day: 'numeric', month: 'short' }) } })
+      : this.i18n.t('bot.schedule.title_this_week', { lang: locale });
     const lines: string[] = [title, ''];
     const dayEmoji: Record<number, string> = {
       0: '🌞',
@@ -76,16 +80,17 @@ export class GetMyScheduleHandler implements IQueryHandler<
       const start = shift.startTime;
       const end = shift.endTime;
 
-      const dayName = start.toLocaleDateString('es-ES', {
+      const code = locale === 'en' ? 'en-US' : 'es-ES';
+      const dayName = start.toLocaleDateString(code, {
         weekday: 'long',
         day: 'numeric',
         month: 'short',
       });
-      const startTime = start.toLocaleTimeString('es-ES', {
+      const startTime = start.toLocaleTimeString(code, {
         hour: '2-digit',
         minute: '2-digit',
       });
-      const endTime = end.toLocaleTimeString('es-ES', {
+      const endTime = end.toLocaleTimeString(code, {
         hour: '2-digit',
         minute: '2-digit',
       });
@@ -95,7 +100,7 @@ export class GetMyScheduleHandler implements IQueryHandler<
       );
     }
 
-    lines.push('', '¿Necesitas algo más?');
+    lines.push('', this.i18n.t('bot.schedule.anything_else', { lang: locale }));
     return lines.join('\n');
   }
 
