@@ -13,6 +13,9 @@
     "open_shift_success": "Done! You have successfully taken the open shift and have been unassigned from the previous one.",
     "confirm_prompt": "Please confirm the swap:\n\n*Your shift:* {myShift}\n*Requested shift:* {targetShift} (from {targetName})\n\nReply with *Yes* to confirm or *No* to cancel.",
     "swap_cancelled": "Swap cancelled.",
+    "select_swap_type": "What kind of shift do you want to swap it for?",
+    "swap_type_open": "For an Open Shift",
+    "swap_type_colleague": "For a Colleague's Shift",
     "notification_target": "🔄 *Shift Swap Request*\n\n*{requesterName}* is asking to swap a shift with you.\n\nTo accept, reply: \"accept swap\"\nTo reject, reply: \"reject swap\"",
     "notification_requester": "✉️ Your swap request was sent to *{targetName}*. We will notify you when they respond."
   },

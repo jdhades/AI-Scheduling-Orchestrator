@@ -13,6 +13,9 @@
     "open_shift_success": "¡Listo! Has tomado el turno libre exitosamente y se te ha desasignado del anterior.",
     "confirm_prompt": "Por favor confirma el intercambio:\n\n*Tu turno:* {myShift}\n*Turno que quieres:* {targetShift} (de {targetName})\n\nResponde *Sí* para confirmar o *No* para cancelar.",
     "swap_cancelled": "Intercambio cancelado.",
+    "select_swap_type": "¿Por qué tipo de turno quieres cambiarlo?",
+    "swap_type_open": "Por un Turno Libre",
+    "swap_type_colleague": "Por el Turno de un Compañero",
     "notification_target": "🔄 *Solicitud de intercambio de turno*\n\n*{requesterName}* te está pidiendo intercambiar un turno.\n\nPara aceptar responde: \"acepto el intercambio\"\nPara rechazar responde: \"rechazo el intercambio\"",
     "notification_requester": "✉️ Tu solicitud de intercambio fue enviada a *{targetName}*. Te notificaremos cuando responda."
   },
