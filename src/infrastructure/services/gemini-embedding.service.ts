@@ -17,7 +17,7 @@ import type { IEmbeddingService } from '../../domain/services/embedding.service.
 @Injectable()
 export class GeminiEmbeddingService implements IEmbeddingService {
   private readonly logger = new Logger(GeminiEmbeddingService.name);
-  private readonly model = 'text-embedding-004';
+  private readonly model = 'embedding-001';
   private readonly apiKey: string;
   private readonly baseUrl =
     'https://generativelanguage.googleapis.com/v1beta/models';

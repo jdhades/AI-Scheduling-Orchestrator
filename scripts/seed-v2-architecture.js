@@ -48,8 +48,8 @@ async function seedV2Data() {
     // 3. Shift Templates
     console.log('Inserting Shift Templates...');
     await supabase.from('shift_templates').upsert([
-        { id: TEMPLATE_MORNING_ID, department_id: DEPT_SALA_ID, name: 'Turno Diurno', time_start: '08:00', time_end: '16:00' },
-        { id: TEMPLATE_EVENING_ID, department_id: DEPT_SALA_ID, name: 'Turno Nocturno', time_start: '16:00', time_end: '23:59' }
+        { id: TEMPLATE_MORNING_ID, department_id: DEPT_SALA_ID, name: 'Turno Diurno', time_start: '08:00', time_end: '16:00', is_active: true },
+        { id: TEMPLATE_EVENING_ID, department_id: DEPT_SALA_ID, name: 'Turno Nocturno', time_start: '16:00', time_end: '23:59', is_active: true }
     ]);
 
     // 4. Employees & Skills (Simplified subset for WhatsApp Swap Testing)
