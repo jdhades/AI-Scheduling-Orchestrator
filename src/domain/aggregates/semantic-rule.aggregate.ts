@@ -13,6 +13,9 @@ export interface SemanticRulePersistenceRow {
   is_active: boolean;
   metadata: Record<string, unknown>;
   created_at: string | Date;
+  expires_at?: string | Date | null;
+  branch_id?: string | null;
+  department_id?: string | null;
 }
 
 /**
@@ -46,6 +49,9 @@ export class SemanticRuleAggregate {
     private readonly createdBy: string | null,
     private readonly metadata: Record<string, unknown>,
     private readonly createdAt: Date,
+    private readonly expiresAt: Date | null,
+    private readonly branchId: string | null,
+    private readonly departmentId: string | null,
   ) {}
 
   /**
@@ -60,6 +66,9 @@ export class SemanticRuleAggregate {
     companyId: string;
     createdBy?: string;
     metadata?: Record<string, unknown>;
+    expiresAt?: Date | null;
+    branchId?: string;
+    departmentId?: string;
   }): SemanticRuleAggregate {
     SemanticRuleAggregate.validateRuleText(params.ruleText);
 
@@ -74,6 +83,9 @@ export class SemanticRuleAggregate {
       params.createdBy ?? null,
       params.metadata ?? {},
       new Date(),
+      params.expiresAt ?? null,
+      params.branchId ?? null,
+      params.departmentId ?? null,
     );
   }
 
@@ -95,6 +107,9 @@ export class SemanticRuleAggregate {
       row.created_by,
       row.metadata ?? {},
       new Date(row.created_at),
+      row.expires_at ? new Date(row.expires_at) : null,
+      row.branch_id ?? null,
+      row.department_id ?? null,
     );
   }
 
@@ -174,6 +189,15 @@ export class SemanticRuleAggregate {
   }
   getCreatedAt(): Date {
     return this.createdAt;
+  }
+  getExpiresAt(): Date | null {
+    return this.expiresAt;
+  }
+  getBranchId(): string | null {
+    return this.branchId;
+  }
+  getDepartmentId(): string | null {
+    return this.departmentId;
   }
 
   // -------------------------------------------------------------------------

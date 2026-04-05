@@ -8,6 +8,7 @@ import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { RequestDayOffCommand } from '../commands/request-day-off.command';
 import { GetMyScheduleQuery } from '../queries/get-my-schedule.query';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
+import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 
 export interface CommandMapperResult {
   command:
@@ -15,6 +16,7 @@ export interface CommandMapperResult {
     | RequestDayOffCommand
     | GetMyScheduleQuery
     | GenerateHybridScheduleCommand
+    | CreateSemanticRuleCommand
     | null;
   missingFields: string[];
   clarificationMessage: string | null;
@@ -40,6 +42,14 @@ export class CommandMapperService {
     mergedEntities: IntentEntities,
     locale: string = 'es',
   ): CommandMapperResult {
+    if (intent.getIntent() === 'system_unavailable') {
+      return {
+        command: null,
+        missingFields: [],
+        clarificationMessage: this.i18n.t('bot.general.system_unavailable', { lang: locale, defaultValue: '⚠️ El sistema de IA no está disponible temporalmente debido a alta demanda. Por favor, intenta enviar tu mensaje nuevamente en unos minutos.' }),
+      };
+    }
+
     if (intent.isUnknown() || !intent.isActionable()) {
       return {
         command: null,
@@ -137,6 +147,35 @@ export class CommandMapperService {
         };
       }
 
+      case 'create_rule': {
+        if (!mergedEntities.ruleText) {
+          return {
+            command: null,
+            missingFields: ['ruleText'],
+            clarificationMessage: this.i18n.t('bot.rules.missing_text', { lang: locale }),
+          };
+        }
+
+        let expiresAt: Date | undefined;
+        if (mergedEntities.durationStr) {
+          expiresAt = this._parseDurationAsDate(mergedEntities.durationStr);
+        }
+
+        return {
+          command: new CreateSemanticRuleCommand(
+            companyId,
+            mergedEntities.ruleText,
+            2, // Priority 2: semantic
+            'restriction',
+            employeeId, // createdBy
+            undefined, // metadata
+            expiresAt,
+          ),
+          missingFields: [],
+          clarificationMessage: null,
+        };
+      }
+
       default:
         this.logger.warn(`Unhandled intent type: ${type}`);
         return { command: null, missingFields: [], clarificationMessage: null };
@@ -160,5 +199,42 @@ export class CommandMapperService {
     const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
     d.setDate(d.getDate() + daysUntilMonday);
     return d.toISOString().split('T')[0];
+  }
+
+  /**
+   * Naively maps conversational duration strings (extracted by Gemini) to future
+   * dates. If it fails to parse, it returns undefined (null expiration).
+   */
+  private _parseDurationAsDate(durationStr: string): Date | undefined {
+    const text = durationStr.toLowerCase();
+    const d = new Date();
+    
+    if (text.includes('mes') || text.includes('month')) {
+      const numMatch = text.match(/\d+/);
+      const months = numMatch ? parseInt(numMatch[0], 10) : 1;
+      d.setMonth(d.getMonth() + months);
+      return d;
+    }
+    
+    if (text.includes('semana') || text.includes('week')) {
+      const numMatch = text.match(/\d+/);
+      const weeks = numMatch ? parseInt(numMatch[0], 10) : 1;
+      d.setDate(d.getDate() + (weeks * 7));
+      return d;
+    }
+    
+    if (text.match(/d[íi]a|day|hoy|today|ma[ñn]ana|tomorrow/)) {
+      const numMatch = text.match(/\d+/);
+      let days = numMatch ? parseInt(numMatch[0], 10) : 1;
+      if (text.includes('mañana') || text.includes('tomorrow')) days = 1;
+      if (text.includes('hoy') || text.includes('today')) days = 0;
+      
+      d.setDate(d.getDate() + days);
+      // set to end of day
+      d.setHours(23, 59, 59, 999);
+      return d;
+    }
+    
+    return undefined;
   }
 }

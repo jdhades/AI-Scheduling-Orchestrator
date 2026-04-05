@@ -129,38 +129,9 @@ CREATE TABLE fairness_history (
     UNIQUE (employee_id, week_start)
 );
 
--- ---------------------------------------------------------------------------
--- TABLE: semantic_rules  (RAG — Fase 3)
--- Company-specific business rules stored as text + vector embedding
--- ---------------------------------------------------------------------------
-CREATE TABLE semantic_rules (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    rule_text       TEXT NOT NULL,
-    embedding       VECTOR(1536),               -- dimension for text-embedding-3-small
-    priority_level  INTEGER NOT NULL DEFAULT 1,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
-CREATE INDEX semantic_rules_embedding_idx
-    ON semantic_rules USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
 
--- ---------------------------------------------------------------------------
--- TABLE: incidents
--- ---------------------------------------------------------------------------
-CREATE TABLE incidents (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-    company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    type            TEXT NOT NULL CHECK (type IN ('medical', 'personal', 'no-show')),
-    start_date      DATE NOT NULL,
-    end_date        DATE,
-    status          TEXT NOT NULL DEFAULT 'pending'
-                        CHECK (status IN ('pending', 'approved', 'rejected')),
-    ocr_confidence  NUMERIC(4,3),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+
 
 -- =============================================================================
 -- ROW LEVEL SECURITY (RLS)
@@ -175,8 +146,8 @@ ALTER TABLE employee_skills     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shifts              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shift_assignments   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fairness_history    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE semantic_rules      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE incidents           ENABLE ROW LEVEL SECURITY;
+
+
 -- companies & skills: no RLS (global catalog, read-only for tenants)
 
 -- Helper function: extracts current tenant from PostgreSQL session variable
@@ -218,8 +189,5 @@ CREATE POLICY tenant_isolation ON shift_assignments
 CREATE POLICY tenant_isolation ON fairness_history
     USING (company_id = current_tenant_id());
 
-CREATE POLICY tenant_isolation ON semantic_rules
-    USING (company_id = current_tenant_id());
 
-CREATE POLICY tenant_isolation ON incidents
-    USING (company_id = current_tenant_id());
+

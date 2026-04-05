@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { IEmbeddingService } from '../../domain/services/embedding.service.interface';
+import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 
 /**
  * GeminiEmbeddingService — Infrastructure Service
@@ -17,7 +18,7 @@ import type { IEmbeddingService } from '../../domain/services/embedding.service.
 @Injectable()
 export class GeminiEmbeddingService implements IEmbeddingService {
   private readonly logger = new Logger(GeminiEmbeddingService.name);
-  private readonly model = 'embedding-001';
+  private readonly model = 'gemini-embedding-001';
   private readonly apiKey: string;
   private readonly baseUrl =
     'https://generativelanguage.googleapis.com/v1beta/models';
@@ -37,45 +38,51 @@ export class GeminiEmbeddingService implements IEmbeddingService {
 
     const url = `${this.baseUrl}/${this.model}:embedContent?key=${this.apiKey}`;
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: `models/${this.model}`,
-          content: {
-            parts: [{ text: text.substring(0, 2048) }], // límite de la API
-          },
-        }),
-      });
-    } catch (networkError) {
-      this.logger.error(`GeminiEmbeddingService: network error`, networkError);
-      throw new Error(
-        `EmbeddingService: network error — ${(networkError as Error).message}`,
-      );
-    }
+    return withExponentialBackoff(
+      async () => {
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: `models/${this.model}`,
+              content: {
+                parts: [{ text: text.substring(0, 2048) }], // límite de la API
+              },
+            }),
+          });
+        } catch (networkError) {
+          this.logger.error(`GeminiEmbeddingService: network error`, networkError);
+          throw new Error(
+            `EmbeddingService: network error — ${(networkError as Error).message}`,
+          );
+        }
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '(no body)');
-      this.logger.error(
-        `GeminiEmbeddingService: API returned ${response.status} — ${body}`,
-      );
-      throw new Error(
-        `EmbeddingService: API error ${response.status} — ${response.statusText}`,
-      );
-    }
+        if (!response.ok) {
+          const body = await response.text().catch(() => '(no body)');
+          this.logger.error(
+            `GeminiEmbeddingService: API returned ${response.status} — ${body}`,
+          );
+          throw new Error(
+            `EmbeddingService: API error ${response.status} — ${response.statusText}`,
+          );
+        }
 
-    const json = await response.json();
-    const values: number[] = json?.embedding?.values;
+        const json = await response.json();
+        const values: number[] = json?.embedding?.values;
 
-    if (!Array.isArray(values) || values.length === 0) {
-      throw new Error(
-        'EmbeddingService: API returned empty or invalid embedding',
-      );
-    }
+        if (!Array.isArray(values) || values.length === 0) {
+          throw new Error(
+            'EmbeddingService: API returned empty or invalid embedding',
+          );
+        }
 
-    return values;
+        return values;
+      },
+      'GeminiEmbeddingService',
+      { maxRetries: 3, initialDelayMs: 2000 }
+    );
   }
 
   /**
@@ -85,8 +92,8 @@ export class GeminiEmbeddingService implements IEmbeddingService {
   async generateBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
-    // Limitar paralelismo a 10 requests simultáneos para respetar rate limits
-    const BATCH_SIZE = 10;
+    // Limitar paralelismo a 5 requests simultáneos para respetar rate limits de capa gratuita
+    const BATCH_SIZE = 5;
     const results: number[][] = [];
 
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {

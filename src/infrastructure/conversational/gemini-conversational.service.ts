@@ -48,9 +48,11 @@ export class GeminiConversationalService implements IConversationalService {
       );
       return this._parseResponse(raw, text);
     } catch (err) {
-      this.logger.error(
-        `[processText] Gemini call failed: ${(err as Error).message}`,
-      );
+      const errMsg = (err as Error).message;
+      this.logger.error(`[processText] Gemini call failed: ${errMsg}`);
+      if (errMsg.includes('429')) {
+         return ConversationIntentVO.systemUnavailable(text);
+      }
       return ConversationIntentVO.unknown(text);
     }
   }
@@ -86,9 +88,11 @@ export class GeminiConversationalService implements IConversationalService {
       );
       return this._parseResponse(raw, '(audio no transcrito)');
     } catch (err) {
-      this.logger.error(
-        `[processAudio] Gemini call failed: ${(err as Error).message}`,
-      );
+      const errMsg = (err as Error).message;
+      this.logger.error(`[processAudio] Gemini call failed: ${errMsg}`);
+      if (errMsg.includes('429')) {
+         return ConversationIntentVO.systemUnavailable('(audio no transcrito)');
+      }
       return ConversationIntentVO.unknown('(error procesando audio)');
     }
   }
@@ -108,6 +112,7 @@ INTENCIONES DISPONIBLES:
 - request_day_off: el empleado solicita un día libre
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana que viene")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
+- create_rule: el manager dicta una regla de negocio o restricción para la configuración de horarios (ej. "agrega una regla", "apunta esto", "los viernes ocupo 2 meseros", "se prohibe...", "por un mes...")
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -118,6 +123,8 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - weekStart: primer día de la semana (lunes) en formato YYYY-MM-DD si el usuario pregunta por una semana en particular
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
+- ruleText: texto de la regla que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule)
+- durationStr: caducidad de la regla en lenguaje natural (ej. "por un mes", "esta semana", "solo hoy") si se menciona.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
@@ -132,6 +139,8 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     "weekStart": <string|null>,
     "timeOfDay": <string|null>,
     "selection": <string|null>,
+    "ruleText": <string|null>,
+    "durationStr": <string|null>,
     "detectedLanguage": <string|null>
   },
   "transcription": null
@@ -155,6 +164,7 @@ INTENCIONES DISPONIBLES:
 - request_day_off: el empleado solicita un día libre
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
+- create_rule: el manager dicta una regla de negocio o restricción para la configuración de horarios verbalmente (ej. "agrega una regla", "apunta esto", "los viernes ocupo 2 meseros", "se prohibe...", "por un mes...")
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -165,6 +175,8 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - weekStart: primer día de la semana (lunes) en formato YYYY-MM-DD si el usuario pregunta por una semana en particular
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
+- ruleText: texto literal de la regla dictada por el manager, estructurada claramente, omitiendo saludos.
+- durationStr: vigencia o límite temporal en lenguaje natural (ej. "por un mes", "esta semana", "todo enero") si se menciona en el audio.
 - detectedLanguage: el código de idioma ISO 639-1 del audio (ej. "es", "en", "pt")
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
@@ -179,6 +191,8 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     "weekStart": <string|null>,
     "timeOfDay": <string|null>,
     "selection": <string|null>,
+    "ruleText": <string|null>,
+    "durationStr": <string|null>,
     "detectedLanguage": <string|null>
   },
   "transcription": "<transcripcion del audio>"
@@ -202,40 +216,62 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
       },
     });
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const maxRetries = 3;
+    const baseDelayMs = 1000;
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        signal: controller.signal,
-      });
-    } finally {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: controller.signal,
+        });
+      } catch (err: any) {
+        clearTimeout(timer);
+        if (attempt === maxRetries) throw new Error(`Gemini fetch error: ${err.message}`);
+        await this._delay(baseDelayMs * Math.pow(2, attempt - 1));
+        continue;
+      }
       clearTimeout(timer);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 429) {
+          if (attempt === maxRetries) {
+            throw new Error(`(429) Gemini Timeout Exhausted: Rate Limit Exceeded`);
+          }
+          this.logger.warn(`Gemini 429 on attempt ${attempt}. Retrying...`);
+          await this._delay(baseDelayMs * Math.pow(2, attempt - 1));
+          continue;
+        }
+        throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+      }
+
+      const json = (await response.json()) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+          finishReason?: string;
+        }>;
+      };
+
+      this.logger.debug(
+        `[Gemini API] FULL RAW NETWORK RESPONSE: ${JSON.stringify(json)}`,
+      );
+
+      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('Empty response from Gemini');
+      return text;
     }
+    throw new Error('Unreachable code in _callGemini');
+  }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error ${response.status}: ${errorText}`);
-    }
-
-    const json = (await response.json()) as {
-      candidates?: Array<{
-        content?: { parts?: Array<{ text?: string }> };
-        finishReason?: string;
-      }>;
-    };
-
-    this.logger.debug(
-      `[Gemini API] FULL RAW NETWORK RESPONSE: ${JSON.stringify(json)}`,
-    );
-
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error('Empty response from Gemini');
-    return text;
+  private _delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async _downloadAudioAsBase64(
@@ -312,13 +348,15 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
       if (!rawText || rawText.trim() === '') rawText = '(sin texto)';
 
       // Validate intent is one of the allowed values
-      const validIntents: IntentType[] = [
+      const validIntents: string[] = [
         'swap_shift',
         'report_absence',
         'check_schedule',
         'request_day_off',
         'generate_schedule',
         'select_option',
+        'create_rule',
+        'system_unavailable',
         'unknown',
       ];
       if (!validIntents.includes(intent)) {

@@ -28,10 +28,12 @@ import { RepositoriesModule } from '../infrastructure/repositories/repositories.
 import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { ConversationalModule } from '../infrastructure/conversational/conversational.module';
 import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
+import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.service';
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
 import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
 import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
+import { InstantiateWeekHandler } from './commands/instantiate-week/instantiate-week.handler';
 
 /**
  * ApplicationModule
@@ -79,6 +81,7 @@ const DomainServices = [
   ConflictResolutionEngine,
   PromptOrchestratorService,
   ScheduleValidatorService,
+  InstantiateWeekHandler,
 ];
 
 @Module({
@@ -88,6 +91,7 @@ const DomainServices = [
     NotificationsModule,
     ConversationalModule,
     WebsocketModule,
+    SupabaseModule,
   ],
   providers: [
     ...CommandHandlers,

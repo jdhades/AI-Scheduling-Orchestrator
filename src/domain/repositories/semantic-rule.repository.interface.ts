@@ -48,6 +48,8 @@ export interface ISemanticRuleRepository {
   findRelevantRules(
     queryVector: number[],
     companyId: string,
+    branchId?: string,
+    departmentId?: string,
     topK?: number,
   ): Promise<SemanticRuleWithDistance[]>;
 

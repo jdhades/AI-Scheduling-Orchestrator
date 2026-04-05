@@ -41,12 +41,16 @@
     "title_this_week": "📅 *Tu horario esta semana:*",
     "anything_else": "¿Necesitas algo más?"
   },
+  "rules": {
+    "missing_text": "⚠️ Para crear una regla, por favor dime cuál es la restricción o preferencia. Por ejemplo: 'Los viernes necesito 2 cajeros'."
+  },
   "general": {
     "unknown_intent": "🤔 No entendí bien tu solicitud. Puedo ayudarte a:\n• Ver tu horario\n• Reportar una ausencia\n• Pedir intercambio de turno\n• Solicitar día libre\n• Generar el horario de la semana (managers)\n\n¿Qué necesitas?",
     "clarification": "❓ No pude entender tu solicitud. ¿Puedes reformularla?",
     "invalid_choice": "Respuesta no válida. Por favor responde con el número de la opción o 'sí'/'no'.",
     "shift_not_found": "⚠️ No pude encontrar un turno con ID '{shiftId}'. Verifica el ID e inténtalo de nuevo.",
     "success": "✅ Tu solicitud fue procesada correctamente.",
-    "error": "⚠️ Ocurrió un error procesando tu mensaje. Por favor inténtalo de nuevo."
+    "error": "⚠️ Ocurrió un error procesando tu mensaje. Por favor inténtalo de nuevo.",
+    "unauthorized": "⚠️ No tienes permisos para realizar esta acción."
   }
 }

@@ -52,6 +52,8 @@ export class SemanticRetrievalService {
     shiftContext: string;
     companyId: string;
     shiftDate: Date;
+    branchId?: string;
+    departmentId?: string;
   }): Promise<SemanticConstraint[]> {
     if (!params.shiftContext?.trim() || !params.companyId) {
       return [];
@@ -71,6 +73,8 @@ export class SemanticRetrievalService {
       const candidates = await this.ruleRepository.findRelevantRules(
         queryVector,
         params.companyId,
+        params.branchId,
+        params.departmentId,
         SemanticRetrievalService.TOP_K,
       );
 

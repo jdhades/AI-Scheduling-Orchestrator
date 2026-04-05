@@ -21,6 +21,8 @@ export class ConversationSessionVO {
     private readonly _collectedEntities: IntentEntities,
     private readonly _createdAt: Date,
     private readonly _expiresAt: Date,
+    private readonly _actionRequired: string | null = null,
+    private readonly _actionPayload: Record<string, any> | null = null,
   ) {}
 
   // ─── Factories ────────────────────────────────────────────────────────────
@@ -47,6 +49,8 @@ export class ConversationSessionVO {
       {},
       now,
       expiresAt,
+      null,
+      null,
     );
   }
 
@@ -59,6 +63,8 @@ export class ConversationSessionVO {
     collectedEntities: IntentEntities;
     createdAt: string;
     expiresAt: string;
+    actionRequired?: string | null;
+    actionPayload?: Record<string, any> | null;
   }): ConversationSessionVO {
     return new ConversationSessionVO(
       data.sessionId,
@@ -68,6 +74,8 @@ export class ConversationSessionVO {
       data.collectedEntities,
       new Date(data.createdAt),
       new Date(data.expiresAt),
+      data.actionRequired ?? null,
+      data.actionPayload ?? null,
     );
   }
 
@@ -94,6 +102,12 @@ export class ConversationSessionVO {
   getExpiresAt(): Date {
     return this._expiresAt;
   }
+  getActionRequired(): string | null {
+    return this._actionRequired;
+  }
+  getActionPayload(): Record<string, any> | null {
+    return this._actionPayload;
+  }
 
   // ─── Business logic ───────────────────────────────────────────────────────
 
@@ -117,6 +131,25 @@ export class ConversationSessionVO {
       { ...this._collectedEntities, ...entities },
       this._createdAt,
       this._expiresAt,
+      this._actionRequired,
+      this._actionPayload,
+    );
+  }
+
+  withAction(
+    actionRequired: string | null,
+    actionPayload: Record<string, any> | null,
+  ): ConversationSessionVO {
+    return new ConversationSessionVO(
+      this._sessionId,
+      this._employeePhone,
+      this._companyId,
+      this._pendingIntent,
+      this._collectedEntities,
+      this._createdAt,
+      this._expiresAt,
+      actionRequired,
+      actionPayload,
     );
   }
 
@@ -130,6 +163,8 @@ export class ConversationSessionVO {
       collectedEntities: this._collectedEntities,
       createdAt: this._createdAt.toISOString(),
       expiresAt: this._expiresAt.toISOString(),
+      actionRequired: this._actionRequired,
+      actionPayload: this._actionPayload,
     };
   }
 }

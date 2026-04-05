@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ILLMService } from '../../domain/services/llm.service.interface';
+import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 
 /**
  * GeminiLLMService — Implementación concreta de ILLMService
@@ -17,7 +18,7 @@ import type { ILLMService } from '../../domain/services/llm.service.interface';
 export class GeminiLLMService implements ILLMService {
   private readonly logger = new Logger(GeminiLLMService.name);
   private readonly apiKey: string | undefined;
-  private readonly model = 'gemini-1.5-flash'; // Flash: menor latencia para scheduling
+  private readonly model = 'gemini-2.0-flash'; // Flash: menor latencia para scheduling
   private readonly TIMEOUT_MS = 15_000;
 
   constructor(private readonly config: ConfigService) {
@@ -34,28 +35,11 @@ export class GeminiLLMService implements ILLMService {
       throw new Error('GeminiLLMService: GEMINI_API_KEY is not configured');
     }
 
-    return this.callWithRetry(prompt, 1);
-  }
-
-  private async callWithRetry(
-    prompt: string,
-    retriesLeft: number,
-  ): Promise<string> {
-    try {
-      return await this.callGemini(prompt);
-    } catch (error) {
-      const isNetworkError = !(
-        error instanceof Error && error.message.includes('HTTP')
-      );
-      if (retriesLeft > 0 && isNetworkError) {
-        this.logger.warn(
-          `GeminiLLMService: retrying after error: ${(error as Error).message}`,
-        );
-        await this.sleep(1000);
-        return this.callWithRetry(prompt, retriesLeft - 1);
-      }
-      throw error;
-    }
+    return withExponentialBackoff(
+      () => this.callGemini(prompt),
+      'GeminiLLMService',
+      { maxRetries: 3, initialDelayMs: 2000 }
+    );
   }
 
   private async callGemini(prompt: string): Promise<string> {
@@ -104,7 +88,4 @@ export class GeminiLLMService implements ILLMService {
     return rawText;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

@@ -58,6 +58,9 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
       companyId: command.companyId,
       createdBy: command.createdBy,
       metadata: command.metadata,
+      expiresAt: command.expiresAt ?? null,
+      branchId: command.branchId ?? undefined,
+      departmentId: command.departmentId ?? undefined,
     });
 
     // 2. Generar embedding (puede fallar si la API está caída)

@@ -9,6 +9,8 @@ export type IntentType =
   | 'request_day_off'
   | 'generate_schedule'
   | 'select_option'
+  | 'create_rule'
+  | 'system_unavailable'
   | 'unknown';
 
 export interface IntentEntities {
@@ -19,6 +21,8 @@ export interface IntentEntities {
   weekStart?: string; // ISO 8601 date (YYYY-MM-DD) — for generate_schedule
   timeOfDay?: string; // 'morning', 'afternoon', 'night', etc.
   selection?: string; // '1', '2', 'yes', 'no'
+  ruleText?: string; // the rule dictated by the manager
+  durationStr?: string; // temporal duration e.g. "for next month"
   detectedLanguage?: string; // ISO 639-1 code (e.g. 'en', 'es', 'pt')
   [key: string]: any; // Allow dynamic properties for session state
 }
@@ -38,6 +42,8 @@ export class ConversationIntentVO {
     'request_day_off',
     'generate_schedule',
     'select_option',
+    'create_rule',
+    'system_unavailable',
     'unknown',
   ];
 
@@ -81,9 +87,13 @@ export class ConversationIntentVO {
     );
   }
 
-  /** Creates an "unknown" intent for when classification fails. */
   static unknown(rawText = ''): ConversationIntentVO {
     return new ConversationIntentVO('unknown', 0, {}, rawText);
+  }
+
+  /** Creates a fallback intent for when Gemini faces Rate Limits (429) */
+  static systemUnavailable(rawText = ''): ConversationIntentVO {
+    return new ConversationIntentVO('system_unavailable', 1, {}, rawText);
   }
 
   // ─── Accessors ────────────────────────────────────────────────────────────
@@ -129,6 +139,8 @@ export class ConversationIntentVO {
       request_day_off: ['date'],
       generate_schedule: ['weekStart'],
       select_option: [],
+      create_rule: ['ruleText'],
+      system_unavailable: [],
       unknown: [],
     };
 

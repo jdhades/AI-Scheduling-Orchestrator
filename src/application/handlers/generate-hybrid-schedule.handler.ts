@@ -4,6 +4,7 @@ import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-sched
 import { PromptOrchestratorService } from '../../domain/services/prompt-orchestrator.service';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { InstantiateWeekHandler } from '../commands/instantiate-week/instantiate-week.handler';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
 import type { IFairnessHistoryRepository } from '../../domain/repositories/fairness-history.repository';
@@ -53,15 +54,22 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
     private readonly semanticRetrievalService: SemanticRetrievalService,
     private readonly promptOrchestrator: PromptOrchestratorService,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly instantiateWeekHandler: InstantiateWeekHandler,
   ) {}
 
   async execute(
     command: GenerateHybridScheduleCommand,
   ): Promise<HybridScheduleResult> {
-    const weekStart = new Date(`${command.weekStart}T00:00:00.000Z`);
+    // Normalize weekStart to Monday (Gemini may send a non-Monday date)
+    const rawDate = new Date(`${command.weekStart}T00:00:00.000Z`);
+    const dayOfWeek = rawDate.getUTCDay(); // 0=Sun, 1=Mon, ...
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const weekStart = new Date(rawDate);
+    weekStart.setUTCDate(weekStart.getUTCDate() - daysToSubtract);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
 
     this.logger.log(
-      `Hybrid schedule — company=${command.companyId} week=${command.weekStart}`,
+      `Hybrid schedule — company=${command.companyId} week=${weekStartStr} (from input ${command.weekStart})`,
     );
 
     // 1. Cargar datos en paralelo
@@ -70,6 +78,19 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart),
       this.fairnessRepository.findByWeek(command.companyId, weekStart),
     ]);
+
+    // 1b. Auto-instantiate from templates if no shifts exist for this week
+    if (shifts.length === 0) {
+      this.logger.log(`No shifts found for week ${weekStartStr} — auto-instantiating from templates...`);
+      const instantiateResult = await this.instantiateWeekHandler.execute({
+        companyId: command.companyId,
+        weekStart: weekStartStr,
+      });
+      this.logger.log(`Instantiated ${instantiateResult.generated} shifts from templates`);
+
+      // Reload shifts after instantiation
+      shifts = await this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart);
+    }
 
     if (command.shiftTemplateId) {
       shifts = shifts.filter((s) => s.templateId === command.shiftTemplateId);
@@ -80,14 +101,20 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       `Loaded — employees=${employees.length} shifts=${shifts.length}`,
     );
 
-    // 2. RAG: recuperar reglas semánticas relevantes
-    const semanticRules = await this.semanticRetrievalService.retrieveForShift({
-      shiftContext: `empresa ${command.companyId} semana ${command.weekStart} modo hybrid-prompt`,
-      companyId: command.companyId,
-      shiftDate: weekStart,
-    });
-
-    this.logger.log(`RAG: ${semanticRules.length} semantic rules retrieved`);
+    // 2. RAG: recuperar reglas semánticas relevantes (Modo Degradado si falla la conectividad/cuota LLM)
+    let semanticRules: any[] = [];
+    try {
+      semanticRules = await this.semanticRetrievalService.retrieveForShift({
+        shiftContext: `empresa ${command.companyId} semana ${command.weekStart} modo hybrid-prompt`,
+        companyId: command.companyId,
+        shiftDate: weekStart,
+      });
+      this.logger.log(`RAG: ${semanticRules.length} semantic rules retrieved`);
+    } catch (error) {
+      this.logger.warn(
+        `RAG Degradado: No se pudieron recuperar reglas semánticas debido a un error [${(error as Error).message}]. Continúa la asignación sin restricciones extra.`
+      );
+    }
 
     // 3. Orquestar LLM + algoritmo
     const result = await this.promptOrchestrator.orchestrate({

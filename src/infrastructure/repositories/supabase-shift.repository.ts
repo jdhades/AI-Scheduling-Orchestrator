@@ -27,6 +27,7 @@ export class SupabaseShiftRepository implements IShiftRepository {
       required_experience_months: shift.requiredExperienceMonths,
       demand_score: shift.demandScore.value,
       undesirable_weight: shift.undesirableWeight.value,
+      template_id: shift.templateId ?? null,
     });
     if (error) throw new Error(`ShiftRepository.save failed: ${error.message}`);
   }

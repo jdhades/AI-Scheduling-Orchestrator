@@ -12,5 +12,8 @@ export class CreateSemanticRuleCommand {
     public readonly ruleType: 'restriction' | 'preference' | 'requirement',
     public readonly createdBy?: string,
     public readonly metadata?: Record<string, unknown>,
+    public readonly expiresAt?: Date | null,
+    public readonly branchId?: string | null,
+    public readonly departmentId?: string | null,
   ) {}
 }

@@ -35,6 +35,9 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       created_by: rule.getCreatedBy(),
       is_active: rule.getIsActive(),
       metadata: rule.getMetadata(),
+      expires_at: rule.getExpiresAt()?.toISOString() ?? null,
+      branch_id: rule.getBranchId() ?? null,
+      department_id: rule.getDepartmentId() ?? null,
     });
 
     if (error) {
@@ -88,6 +91,8 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
   async findRelevantRules(
     queryVector: number[],
     companyId: string,
+    branchId?: string,
+    departmentId?: string,
     topK = 10,
   ): Promise<SemanticRuleWithDistance[]> {
     const vectorStr = `[${queryVector.join(',')}]`;
@@ -95,6 +100,8 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
     const { data, error } = await this.supabase.rpc('find_relevant_rules', {
       query_vector: vectorStr,
       company_id_param: companyId,
+      branch_id_param: branchId ?? null,
+      department_id_param: departmentId ?? null,
       top_k: topK,
     });
 
@@ -143,6 +150,9 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       is_active: row.is_active as boolean,
       metadata: (row.metadata as Record<string, unknown>) ?? {},
       created_at: row.created_at as string,
+      expires_at: (row.expires_at as string) ?? null,
+      branch_id: (row.branch_id as string) ?? null,
+      department_id: (row.department_id as string) ?? null,
     });
   }
 }

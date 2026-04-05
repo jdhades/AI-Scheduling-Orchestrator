@@ -20,7 +20,9 @@ import { SwapShiftCommand } from '../commands/swap-shift.command';
 import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
+import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import { I18nService } from 'nestjs-i18n';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface IncomingMessage {
   from: string; // E.164 phone number of sender
@@ -64,6 +66,7 @@ export class MessageRouterService {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly i18n: I18nService,
+    @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -142,6 +145,41 @@ export class MessageRouterService {
         }
       }
 
+      // Handle Option Selection for rule creation
+      if (session.getActionRequired() === 'RULE_SELECT_SCOPE') {
+        const rawText = intent.getRawText().trim().toLowerCase();
+        const selection = intentEntities.selection?.toLowerCase() || rawText;
+
+        const payload = session.getActionPayload()!;
+        let targetBranchId: string | undefined | null = undefined;
+
+        if (selection === '0' || selection === 'todas' || selection === 'todas las sucursales') {
+          targetBranchId = null; // global
+        } else {
+          targetBranchId = payload[`option${selection}_branchId`];
+          if (!targetBranchId) {
+             this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+             return;
+          }
+        }
+
+        const baseCmd = payload.commandPayload;
+        const cmd = new CreateSemanticRuleCommand(
+             baseCmd.companyId,
+             baseCmd.ruleText,
+             baseCmd.priorityLevel,
+             baseCmd.ruleType,
+             baseCmd.createdBy,
+             baseCmd.metadata,
+             baseCmd.expiresAt ? new Date(baseCmd.expiresAt) : null,
+             targetBranchId
+        );
+        await this._execute(cmd);
+        await this.sessionRepository.clearSession(from);
+        this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+        return;
+      }
+
       // Handle Option Selection for swap_shift (multi-step)
       if (
         (currentIntent === 'select_option' || currentIntent === 'unknown') &&
@@ -199,6 +237,52 @@ export class MessageRouterService {
         mergedEntities,
         locale,
       );
+
+      if (mapResult.command?.constructor.name === 'CreateSemanticRuleCommand') {
+        if (employee?.role !== 'manager') {
+          this._reply(from, this.i18n.t('bot.general.unauthorized', { lang: locale, defaultValue: '⚠️ No tienes permisos para crear reglas de negocio.' }));
+          await this.sessionRepository.clearSession(from);
+          return;
+        }
+
+        const { data: branches, error } = await this.supabase
+          .from('branches')
+          .select('id, name')
+          .eq('company_id', companyId);
+
+        if (!error && branches && branches.length > 1) {
+          let responseText = `Veo que la empresa tiene múltiples sucursales. ¿A qué sucursal aplica esta regla?\n\n0. A todas las sucursales (Global)\n`;
+          const optionsEntities: Record<string, string> = {
+              pendingAction: 'create_rule',
+              ruleStep: 'SELECT_SCOPE',
+          };
+          branches.slice(0, 8).forEach((b, idx) => {
+              const num = idx + 1;
+              responseText += `${num}. ${b.name}\n`;
+              optionsEntities[`option${num}_branchId`] = b.id;
+          });
+
+          session = session.withAction('RULE_SELECT_SCOPE', {
+              ...optionsEntities,
+              commandPayload: { ...mapResult.command }
+          });
+          await this.sessionRepository.saveSession(session);
+          this._reply(from, responseText.trim());
+          return;
+        } else if (!error && branches && branches.length === 1) {
+          const mCmd = mapResult.command as CreateSemanticRuleCommand;
+          mapResult.command = new CreateSemanticRuleCommand(
+             mCmd.companyId,
+             mCmd.ruleText,
+             mCmd.priorityLevel,
+             mCmd.ruleType,
+             mCmd.createdBy,
+             mCmd.metadata,
+             mCmd.expiresAt,
+             branches[0].id
+          );
+        }
+      }
 
       // 4a. Handle SWAP_SELECT_SHIFT — start the guided swap flow
       if (mapResult.actionRequired === 'SWAP_SELECT_SHIFT') {
