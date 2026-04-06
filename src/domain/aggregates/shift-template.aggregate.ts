@@ -86,31 +86,29 @@ export class ShiftTemplate {
    * @param weekMondayUtc  A `Date` set exactly to the Monday (00:00:00 UTC) of the target week.
    */
   instantiateForWeek(weekMondayUtc: Date): Shift {
-    // Step 1: offset from Monday to the correct day
-    // Monday = 1 in JS getUTCDay(); our dayOfWeek uses the same 0=Sun convention.
-    // Days from Monday: Mon→0, Tue→1, Wed→2, Thu→3, Fri→4, Sat→5, Sun→6
+    // Step 1: offset from Monday to the correct day (Monday=1, Sun=0)
+    // We treat Sunday as the end of the week (Monday + 6 days).
     const daysFromMonday = this.dayOfWeek === 0 ? 6 : this.dayOfWeek - 1;
 
-    const instanceDate = new Date(weekMondayUtc);
-    instanceDate.setUTCDate(instanceDate.getUTCDate() + daysFromMonday);
-
-    // Step 2: build start / end DateTimes
+    // Use UTC math directly via Date.UTC to ensure we never cross Node timezone borders
+    const year = weekMondayUtc.getUTCFullYear();
+    const month = weekMondayUtc.getUTCMonth();
+    const date = weekMondayUtc.getUTCDate() + daysFromMonday;
+    
+    // Step 2: Extract hours and minutes
     const [startH, startM] = this.startTime.split(':').map(Number);
     const [endH, endM] = this.endTime.split(':').map(Number);
 
-    const startDateTime = new Date(instanceDate);
-    startDateTime.setUTCHours(startH, startM, 0, 0);
+    // Build the specific UTC timestamp cleanly
+    const startDateTime = new Date(Date.UTC(year, month, date, startH, startM, 0, 0));
+    const endDateTime = new Date(Date.UTC(year, month, date, endH, endM, 0, 0));
 
-    const endDateTime = new Date(instanceDate);
-    endDateTime.setUTCHours(endH, endM, 0, 0);
-
-    // Handle midnight — end time of "24:00" or "00:00" means next day midnight
+    // Handle midnight overlap or edge cases
     if (endH === 0 || (endH === 23 && endM === 59)) {
       endDateTime.setUTCDate(endDateTime.getUTCDate() + 1);
       endDateTime.setUTCHours(0, 0, 0, 0);
     }
 
-    // Defensive: if end ended up ≤ start (shouldn't happen with valid templates), push to next day
     if (endDateTime <= startDateTime) {
       endDateTime.setUTCDate(endDateTime.getUTCDate() + 1);
     }

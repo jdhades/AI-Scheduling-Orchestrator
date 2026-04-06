@@ -18,7 +18,7 @@ import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 @Injectable()
 export class GeminiEmbeddingService implements IEmbeddingService {
   private readonly logger = new Logger(GeminiEmbeddingService.name);
-  private readonly model = 'gemini-embedding-001';
+  private readonly model = 'text-embedding-004';
   private readonly apiKey: string;
   private readonly baseUrl =
     'https://generativelanguage.googleapis.com/v1beta/models';
@@ -47,6 +47,7 @@ export class GeminiEmbeddingService implements IEmbeddingService {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: `models/${this.model}`,
+              outputDimensionality: 768,
               content: {
                 parts: [{ text: text.substring(0, 2048) }], // límite de la API
               },

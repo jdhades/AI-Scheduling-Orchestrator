@@ -9,6 +9,8 @@
 ALTER TABLE semantic_rules ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
 
 -- 2. Actualizamos la función RPC vinculada a RAG para que filtre caducidad invisiblemente
+DROP FUNCTION IF EXISTS find_relevant_rules(vector, uuid, integer);
+
 CREATE OR REPLACE FUNCTION find_relevant_rules(
     query_vector        VECTOR(768),
     company_id_param    UUID,

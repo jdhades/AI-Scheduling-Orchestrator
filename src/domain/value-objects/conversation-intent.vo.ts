@@ -22,7 +22,7 @@ export interface IntentEntities {
   timeOfDay?: string; // 'morning', 'afternoon', 'night', etc.
   selection?: string; // '1', '2', 'yes', 'no'
   ruleText?: string; // the rule dictated by the manager
-  durationStr?: string; // temporal duration e.g. "for next month"
+  expiresAt?: string; // ISO 8601 date (YYYY-MM-DD) when the rule expires, if applicable
   detectedLanguage?: string; // ISO 639-1 code (e.g. 'en', 'es', 'pt')
   [key: string]: any; // Allow dynamic properties for session state
 }

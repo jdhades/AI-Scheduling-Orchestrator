@@ -49,7 +49,7 @@ describe('CommandMapperService', () => {
       expect(result.clarificationMessage).toBe('translated_bot.rules.missing_text');
     });
 
-    it('should map to CreateSemanticRuleCommand with NO expiration if durationStr is null', () => {
+    it('should map to CreateSemanticRuleCommand with NO expiration if expiresAt is null', () => {
       const intent = ConversationIntentVO.create({
         intent: 'create_rule',
         confidence: 0.9,
@@ -58,7 +58,7 @@ describe('CommandMapperService', () => {
       });
 
       const result = service.map(intent, employeeId, companyId, {
-        ruleText: 'Test rule', // merged entities
+        ruleText: 'Test rule',
       });
 
       expect(result.command).toBeInstanceOf(CreateSemanticRuleCommand);
@@ -67,99 +67,24 @@ describe('CommandMapperService', () => {
       expect(cmd.expiresAt).toBeUndefined();
     });
 
-    it('should parse durationStr "por un mes" to a future date approximately 1 month away', () => {
+    it('should parse ISO expiresAt injected by Gemini to end of that UTC day', () => {
       const intent = ConversationIntentVO.create({
         intent: 'create_rule',
         confidence: 0.9,
-        entities: { ruleText: 'Test rule', durationStr: 'por un mes' },
-        rawText: 'crea una regla: Test rule por un mes',
+        entities: { ruleText: 'Test rule', expiresAt: '2026-04-09' },
+        rawText: 'crea una regla: Test rule hasta el 9 de abril',
       });
 
       const result = service.map(intent, employeeId, companyId, {
         ruleText: 'Test rule',
-        durationStr: 'por un mes',
+        expiresAt: '2026-04-09',
       });
 
       expect(result.command).toBeInstanceOf(CreateSemanticRuleCommand);
       const cmd = result.command as CreateSemanticRuleCommand;
       
       expect(cmd.expiresAt).toBeDefined();
-      const expires = cmd.expiresAt!;
-      
-      // Calculate approximately 1 month from now
-      const expected = new Date();
-      expected.setMonth(expected.getMonth() + 1);
-      
-      // Should be roughly the same day/month target
-      expect(expires.getMonth()).toEqual(expected.getMonth());
-      expect(expires.getFullYear()).toEqual(expected.getFullYear());
-    });
-
-    it('should parse durationStr "esta semana" to a future date 7 days away', () => {
-      const result = service.map(
-        ConversationIntentVO.create({
-          intent: 'create_rule',
-          confidence: 0.9,
-          entities: { ruleText: 'rule', durationStr: 'esta semana' },
-          rawText: 'text',
-        }),
-        employeeId,
-        companyId,
-        { ruleText: 'rule', durationStr: 'esta semana' },
-      );
-
-      const cmd = result.command as CreateSemanticRuleCommand;
-      expect(cmd.expiresAt).toBeDefined();
-      
-      const expected = new Date();
-      expected.setDate(expected.getDate() + 7);
-      
-      expect(cmd.expiresAt!.getDate()).toEqual(expected.getDate());
-    });
-
-    it('should parse durationStr "hoy" to end of current day', () => {
-      const result = service.map(
-        ConversationIntentVO.create({
-          intent: 'create_rule',
-          confidence: 0.9,
-          entities: { ruleText: 'rule', durationStr: 'solo hoy' },
-          rawText: 'text',
-        }),
-        employeeId,
-        companyId,
-        { ruleText: 'rule', durationStr: 'solo hoy' },
-      );
-
-      const cmd = result.command as CreateSemanticRuleCommand;
-      expect(cmd.expiresAt).toBeDefined();
-      
-      const expected = new Date();
-      expected.setHours(23, 59, 59, 999);
-      
-      expect(cmd.expiresAt!.getTime()).toEqual(expected.getTime());
-    });
-    
-    it('should parse durationStr "mañana" to end of tomorrow', () => {
-      const result = service.map(
-        ConversationIntentVO.create({
-          intent: 'create_rule',
-          confidence: 0.9,
-          entities: { ruleText: 'rule', durationStr: 'hasta mañana' },
-          rawText: 'text',
-        }),
-        employeeId,
-        companyId,
-        { ruleText: 'rule', durationStr: 'hasta mañana' },
-      );
-
-      const cmd = result.command as CreateSemanticRuleCommand;
-      expect(cmd.expiresAt).toBeDefined();
-      
-      const expected = new Date();
-      expected.setDate(expected.getDate() + 1);
-      expected.setHours(23, 59, 59, 999);
-      
-      expect(cmd.expiresAt!.getTime()).toEqual(expected.getTime());
+      expect(cmd.expiresAt?.toISOString()).toBe('2026-04-09T23:59:59.000Z');
     });
   });
 });

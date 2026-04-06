@@ -157,8 +157,9 @@ export class CommandMapperService {
         }
 
         let expiresAt: Date | undefined;
-        if (mergedEntities.durationStr) {
-          expiresAt = this._parseDurationAsDate(mergedEntities.durationStr);
+        if (mergedEntities.expiresAt) {
+          // Si el LLM devolvió un YYYY-MM-DD, creamos la expiración hacia el final de ese día UTC
+          expiresAt = new Date(`${mergedEntities.expiresAt}T23:59:59Z`);
         }
 
         return {
@@ -202,39 +203,7 @@ export class CommandMapperService {
   }
 
   /**
-   * Naively maps conversational duration strings (extracted by Gemini) to future
-   * dates. If it fails to parse, it returns undefined (null expiration).
+   * Nota: _parseDurationAsDate se ha eliminado porque Gemini ahora extrae directamente
+   * 'expiresAt' como una fecha ISO (YYYY-MM-DD), evitando heurísticas imprecisas en código.
    */
-  private _parseDurationAsDate(durationStr: string): Date | undefined {
-    const text = durationStr.toLowerCase();
-    const d = new Date();
-    
-    if (text.includes('mes') || text.includes('month')) {
-      const numMatch = text.match(/\d+/);
-      const months = numMatch ? parseInt(numMatch[0], 10) : 1;
-      d.setMonth(d.getMonth() + months);
-      return d;
-    }
-    
-    if (text.includes('semana') || text.includes('week')) {
-      const numMatch = text.match(/\d+/);
-      const weeks = numMatch ? parseInt(numMatch[0], 10) : 1;
-      d.setDate(d.getDate() + (weeks * 7));
-      return d;
-    }
-    
-    if (text.match(/d[íi]a|day|hoy|today|ma[ñn]ana|tomorrow/)) {
-      const numMatch = text.match(/\d+/);
-      let days = numMatch ? parseInt(numMatch[0], 10) : 1;
-      if (text.includes('mañana') || text.includes('tomorrow')) days = 1;
-      if (text.includes('hoy') || text.includes('today')) days = 0;
-      
-      d.setDate(d.getDate() + days);
-      // set to end of day
-      d.setHours(23, 59, 59, 999);
-      return d;
-    }
-    
-    return undefined;
-  }
 }

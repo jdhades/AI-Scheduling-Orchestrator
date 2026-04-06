@@ -118,6 +118,7 @@ describe('MessageRouterService', () => {
         { provide: QueryBus, useValue: mockQueryBus },
         { provide: I18nService, useValue: mockI18nService },
         { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockShiftTemplateRepo },
+        { provide: 'SUPABASE_CLIENT', useValue: { from: jest.fn().mockReturnThis(), select: jest.fn().mockReturnValue({ data: [], error: null }) } },
       ],
     }).compile();
 

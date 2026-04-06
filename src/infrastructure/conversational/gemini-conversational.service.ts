@@ -124,7 +124,7 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
 - ruleText: texto de la regla que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule)
-- durationStr: caducidad de la regla en lenguaje natural (ej. "por un mes", "esta semana", "solo hoy") si se menciona.
+- expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo (ej. "por un mes"), calcula la fecha. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
@@ -140,7 +140,7 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     "timeOfDay": <string|null>,
     "selection": <string|null>,
     "ruleText": <string|null>,
-    "durationStr": <string|null>,
+    "expiresAt": <string|null>,
     "detectedLanguage": <string|null>
   },
   "transcription": null
@@ -176,7 +176,7 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
 - ruleText: texto literal de la regla dictada por el manager, estructurada claramente, omitiendo saludos.
-- durationStr: vigencia o límite temporal en lenguaje natural (ej. "por un mes", "esta semana", "todo enero") si se menciona en el audio.
+- expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo (ej. "por un mes"), calcula la fecha final. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del audio (ej. "es", "en", "pt")
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
@@ -192,7 +192,7 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
     "timeOfDay": <string|null>,
     "selection": <string|null>,
     "ruleText": <string|null>,
-    "durationStr": <string|null>,
+    "expiresAt": <string|null>,
     "detectedLanguage": <string|null>
   },
   "transcription": "<transcripcion del audio>"
