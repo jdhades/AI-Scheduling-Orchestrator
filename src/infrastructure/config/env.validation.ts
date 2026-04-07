@@ -17,6 +17,12 @@ export const envValidationSchema = Joi.object({
   TWILIO_FROM_NUMBER: Joi.string().optional().allow(''),
   TWILIO_WEBHOOK_URL: Joi.string().optional().allow(''),
 
-  // Gemini — opcional en test (mockeado), requerido para EmbeddingService en producción
+  ACTIVE_AI_PROVIDER: Joi.string()
+    .valid('gemini', 'qwen')
+    .default('qwen')
+    .optional(),
+
+  // LLM Providers — Ambos opcionales para test, requeridos según ACTIVE_AI_PROVIDER en producción
+  QWEN_API_KEY: Joi.string().optional().allow(''),
   GEMINI_API_KEY: Joi.string().optional().allow(''),
 });

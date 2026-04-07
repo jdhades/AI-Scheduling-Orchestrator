@@ -202,6 +202,7 @@ export class PromptOrchestratorService {
       algorithmCorrected,
       unfilledCount: unfilledShifts.length,
       llmProposedTotal: proposal.count(),
+      weekStart,
     });
 
     this.logger.log(
@@ -331,7 +332,7 @@ ${rulesSummary}
   ]
 }
 
-IMPORTANTE: Responde SOLO con el objeto JSON. No añadas explicaciones fuera del JSON.`;
+IMPORTANTE: Responde SOLO con el objeto JSON. El arreglo "assignments" DEBE CONTENER UNA REDACCIÓN PARA CADA UNO DE LOS ${shifts.length} TURNOS. ¡Bajo ninguna circunstancia omitas turnos! Asigna una persona a CADA turno listado.`;
   }
 
   private buildExplanation(params: {
@@ -340,6 +341,7 @@ IMPORTANTE: Responde SOLO con el objeto JSON. No añadas explicaciones fuera del
     algorithmCorrected: number;
     unfilledCount: number;
     llmProposedTotal: number;
+    weekStart: Date;
   }): string {
     const {
       totalShifts,
@@ -347,14 +349,17 @@ IMPORTANTE: Responde SOLO con el objeto JSON. No añadas explicaciones fuera del
       algorithmCorrected,
       unfilledCount,
       llmProposedTotal,
+      weekStart,
     } = params;
     const covered = llmAccepted + algorithmCorrected;
 
+    const dateStr = weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+
     const parts: string[] = [
-      `Horario generado para ${totalShifts} turno(s).`,
+      `📅 Horario generado para la semana del ${dateStr} (${totalShifts} turno(s) solicitados).`,
       llmProposedTotal === 0
-        ? 'El LLM no pudo generar propuestas; el algoritmo cubrió todos los turnos.'
-        : `El LLM propuso ${llmProposedTotal} asignaciones; se aceptaron ${llmAccepted} tras validación.`,
+        ? 'El algoritmo determinístico cubrió todos los turnos porque el LLM no generó.'
+        : `El LLM (Qwen) analizó y asignó ${llmAccepted} turnos bajo cumplimiento de reglas.`,
     ];
 
     if (algorithmCorrected > 0) {

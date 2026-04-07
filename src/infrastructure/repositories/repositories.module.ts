@@ -7,7 +7,10 @@ import { SupabaseShiftRepository } from './supabase-shift.repository';
 import { SupabaseFairnessHistoryRepository } from './supabase-fairness-history.repository';
 import { SupabaseSemanticRuleRepository } from './supabase-semantic-rule.repository';
 import { SupabaseShiftTemplateRepository } from './supabase-shift-template.repository';
+import { ConfigService } from '@nestjs/config';
+import { QwenEmbeddingService } from '../services/qwen-embedding.service';
 import { GeminiEmbeddingService } from '../services/gemini-embedding.service';
+import { QwenLLMService } from '../services/qwen-llm.service';
 import { GeminiLLMService } from '../services/gemini-llm.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { HANDSHAKE_REPOSITORY } from '../../domain/repositories/handshake.repository';
@@ -52,14 +55,25 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: SEMANTIC_RULE_REPOSITORY_TOKEN,
       useClass: SupabaseSemanticRuleRepository,
     },
+    // Instanciamos ambas implementaciones
+    QwenEmbeddingService,
+    GeminiEmbeddingService,
+    QwenLLMService,
+    GeminiLLMService,
     {
       provide: EMBEDDING_SERVICE_TOKEN,
-      useClass: GeminiEmbeddingService,
+      inject: [ConfigService, QwenEmbeddingService, GeminiEmbeddingService],
+      useFactory: (config: ConfigService, qwen: QwenEmbeddingService, gemini: GeminiEmbeddingService) => {
+        return config.get('ai.activeProvider') === 'gemini' ? gemini : qwen;
+      },
     },
     // Prompt Orchestrator — LLM Service
     {
       provide: LLM_SERVICE,
-      useClass: GeminiLLMService,
+      inject: [ConfigService, QwenLLMService, GeminiLLMService],
+      useFactory: (config: ConfigService, qwen: QwenLLMService, gemini: GeminiLLMService) => {
+        return config.get('ai.activeProvider') === 'gemini' ? gemini : qwen;
+      },
     },
     // Phase 2 — Shift Templates
     {

@@ -468,11 +468,15 @@ export class MessageRouterService {
       const result = await this._execute(command);
       await this.sessionRepository.clearSession(from);
 
-      // 7. Reply to user
-      const reply =
-        typeof result === 'string'
-          ? result
-          : this.i18n.t('bot.general.success', { lang: locale });
+      let reply = this.i18n.t('bot.general.success', { lang: locale });
+      if (typeof result === 'string') {
+          reply = result;
+      } else {
+          const resObj = result as any;
+          if (resObj && typeof resObj === 'object' && resObj.explanation) {
+              reply = resObj.explanation;
+          }
+      }
       this._reply(from, reply);
     } catch (err) {
       this.logger.error(

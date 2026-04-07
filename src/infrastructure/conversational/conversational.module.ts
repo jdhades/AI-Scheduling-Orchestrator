@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { QwenConversationalService } from './qwen-conversational.service';
 import { GeminiConversationalService } from './gemini-conversational.service';
 import { ConversationSessionRepository } from './conversation-session.repository';
+import { ConfigService } from '@nestjs/config';
 import { CONVERSATIONAL_SERVICE } from '../../domain/services/conversational.service.interface';
 import { RedisModule } from '../redis/redis.module';
 import { ConfigModule } from '@nestjs/config';
@@ -15,9 +17,14 @@ import { ConfigModule } from '@nestjs/config';
 @Module({
   imports: [ConfigModule, RedisModule],
   providers: [
+    QwenConversationalService,
+    GeminiConversationalService,
     {
       provide: CONVERSATIONAL_SERVICE,
-      useClass: GeminiConversationalService,
+      inject: [ConfigService, QwenConversationalService, GeminiConversationalService],
+      useFactory: (config: ConfigService, qwen: QwenConversationalService, gemini: GeminiConversationalService) => {
+        return config.get('ai.activeProvider') === 'gemini' ? gemini : qwen;
+      },
     },
     ConversationSessionRepository,
   ],

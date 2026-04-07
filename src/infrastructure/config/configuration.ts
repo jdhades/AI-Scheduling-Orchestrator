@@ -2,6 +2,12 @@ export default () => ({
   app: {
     env: process.env.APP_ENV,
   },
+  ai: {
+    activeProvider: process.env.ACTIVE_AI_PROVIDER || 'qwen', // default 'qwen'
+  },
+  qwen: {
+    apiKey: process.env.QWEN_API_KEY,
+  },
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
   },
