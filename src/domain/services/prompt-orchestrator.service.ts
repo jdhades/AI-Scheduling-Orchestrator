@@ -10,6 +10,7 @@ import type { ILLMService } from './llm.service.interface';
 import { LLM_SERVICE } from './llm.service.interface';
 import { ScheduleValidatorService } from './schedule-validator.service';
 import { HybridStrategy } from '../strategies/hybrid.strategy';
+import { ShiftCapacityPlannerService } from './shift-capacity-planner.service';
 
 // ─── Result Types ──────────────────────────────────────────────────────────────
 
@@ -53,6 +54,7 @@ export class PromptOrchestratorService {
     @Inject(LLM_SERVICE)
     private readonly llmService: ILLMService,
     private readonly validator: ScheduleValidatorService,
+    private readonly capacityPlanner: ShiftCapacityPlannerService,
   ) {}
 
   /**
@@ -83,6 +85,17 @@ export class PromptOrchestratorService {
     const llmAssignments: ShiftAssignment[] = [];
     let llmAccepted = 0;
 
+    // ── STEP 0: Pre-computar capacidades concretas ────────────────────────
+    // Elimina el concepto de "Ilimitada" antes de llegar al LLM.
+    const resolvedCapacities = this.capacityPlanner.plan({
+      employees,
+      shifts,
+      semanticRules,
+    });
+    this.logger.log(
+      `CapacityPlanner resolved: ${[...resolvedCapacities.entries()].map(([id, cap]) => `${id.substring(0, 6)}→${cap}`).join(', ')}`,
+    );
+
     // ── STEP 1: Obtener propuesta del LLM ─────────────────────────────────
     const proposal = await this.getLLMProposal({
       employees,
@@ -90,6 +103,7 @@ export class PromptOrchestratorService {
       semanticRules,
       weekStart,
       companyId,
+      resolvedCapacities,
     });
 
     // Mapa de shiftId → array de asignaciones propuestas por el LLM
@@ -108,20 +122,23 @@ export class PromptOrchestratorService {
       const proposedAssignments = llmProposalMap.get(shift.id);
       if (!proposedAssignments || proposedAssignments.length === 0) continue;
 
+      // Capacidad resuelta: usa el valor del planner (ya no existe "Ilimitada")
+      const targetCapacity = resolvedCapacities.get(shift.id) ?? 1;
+
       let validCount = 0;
       let intentionallySkipped = false;
 
       for (const proposedAssignment of proposedAssignments) {
         // Special case: LLM intentionally skipped this shift due to semantic rules
         if (proposedAssignment.employeeId.toUpperCase() === 'NONE') {
-          this.logger.debug(`Shift ${shift.id} intentionally left empty by LLM. Reason: ${proposedAssignment.reason}`);
+          this.logger.debug(`Shift ${shift.id} intentionally left empty by LLM (capacity=${targetCapacity}). Reason: ${proposedAssignment.reason}`);
           intentionallySkipped = true;
           break; // Stop evaluating other proposals for this shift
         }
 
-        // Obey explicit capacity if specified
-        if (shift.requiredEmployees !== null && validCount >= shift.requiredEmployees) {
-          this.logger.warn(`Shift ${shift.id} reached required_employees capacity (${shift.requiredEmployees}). Skipping extra LLM proposals.`);
+        // Respetar la capacidad resuelta por el planner
+        if (validCount >= targetCapacity) {
+          this.logger.debug(`Shift ${shift.id} reached resolved capacity (${targetCapacity}). Skipping extra LLM proposals.`);
           break;
         }
 
@@ -166,11 +183,12 @@ export class PromptOrchestratorService {
         }
       }
 
-      // Mark the shift as "covered" if it meets the required capacity, or if it's dynamic and got at least 1 person, or if the LLM intentionally skipped it.
+      // El turno está cubierto si alcanzó la cuota resuelta, o si el LLM lo omitió intencionalmente.
+      // Si la cuota es 0 (feriado), el turno se marca como cubierto automáticamente.
       if (
         intentionallySkipped ||
-        (shift.requiredEmployees !== null && validCount >= shift.requiredEmployees) ||
-        (shift.requiredEmployees === null && validCount > 0)
+        targetCapacity === 0 ||
+        validCount >= targetCapacity
       ) {
         coveredByLLM.add(shift.id);
       }
@@ -255,6 +273,7 @@ export class PromptOrchestratorService {
     semanticRules: SemanticConstraint[];
     weekStart: Date;
     companyId: string;
+    resolvedCapacities: Map<string, number>;
   }): Promise<LLMScheduleProposalVO> {
     try {
       const prompt = this.buildSchedulingPrompt(params);
@@ -287,8 +306,9 @@ export class PromptOrchestratorService {
     semanticRules: SemanticConstraint[];
     weekStart: Date;
     companyId: string;
+    resolvedCapacities: Map<string, number>;
   }): string {
-    const { employees, shifts, semanticRules, weekStart } = params;
+    const { employees, shifts, semanticRules, weekStart, resolvedCapacities } = params;
 
     const dateStr = weekStart.toLocaleDateString('es-ES', {
       weekday: 'long',
@@ -312,11 +332,13 @@ export class PromptOrchestratorService {
 
     const shiftSummary = shifts
       .slice(0, 30)
-      .map(
-        (s) =>
+      .map((s) => {
+        const capacity = resolvedCapacities.get(s.id) ?? s.requiredEmployees ?? 1;
+        return (
           `  - ID: ${s.id} | Skill requerida: ${s.requiredSkillId ?? 'ninguna'} | ` +
-          `Inicio: ${s.startTime} | Fin: ${s.endTime} | Capacidad: ${s.requiredEmployees === null ? 'Ilimitada (Reparte empleados equitativamente)' : s.requiredEmployees}`,
-      )
+          `Inicio: ${s.startTime.toISOString()} | Fin: ${s.endTime.toISOString()} | Capacidad requerida: ${capacity}`
+        );
+      })
       .join('\n');
 
     const rulesSummary =
@@ -343,11 +365,12 @@ ${shiftSummary}
 ${rulesSummary}
 
 ## INSTRUCCIONES
-1. Asigna adecuadamente los empleados disponibles a los turnos mostrados.
-2. Si un turno tiene "Capacidad: Ilimitada", PUEDES Y DEBES asignar a MULTIPLES empleados a ese mismo turno pero OBLIGATORIAMENTE DEBES EVITAR vaciar la plantilla en el primer turno. Reparte equitativamente la fuerza de trabajo entre TODOS los turnos (mañana y tarde) del día.
-3. Si un turno tiene una "Capacidad" estricta (ej. Capacidad: 1), asigna EXACTAMENTE esa cantidad de empleados a ese turno.
-4. Respeta ESTRICTAMENTE las reglas semánticas con prioridad 1. Si la regla dicta descanso para un día/turno particular o para una persona, asegúrate de respetarlo.
-5. Para cada asignación, indica un nivel de confianza entre 0.0 y 1.0.
+1. Asigna empleados a cada turno respetando EXACTAMENTE su "Capacidad requerida".
+2. NO existe el concepto de capacidad ilimitada. Cada turno tiene un número exacto de personas requeridas.
+3. Si la "Capacidad requerida" es 0 (por feriado u otra restricción), el turno NO debe ser trabajado por nadie.
+4. Si la capacidad es mayor que 1, debes asignar EXACTAMENTE ese número de empleados (múltiples objetos con el mismo shiftId).
+5. Respeta ESTRICTAMENTE las reglas semánticas con prioridad 1.
+6. Para cada asignación, indica un nivel de confianza entre 0.0 y 1.0.
 
 ## FORMATO DE RESPUESTA (JSON ESTRICTO, sin texto adicional antes del JSON)
 {
@@ -363,8 +386,9 @@ ${rulesSummary}
 
 IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
 - El arreglo "assignments" DEBE CONTENER UNA RESPUESTA PARA CADA UNO DE LOS ${shifts.length} TURNOS. BAJO NINGUNA CIRCUNSTANCIA puedes omitir la salida de un turno en el JSON.
-- Si determinas que un turno NO debe ser trabajado por NINGÚN empleado (debido a una regla semántica estricta de feriado, etc.), ESTRICTAMENTE debes enviar el turno con el valor "employeeId": "NONE". Si lo omites, el sistema automático destruirá tu trabajo.
-- Puedes devolver múltiples objetos con el mismo shiftId si asignas varias personas a dicho turno (Capacidad ilimitada).`;
+- Si la "Capacidad requerida" de un turno es 0, DEBES enviar exactamente un objeto con "employeeId": "NONE" para ese turno.
+- Para turnos con capacidad > 1, envía múltiples objetos con el mismo shiftId, uno por empleado asignado.
+- Asigna EXACTAMENTE el número indicado en "Capacidad requerida", ni uno más ni uno menos.`;
   }
 
   private buildExplanation(params: {

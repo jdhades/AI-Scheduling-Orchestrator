@@ -33,6 +33,7 @@ import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
 import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
 import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
+import { ShiftCapacityPlannerService } from '../domain/services/shift-capacity-planner.service';
 import { InstantiateWeekHandler } from './commands/instantiate-week/instantiate-week.handler';
 
 /**
@@ -81,6 +82,7 @@ const DomainServices = [
   ConflictResolutionEngine,
   PromptOrchestratorService,
   ScheduleValidatorService,
+  ShiftCapacityPlannerService,
   InstantiateWeekHandler,
 ];
 
