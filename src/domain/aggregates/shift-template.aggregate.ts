@@ -16,6 +16,7 @@ export interface CreateShiftTemplateProps {
   demandScore: DemandWeight;
   undesirableWeight: UndesirableWeight;
   isActive: boolean;
+  requiredEmployees?: number | null;
 }
 
 /**
@@ -46,6 +47,7 @@ export class ShiftTemplate {
     public readonly demandScore: DemandWeight,
     public readonly undesirableWeight: UndesirableWeight,
     public readonly isActive: boolean,
+    public readonly requiredEmployees: number | null = null,
   ) {
     if (dayOfWeek < 0 || dayOfWeek > 6) {
       throw new Error(`Invalid dayOfWeek: ${dayOfWeek}. Must be 0–6.`);
@@ -66,6 +68,7 @@ export class ShiftTemplate {
       props.demandScore,
       props.undesirableWeight,
       props.isActive,
+      props.requiredEmployees ?? null,
     );
   }
 
@@ -124,6 +127,7 @@ export class ShiftTemplate {
       demandScore: this.demandScore,
       undesirableWeight: this.undesirableWeight,
       templateId: this.id,
+      requiredEmployees: this.requiredEmployees,
     });
   }
 
@@ -146,6 +150,7 @@ export class ShiftTemplate {
       demandScore: this.demandScore,
       undesirableWeight: this.undesirableWeight,
       isActive: this.isActive,
+      requiredEmployees: this.requiredEmployees,
     };
   }
 }

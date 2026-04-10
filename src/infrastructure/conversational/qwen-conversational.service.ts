@@ -265,6 +265,14 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
 
       const json = (await response.json()) as any;
       const text = json?.choices?.[0]?.message?.content;
+      
+      const usage = json?.usage;
+      if (usage) {
+        this.logger.log(
+          `🧠 Qwen Conversational Token Usage -> Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens}`,
+        );
+      }
+
       if (!text) throw new Error('Empty response from Qwen');
       return text;
     }

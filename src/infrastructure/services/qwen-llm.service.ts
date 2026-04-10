@@ -15,7 +15,7 @@ export class QwenLLMService implements ILLMService {
   private readonly apiKey: string | undefined;
   private readonly model = 'qwen-plus'; // O 'qwen-max' o 'qwen-turbo'
   private readonly baseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
-  private readonly TIMEOUT_MS = 25_000;
+  private readonly TIMEOUT_MS = 60_000;
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('qwen.apiKey');
@@ -71,6 +71,13 @@ export class QwenLLMService implements ILLMService {
 
     const json = (await response.json()) as any;
     const rawText: string = json?.choices?.[0]?.message?.content ?? '';
+
+    const usage = json?.usage;
+    if (usage) {
+      this.logger.log(
+        `📊 Qwen LLM Token Usage -> Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens}`,
+      );
+    }
 
     if (!rawText) {
       throw new Error('QwenLLMService: empty response from Qwen');

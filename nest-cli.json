@@ -4,11 +4,7 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": [
-      {
-        "include": "i18n/**/*",
-        "watchAssets": true
-      }
-    ]
+    "assets": ["**/*.json"],
+    "watchAssets": true
   }
 }

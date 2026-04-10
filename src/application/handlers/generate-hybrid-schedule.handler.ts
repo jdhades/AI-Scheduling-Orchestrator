@@ -101,14 +101,10 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       `Loaded — employees=${employees.length} shifts=${shifts.length}`,
     );
 
-    // 2. RAG: recuperar reglas semánticas relevantes (Modo Degradado si falla la conectividad/cuota LLM)
+    // 2. RAG: recuperar todas las reglas semánticas relevantes (Modo Degradado si falla la conectividad/cuota LLM)
     let semanticRules: any[] = [];
     try {
-      semanticRules = await this.semanticRetrievalService.retrieveForShift({
-        shiftContext: `empresa ${command.companyId} semana ${command.weekStart} modo hybrid-prompt`,
-        companyId: command.companyId,
-        shiftDate: weekStart,
-      });
+      semanticRules = await this.semanticRetrievalService.retrieveAllForCompany(command.companyId);
       this.logger.log(`RAG: ${semanticRules.length} semantic rules retrieved`);
     } catch (error) {
       this.logger.warn(

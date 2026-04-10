@@ -28,6 +28,7 @@ export class SupabaseShiftRepository implements IShiftRepository {
       demand_score: shift.demandScore.value,
       undesirable_weight: shift.undesirableWeight.value,
       template_id: shift.templateId ?? null,
+      required_employees: shift.requiredEmployees ?? null,
     });
     if (error) throw new Error(`ShiftRepository.save failed: ${error.message}`);
   }
@@ -98,7 +99,7 @@ export class SupabaseShiftRepository implements IShiftRepository {
   ): Promise<ShiftAssignment[]> {
     let query = this.supabase
       .from('shift_assignments')
-      .select('*, shifts(*)')
+      .select('*, shifts!inner(*)')
       .eq('employee_id', employeeId)
       .eq('company_id', companyId);
 
@@ -110,7 +111,16 @@ export class SupabaseShiftRepository implements IShiftRepository {
       throw new Error(
         `ShiftRepository.findAssignmentsByEmployee failed: ${error.message}`,
       );
-    return (data ?? []).map((row) => this.assignmentToDomain(row));
+    return (data ?? []).map((row) => {
+      const assignment = this.assignmentToDomain(row);
+      // HACK: Attach the joined shifts table data dynamically for the Query View Model
+      (assignment as any).shifts = {
+        startTime: row.shifts?.start_time,
+        endTime: row.shifts?.end_time,
+        requiredSkillId: row.shifts?.required_skill_id,
+      };
+      return assignment;
+    });
   }
 
   async findAssignmentsByCompanyAndWeek(
@@ -162,6 +172,7 @@ export class SupabaseShiftRepository implements IShiftRepository {
       demandScore: DemandWeight.create(row.demand_score ?? 5),
       undesirableWeight: UndesirableWeight.create(row.undesirable_weight ?? 0),
       templateId: row.template_id ?? row.shift_template_id,
+      requiredEmployees: row.required_employees ?? null,
     });
   }
 

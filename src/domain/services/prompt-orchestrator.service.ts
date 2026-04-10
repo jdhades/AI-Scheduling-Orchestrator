@@ -92,59 +92,87 @@ export class PromptOrchestratorService {
       companyId,
     });
 
-    // Mapa de shiftId → asignación propuesta por el LLM (para lookup rápido)
-    const llmProposalMap = new Map(
-      proposal
-        .withMinConfidence(this.CONFIDENCE_THRESHOLD)
-        .getProposals()
-        .map((p) => [p.shiftId, p]),
-    );
+    // Mapa de shiftId → array de asignaciones propuestas por el LLM
+    const llmProposalMap = new Map<string, any[]>();
+    for (const p of proposal.withMinConfidence(this.CONFIDENCE_THRESHOLD).getProposals()) {
+      if (!llmProposalMap.has(p.shiftId)) {
+        llmProposalMap.set(p.shiftId, []);
+      }
+      llmProposalMap.get(p.shiftId)!.push(p);
+    }
 
     // ── STEP 2: Validar propuestas del LLM ────────────────────────────────
     const coveredByLLM = new Set<string>();
 
     for (const shift of shifts) {
-      const proposedAssignment = llmProposalMap.get(shift.id);
-      if (!proposedAssignment) continue;
+      const proposedAssignments = llmProposalMap.get(shift.id);
+      if (!proposedAssignments || proposedAssignments.length === 0) continue;
 
-      const validation = this.validator.validate(
-        shift.id,
-        proposedAssignment.employeeId,
-        employees,
-        shifts,
-        alreadyAssigned,
-        semanticRules,
-      );
+      let validCount = 0;
+      let intentionallySkipped = false;
 
-      if (validation.valid) {
-        // ✅ LLM propuesta válida → aceptar
-        const assignment = ShiftAssignment.create({
-          id: randomUUID(),
-          shiftId: shift.id,
-          employeeId: proposedAssignment.employeeId,
-          companyId,
-          strategyType: 'hybrid',
-          fairnessSnapshot: {},
-        });
+      for (const proposedAssignment of proposedAssignments) {
+        // Special case: LLM intentionally skipped this shift due to semantic rules
+        if (proposedAssignment.employeeId.toUpperCase() === 'NONE') {
+          this.logger.debug(`Shift ${shift.id} intentionally left empty by LLM. Reason: ${proposedAssignment.reason}`);
+          intentionallySkipped = true;
+          break; // Stop evaluating other proposals for this shift
+        }
 
-        llmAssignments.push(assignment);
+        // Obey explicit capacity if specified
+        if (shift.requiredEmployees !== null && validCount >= shift.requiredEmployees) {
+          this.logger.warn(`Shift ${shift.id} reached required_employees capacity (${shift.requiredEmployees}). Skipping extra LLM proposals.`);
+          break;
+        }
+
+        const validation = this.validator.validate(
+          shift.id,
+          proposedAssignment.employeeId,
+          employees,
+          shifts,
+          alreadyAssigned,
+          semanticRules,
+        );
+
+        if (validation.valid) {
+          // ✅ LLM propuesta válida → aceptar
+          const assignment = ShiftAssignment.create({
+            id: randomUUID(),
+            shiftId: shift.id,
+            employeeId: proposedAssignment.employeeId,
+            companyId,
+            strategyType: 'hybrid',
+            fairnessSnapshot: {},
+          });
+
+          llmAssignments.push(assignment);
+          alreadyAssigned.get(proposedAssignment.employeeId)!.push({
+            id: shift.id,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+            overlapsWith: (other: Shift) => shift.overlapsWith(other),
+          });
+          llmAccepted++;
+          validCount++;
+
+          this.logger.debug(
+            `LLM accepted: shift=${shift.id} employee=${proposedAssignment.employeeId} ` +
+              `confidence=${proposedAssignment.confidence.toFixed(2)}`,
+          );
+        } else {
+          this.logger.warn(
+            `LLM proposal rejected for shift=${shift.id} employee=${proposedAssignment.employeeId}: ${validation.violations.join('; ')}`,
+          );
+        }
+      }
+
+      // Mark the shift as "covered" if it meets the required capacity, or if it's dynamic and got at least 1 person, or if the LLM intentionally skipped it.
+      if (
+        intentionallySkipped ||
+        (shift.requiredEmployees !== null && validCount >= shift.requiredEmployees) ||
+        (shift.requiredEmployees === null && validCount > 0)
+      ) {
         coveredByLLM.add(shift.id);
-        alreadyAssigned.get(proposedAssignment.employeeId)!.push({
-          id: shift.id,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          overlapsWith: (other: Shift) => shift.overlapsWith(other),
-        });
-        llmAccepted++;
-
-        this.logger.debug(
-          `LLM accepted: shift=${shift.id} employee=${proposedAssignment.employeeId} ` +
-            `confidence=${proposedAssignment.confidence.toFixed(2)}`,
-        );
-      } else {
-        this.logger.warn(
-          `LLM proposal rejected for shift=${shift.id}: ${validation.violations.join('; ')}`,
-        );
       }
     }
 
@@ -287,7 +315,7 @@ export class PromptOrchestratorService {
       .map(
         (s) =>
           `  - ID: ${s.id} | Skill requerida: ${s.requiredSkillId ?? 'ninguna'} | ` +
-          `Inicio: ${s.startTime} | Fin: ${s.endTime}`,
+          `Inicio: ${s.startTime} | Fin: ${s.endTime} | Capacidad: ${s.requiredEmployees === null ? 'Ilimitada (Reparte empleados equitativamente)' : s.requiredEmployees}`,
       )
       .join('\n');
 
@@ -315,10 +343,11 @@ ${shiftSummary}
 ${rulesSummary}
 
 ## INSTRUCCIONES
-1. Asigna cada turno al empleado más adecuado según sus skills
-2. Distribuye los turnos con equidad (evita sobrecargar a un empleado)
-3. Respeta ESTRICTAMENTE las restricciones con prioridad 1 (LEGALES)
-4. Para cada asignación, indica un nivel de confianza entre 0.0 y 1.0
+1. Asigna adecuadamente los empleados disponibles a los turnos mostrados.
+2. Si un turno tiene "Capacidad: Ilimitada", PUEDES Y DEBES asignar a MULTIPLES empleados a ese mismo turno pero OBLIGATORIAMENTE DEBES EVITAR vaciar la plantilla en el primer turno. Reparte equitativamente la fuerza de trabajo entre TODOS los turnos (mañana y tarde) del día.
+3. Si un turno tiene una "Capacidad" estricta (ej. Capacidad: 1), asigna EXACTAMENTE esa cantidad de empleados a ese turno.
+4. Respeta ESTRICTAMENTE las reglas semánticas con prioridad 1. Si la regla dicta descanso para un día/turno particular o para una persona, asegúrate de respetarlo.
+5. Para cada asignación, indica un nivel de confianza entre 0.0 y 1.0.
 
 ## FORMATO DE RESPUESTA (JSON ESTRICTO, sin texto adicional antes del JSON)
 {
@@ -326,13 +355,16 @@ ${rulesSummary}
     {
       "shiftId": "uuid-del-turno",
       "employeeId": "uuid-del-empleado",
-      "reason": "Breve justificación en español (máx. 80 caracteres)",
+      "reason": "Breve justificación en español",
       "confidence": 0.95
     }
   ]
 }
 
-IMPORTANTE: Responde SOLO con el objeto JSON. El arreglo "assignments" DEBE CONTENER UNA REDACCIÓN PARA CADA UNO DE LOS ${shifts.length} TURNOS. ¡Bajo ninguna circunstancia omitas turnos! Asigna una persona a CADA turno listado.`;
+IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
+- El arreglo "assignments" DEBE CONTENER UNA RESPUESTA PARA CADA UNO DE LOS ${shifts.length} TURNOS. BAJO NINGUNA CIRCUNSTANCIA puedes omitir la salida de un turno en el JSON.
+- Si determinas que un turno NO debe ser trabajado por NINGÚN empleado (debido a una regla semántica estricta de feriado, etc.), ESTRICTAMENTE debes enviar el turno con el valor "employeeId": "NONE". Si lo omites, el sistema automático destruirá tu trabajo.
+- Puedes devolver múltiples objetos con el mismo shiftId si asignas varias personas a dicho turno (Capacidad ilimitada).`;
   }
 
   private buildExplanation(params: {
@@ -355,10 +387,11 @@ IMPORTANTE: Responde SOLO con el objeto JSON. El arreglo "assignments" DEBE CONT
 
     const dateStr = weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
 
+    const llmFailed = llmProposedTotal === 0 && llmAccepted === 0;
     const parts: string[] = [
       `📅 Horario generado para la semana del ${dateStr} (${totalShifts} turno(s) solicitados).`,
-      llmProposedTotal === 0
-        ? 'El algoritmo determinístico cubrió todos los turnos porque el LLM no generó.'
+      llmFailed
+        ? 'LLM no pudo generar propuestas. El algoritmo determinístico cubrió todos los turnos.'
         : `El LLM (Qwen) analizó y asignó ${llmAccepted} turnos bajo cumplimiento de reglas.`,
     ];
 

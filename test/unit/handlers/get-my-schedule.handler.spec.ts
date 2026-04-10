@@ -83,25 +83,29 @@ describe('GetMyScheduleHandler', () => {
       endTime: new Date('2026-03-03T18:00:00Z'),
     } as unknown as Shift;
 
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([
-      ShiftAssignment.create({
-        id: 'a1',
-        shiftId: 'shift-1',
-        employeeId: 'emp-1',
-        companyId: 'comp-1',
-        strategyType: 'HYBRID' as any,
-        fairnessSnapshot: {},
-      }),
-      ShiftAssignment.create({
-        id: 'a2',
-        shiftId: 'shift-2',
-        employeeId: 'emp-1',
-        companyId: 'comp-1',
-        strategyType: 'HYBRID' as any,
-        fairnessSnapshot: {},
-      }),
-    ]);
+    // Create assignments first so we can attach Supabase-joined shift data
+    const assignment1 = ShiftAssignment.create({
+      id: 'a1',
+      shiftId: 'shift-1',
+      employeeId: 'emp-1',
+      companyId: 'comp-1',
+      strategyType: 'HYBRID' as any,
+      fairnessSnapshot: {},
+    });
+    // Attach Supabase-joined shift data (mimics what findAssignmentsByEmployee returns from DB)
+    (assignment1 as any).shifts = { startTime: shift1.startTime, endTime: shift1.endTime };
 
+    const assignment2 = ShiftAssignment.create({
+      id: 'a2',
+      shiftId: 'shift-2',
+      employeeId: 'emp-1',
+      companyId: 'comp-1',
+      strategyType: 'HYBRID' as any,
+      fairnessSnapshot: {},
+    });
+    (assignment2 as any).shifts = { startTime: shift2.startTime, endTime: shift2.endTime };
+
+    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([assignment1, assignment2]);
     mockShiftRepo.findByCompanyAndWeek.mockResolvedValue([shift1, shift2]);
 
     const result = await handler.execute(

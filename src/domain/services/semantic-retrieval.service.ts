@@ -114,6 +114,40 @@ export class SemanticRetrievalService {
   }
 
   /**
+   * Recupera TODAS las restricciones semánticas activas para una empresa.
+   * Utilizado por el orquestador LLM central que maneja toda la semana y se beneficia
+   * de conocer todas las reglas sin filtrado de distancia para aplicar razonamiento global complejo.
+   */
+  async retrieveAllForCompany(companyId: string): Promise<SemanticConstraint[]> {
+    if (!companyId) return [];
+
+    try {
+      const allRules = await this.ruleRepository.findAllByCompany(companyId);
+
+      if (allRules.length === 0) {
+        this.logger.log(`SemanticRetrievalService: no active global rules found for company ${companyId}`);
+        return [];
+      }
+
+      // Resolver posibles conflictos directos dentro del catálogo global
+      const resolved = this.conflictEngine.resolveRules(allRules);
+
+      this.logger.log(`SemanticRetrievalService: retrieved ${allRules.length} global rules → ${resolved.length} after conflict resolution`);
+
+      return resolved.map((rule) => ({
+        rule: rule.getRuleText(),
+        weight: this.priorityToWeight(rule.getPriority().getValue()),
+        priority: rule.getPriority().getValue(),
+      }));
+    } catch (error) {
+      this.logger.warn(
+        `SemanticRetrievalService: failed to retrieve all rules. Error: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
    * Construye un prompt de contexto enriquecido con información del turno.
    * El enriquecimiento mejora la calidad de la búsqueda semántica.
    */

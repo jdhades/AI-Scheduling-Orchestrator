@@ -68,9 +68,11 @@ export class LLMScheduleProposalVO {
         employeeId: a.employeeId,
         reason: typeof a.reason === 'string' ? a.reason : 'No reason provided',
         confidence:
-          typeof a.confidence === 'number'
-            ? Math.max(0, Math.min(1, a.confidence))
-            : 0.5,
+          a.employeeId === 'NONE' || String(a.employeeId).toUpperCase() === 'NONE'
+            ? 1.0
+            : typeof a.confidence === 'number'
+              ? Math.max(0, Math.min(1, a.confidence))
+              : 0.5,
       } satisfies ProposedAssignment;
     });
 

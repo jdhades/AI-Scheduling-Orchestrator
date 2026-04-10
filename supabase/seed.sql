@@ -51,14 +51,14 @@ BEGIN
   VALUES ('40000000-0000-0000-0000-000000000005', v_company_id, v_dept_id, 'Luis Empleado', '+15000000004', 'employee', true, '2023-04-01')
   ON CONFLICT (id) DO NOTHING;
 
-  -- 6. Insert Shift Templates for 10am-4pm and 4pm-10pm (Monday to Sunday)
+  -- 6. Insert Shift Templates with NULL required_employees (Dynamic/Elastic mode for lazy clients)
   -- day_of_week is 0-6 (0 = Sun, 6 = Sat)
   FOR i IN 0..6 LOOP
-    INSERT INTO shift_templates (company_id, department_id, name, day_of_week, start_time, end_time)
-    VALUES (v_company_id, v_dept_id, 'De 10am a 4pm', i, '10:00:00', '16:00:00');
+    INSERT INTO shift_templates (company_id, department_id, name, day_of_week, start_time, end_time, required_employees)
+    VALUES (v_company_id, v_dept_id, 'De 10am a 4pm', i, '10:00:00', '16:00:00', null);
 
-    INSERT INTO shift_templates (company_id, department_id, name, day_of_week, start_time, end_time)
-    VALUES (v_company_id, v_dept_id, 'De 4pm a 10pm', i, '16:00:00', '22:00:00');
+    INSERT INTO shift_templates (company_id, department_id, name, day_of_week, start_time, end_time, required_employees)
+    VALUES (v_company_id, v_dept_id, 'De 4pm a 10pm', i, '16:00:00', '22:00:00', null);
   END LOOP;
 
 END $$;

@@ -48,13 +48,11 @@ export class GetMyScheduleHandler implements IQueryHandler<
       return this.i18n.t('bot.schedule.none_this_week', { lang: locale });
     }
 
-    const shifts = await this.shiftRepo.findByCompanyAndWeek(companyId, monday);
-    return this._formatSchedule(assignments, shifts, locale, weekStart, monday);
+    return this._formatSchedule(assignments, locale, weekStart, monday);
   }
 
   private _formatSchedule(
     assignments: ShiftAssignment[],
-    shifts: Shift[],
     locale: string,
     hasWeekStart?: string,
     monday?: Date,
@@ -73,31 +71,55 @@ export class GetMyScheduleHandler implements IQueryHandler<
       6: '🌞',
     };
 
+    const assignmentsByDay = new Map<number, any[]>();
     for (const assignment of assignments) {
-      const shift = shifts.find((s) => s.id === assignment.shiftId);
-      if (!shift) continue;
+      const shiftData = (assignment as any).shifts;
+      if (!shiftData || !shiftData.startTime) continue;
+      const start = new Date(shiftData.startTime);
+      const day = start.getDay(); // 0 is Sunday, 1 is Monday...
+      if (!assignmentsByDay.has(day)) assignmentsByDay.set(day, []);
+      assignmentsByDay.get(day)!.push({ assignment, start, end: new Date(shiftData.endTime) });
+    }
 
-      const start = shift.startTime;
-      const end = shift.endTime;
+    const code = locale === 'en' ? 'en-US' : 'es-ES';
+    
+    // We want to iterate Monday (1) through Sunday (0).
+    const daysOrder = [1, 2, 3, 4, 5, 6, 0];
+    
+    // Let's use the provided monday to get exactly the dates.
+    let currentDayDate = monday ? new Date(monday) : this._getCurrentMonday();
 
-      const code = locale === 'en' ? 'en-US' : 'es-ES';
-      const dayName = start.toLocaleDateString(code, {
+    for (const dayIndex of daysOrder) {
+      const dayName = currentDayDate.toLocaleDateString(code, {
         weekday: 'long',
         day: 'numeric',
         month: 'short',
       });
-      const startTime = start.toLocaleTimeString(code, {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const endTime = end.toLocaleTimeString(code, {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      const emoji = dayEmoji[dayIndex];
 
-      lines.push(
-        `${dayEmoji[start.getDay()]} ${dayName} — ${startTime} a ${endTime} (ID: ${shift.id.substring(0, 6)})`,
-      );
+      if (!assignmentsByDay.has(dayIndex)) {
+        lines.push(`${emoji} ${dayName} — Día Libre 🌴`);
+      } else {
+        const dayAssignments = assignmentsByDay.get(dayIndex)!;
+        // Sort explicitly by time just in case
+         dayAssignments.sort((a, b) => a.start.getTime() - b.start.getTime());
+        
+        for (const item of dayAssignments) {
+          const startTime = item.start.toLocaleTimeString(code, {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          const endTime = item.end.toLocaleTimeString(code, {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          lines.push(
+            `${emoji} ${dayName} — ${startTime} a ${endTime} (ID: ${item.assignment.shiftId.substring(0, 6)})`,
+          );
+        }
+      }
+      // advance to next day
+      currentDayDate.setDate(currentDayDate.getDate() + 1);
     }
 
     lines.push('', this.i18n.t('bot.schedule.anything_else', { lang: locale }));

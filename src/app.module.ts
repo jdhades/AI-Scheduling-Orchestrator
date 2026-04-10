@@ -16,7 +16,9 @@ import { InterfacesModule } from './interfaces/interfaces.module';
     I18nModule.forRoot({
       fallbackLanguage: 'es',
       loaderOptions: {
-        path: path.join(__dirname, '/i18n/'),
+        path: process.env.NODE_ENV === 'production' 
+          ? path.join(__dirname, 'i18n') 
+          : path.join(process.cwd(), 'src', 'i18n'),
         watch: true,
       },
       resolvers: [AcceptLanguageResolver],

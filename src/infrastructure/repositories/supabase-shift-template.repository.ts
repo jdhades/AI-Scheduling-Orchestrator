@@ -53,6 +53,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       demand_score: template.demandScore.value,
       undesirable_weight: template.undesirableWeight.value,
       is_active: template.isActive,
+      required_employees: template.requiredEmployees,
     });
     if (error)
       throw new Error(`ShiftTemplateRepository.save failed: ${error.message}`);
@@ -84,6 +85,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       demandScore: DemandWeight.create(row.demand_score),
       undesirableWeight: UndesirableWeight.create(row.undesirable_weight),
       isActive: row.is_active,
+      requiredEmployees: row.required_employees ?? null,
     });
   }
 }

@@ -14,6 +14,7 @@ export interface CreateShiftProps {
   demandScore: DemandWeight;
   undesirableWeight: UndesirableWeight;
   templateId?: string | null; // Phase 2: traceability back to the originating template
+  requiredEmployees?: number | null; // Phase 3: elastic capacity
 }
 
 /**
@@ -36,6 +37,7 @@ export class Shift {
     public readonly demandScore: DemandWeight,
     public readonly undesirableWeight: UndesirableWeight,
     public readonly templateId: string | null = null,
+    public readonly requiredEmployees: number | null = null,
   ) {
     if (_endTime <= _startTime) {
       throw new Error('Shift endTime must be after startTime');
@@ -54,6 +56,7 @@ export class Shift {
       props.demandScore,
       props.undesirableWeight,
       props.templateId ?? null,
+      props.requiredEmployees ?? null,
     );
   }
 

@@ -94,64 +94,84 @@ export class HybridStrategy implements SchedulingStrategy {
     );
 
     for (const shift of sortedShifts) {
-      const candidates = this.getCandidates(
-        shift,
-        employees,
-        skillIndex,
-        busySlots,
-      );
-
-      if (candidates.length === 0) {
-        unfilledShifts.push(shift);
-        continue;
+      // Si la capacidad es null, repartimos equitativamente los empleados entre los turnos sin capacidad de ese día
+      let dynamicCapacity = Number.MAX_SAFE_INTEGER;
+      if (shift.requiredEmployees === null) {
+        const startDay = shift.startTime.toISOString().split('T')[0];
+        const dynamicShiftsToday = sortedShifts.filter(
+          (s) => s.startTime.toISOString().split('T')[0] === startDay && s.requiredEmployees === null
+        ).length;
+        dynamicCapacity = dynamicShiftsToday > 0 ? Math.ceil(employees.length / dynamicShiftsToday) : 1;
       }
+      
+      const targetCapacity = shift.requiredEmployees ?? dynamicCapacity;
+      let assignedToThisShift = 0;
 
-      const ranked = candidates.sort((a, b) => {
-        const scoreA = this.totalScore(
-          a,
+      while (assignedToThisShift < targetCapacity) {
+        const candidates = this.getCandidates(
           shift,
-          liveHistory.get(a.id),
-          maxRawFairness,
+          employees,
+          skillIndex,
+          busySlots,
         );
-        const scoreB = this.totalScore(
-          b,
-          shift,
-          liveHistory.get(b.id),
-          maxRawFairness,
+
+        if (candidates.length === 0) {
+          if (assignedToThisShift === 0 && targetCapacity !== Number.MAX_SAFE_INTEGER) {
+            // Solo marcarlo como no cubierto si no llegamos a cubrir ni 1 habiéndolo requerido.
+            unfilledShifts.push(shift);
+          }
+          break; // No hay más gente que pueda tomar este turno
+        }
+
+        const ranked = candidates.sort((a, b) => {
+          const scoreA = this.totalScore(
+            a,
+            shift,
+            liveHistory.get(a.id),
+            maxRawFairness,
+          );
+          const scoreB = this.totalScore(
+            b,
+            shift,
+            liveHistory.get(b.id),
+            maxRawFairness,
+          );
+          return scoreA - scoreB; // menor = más preferido
+        });
+
+        const winner = ranked[0];
+        busySlots.get(winner.id)!.push({
+          id: shift.id,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          getDuration: () => shift.getDuration(),
+          overlapsWith: (other: Shift) => shift.overlapsWith(other),
+        });
+
+        const snapshot = this.buildSnapshot(liveHistory);
+        assignments.push(
+          ShiftAssignment.create({
+            id: randomUUID(),
+            shiftId: shift.id,
+            employeeId: winner.id,
+            companyId: shift.companyId,
+            strategyType: this.type,
+            fairnessSnapshot: snapshot,
+          }),
         );
-        return scoreA - scoreB; // menor = más preferido
-      });
 
-      const winner = ranked[0];
-      busySlots.get(winner.id)!.push({
-        id: shift.id,
-        startTime: shift.startTime,
-        endTime: shift.endTime,
-        getDuration: () => shift.getDuration(),
-        overlapsWith: (other: Shift) => shift.overlapsWith(other),
-      });
+        const currentHistory = liveHistory.get(winner.id)!;
+        liveHistory.set(
+          winner.id,
+          currentHistory.addShift(shift.getDuration(), {
+            isUndesirable: shift.undesirableWeight.isHeavy(),
+            isNight: shift.isNightShift(),
+            isWeekend: shift.isWeekendShift(),
+          }),
+        );
 
-      const snapshot = this.buildSnapshot(liveHistory);
-      assignments.push(
-        ShiftAssignment.create({
-          id: randomUUID(),
-          shiftId: shift.id,
-          employeeId: winner.id,
-          companyId: shift.companyId,
-          strategyType: this.type,
-          fairnessSnapshot: snapshot,
-        }),
-      );
-
-      const currentHistory = liveHistory.get(winner.id)!;
-      liveHistory.set(
-        winner.id,
-        currentHistory.addShift(shift.getDuration(), {
-          isUndesirable: shift.undesirableWeight.isHeavy(),
-          isNight: shift.isNightShift(),
-          isWeekend: shift.isWeekendShift(),
-        }),
-      );
+        assignedToThisShift++;
+      }
     }
 
     return { assignments, unfilledShifts };
