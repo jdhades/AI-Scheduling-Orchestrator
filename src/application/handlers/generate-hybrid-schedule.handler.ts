@@ -122,7 +122,15 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       semanticRules,
     });
 
-    // 4. Persistir asignaciones
+    // 4. Limpiar asignaciones previas de la semana y persistir las nuevas
+    // IMPORTANTE: hay que borrar PRIMERO para que los turnos de feriado (capacity=0,
+    // sin nuevas asignaciones) no queden con asignaciones residuales de runs anteriores.
+    const deletedCount = await this.shiftRepository.deleteAssignmentsByWeek(
+      command.companyId,
+      weekStart,
+    );
+    this.logger.log(`Cleared ${deletedCount} previous assignments for week ${weekStartStr}`);
+
     await Promise.all(
       result.assignments.map((a) => this.shiftRepository.saveAssignment(a)),
     );

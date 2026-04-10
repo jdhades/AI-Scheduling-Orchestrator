@@ -91,6 +91,40 @@ export class SupabaseShiftRepository implements IShiftRepository {
       );
   }
 
+  async deleteAssignmentsByWeek(
+    companyId: string,
+    weekStart: Date,
+  ): Promise<number> {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    // Supabase no permite DELETE con join directo, así que primero obtenemos
+    // los IDs de los turnos de la semana y luego borramos sus asignaciones.
+    const { data: shiftRows, error: shiftError } = await this.supabase
+      .from('shifts')
+      .select('id')
+      .eq('company_id', companyId)
+      .gte('start_time', weekStart.toISOString())
+      .lt('start_time', weekEnd.toISOString());
+
+    if (shiftError)
+      throw new Error(`ShiftRepository.deleteAssignmentsByWeek (fetch shifts) failed: ${shiftError.message}`);
+
+    const shiftIds = (shiftRows ?? []).map((r) => r.id);
+    if (shiftIds.length === 0) return 0;
+
+    const { data: deleted, error: deleteError } = await this.supabase
+      .from('shift_assignments')
+      .delete()
+      .in('shift_id', shiftIds)
+      .select('id'); // para contar
+
+    if (deleteError)
+      throw new Error(`ShiftRepository.deleteAssignmentsByWeek (delete) failed: ${deleteError.message}`);
+
+    return (deleted ?? []).length;
+  }
+
   async findAssignmentsByEmployee(
     employeeId: string,
     companyId: string,

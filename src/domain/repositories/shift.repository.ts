@@ -30,6 +30,13 @@ export interface IShiftRepository {
   deleteAssignment(id: string): Promise<void>;
 
   /**
+   * Borra TODAS las asignaciones de una empresa para una semana dada.
+   * Se llama al inicio de cada generación de horario para evitar
+   * que asignaciones de runs anteriores (p.ej. días feriados) persistan.
+   */
+  deleteAssignmentsByWeek(companyId: string, weekStart: Date): Promise<number>;
+
+  /**
    * Devuelve todas las asignaciones de un empleado para una empresa.
    * Usado por GetEmployeeCalendarQuery.
    */
