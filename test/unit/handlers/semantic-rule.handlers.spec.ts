@@ -79,6 +79,7 @@ describe('CreateSemanticRuleHandler', () => {
 
     expect(result.id).toBeDefined();
     expect(result.embeddingGenerated).toBe(true);
+    expect(result.isDuplicate).toBe(false);
     expect(embeddingService.generate).toHaveBeenCalledTimes(1);
     expect(repository.save).toHaveBeenCalledTimes(1);
     expect(eventBus.publish).toHaveBeenCalledTimes(1);
@@ -115,6 +116,125 @@ describe('CreateSemanticRuleHandler', () => {
       .calls[0][0];
     expect(savedRule.getPriority().getValue()).toBe(3);
     expect(savedRule.getRuleType().getValue()).toBe('requirement');
+  });
+});
+
+// ─── CreateSemanticRuleHandler — Deduplicación Semántica ──────────────────────
+
+describe('CreateSemanticRuleHandler — deduplication', () => {
+  let embeddingService: jest.Mocked<IEmbeddingService>;
+  let repository: jest.Mocked<ISemanticRuleRepository>;
+  let eventBus: jest.Mocked<EventBus>;
+  let handler: CreateSemanticRuleHandler;
+
+  const EXISTING_RULE_ID = 'existing-rule-uuid';
+
+  function makeExistingRule(): SemanticRuleAggregate {
+    return SemanticRuleAggregate.create({
+      id: EXISTING_RULE_ID,
+      ruleText: 'El 16 de abril es feriado, así que nadie trabaja ese día.',
+      priority: RulePriority.legal(),
+      ruleType: RuleType.create('restriction'),
+      companyId: 'company-1',
+    });
+  }
+
+  beforeEach(() => {
+    embeddingService = makeMockEmbeddingService();
+    repository = makeMockRepository();
+    eventBus = makeEventBusMock();
+    handler = new CreateSemanticRuleHandler(embeddingService, repository, eventBus);
+  });
+
+  it('should reject near-duplicate and NOT persist it (distance < threshold)', async () => {
+    // Simulamos que ya existe una regla muy similar (distancia 0.05)
+    repository.findRelevantRules.mockResolvedValue([
+      { rule: makeExistingRule(), distance: 0.05 },
+    ]);
+
+    const cmd = new CreateSemanticRuleCommand(
+      'company-1',
+      'El día 16 es feriado, así que nadie trabaja ese día.', // paráfrasis
+      1,
+      'restriction',
+    );
+    const result = await handler.execute(cmd);
+
+    expect(result.isDuplicate).toBe(true);
+    expect(result.duplicateOfId).toBe(EXISTING_RULE_ID);
+    expect(result.id).toBe(EXISTING_RULE_ID); // devuelve el ID de la existente
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(eventBus.publish).not.toHaveBeenCalled();
+  });
+
+  it('should reject exact duplicate (distance ≈ 0)', async () => {
+    repository.findRelevantRules.mockResolvedValue([
+      { rule: makeExistingRule(), distance: 0.001 },
+    ]);
+
+    const cmd = new CreateSemanticRuleCommand(
+      'company-1',
+      'El 16 de abril es feriado, así que nadie trabaja ese día.',
+      1,
+      'restriction',
+    );
+    const result = await handler.execute(cmd);
+
+    expect(result.isDuplicate).toBe(true);
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('should allow creation when nearest rule is above threshold (distance > 0.12)', async () => {
+    // Regla existente es relevante para el scheduling pero NO un duplicado
+    repository.findRelevantRules.mockResolvedValue([
+      { rule: makeExistingRule(), distance: 0.25 },
+    ]);
+
+    const cmd = new CreateSemanticRuleCommand(
+      'company-1',
+      'Ana no trabaja los viernes por razones personales.',
+      2,
+      'preference',
+    );
+    const result = await handler.execute(cmd);
+
+    expect(result.isDuplicate).toBe(false);
+    expect(repository.save).toHaveBeenCalledTimes(1);
+    expect(eventBus.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('should proceed with creation when dedup check throws (fail-safe)', async () => {
+    repository.findRelevantRules.mockRejectedValue(new Error('pgvector timeout'));
+
+    const cmd = new CreateSemanticRuleCommand(
+      'company-1',
+      'Los domingos solo trabajan voluntarios.',
+      3,
+      'preference',
+    );
+    const result = await handler.execute(cmd);
+
+    // El error en la búsqueda no bloquea — la regla se crea igualmente
+    expect(result.isDuplicate).toBe(false);
+    expect(repository.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('should skip dedup check when embedding generation fails', async () => {
+    embeddingService.generate.mockRejectedValueOnce(new Error('API down'));
+
+    const cmd = new CreateSemanticRuleCommand(
+      'company-1',
+      'Regla sin embedding por fallo de API.',
+      1,
+      'restriction',
+    );
+    const result = await handler.execute(cmd);
+
+    // Sin vector no hay búsqueda de duplicados — la regla se persiste (sin embedding)
+    expect(result.isDuplicate).toBe(false);
+    expect(result.embeddingGenerated).toBe(false);
+    expect(repository.findRelevantRules).not.toHaveBeenCalled();
+    expect(repository.save).toHaveBeenCalledTimes(1);
   });
 });
 

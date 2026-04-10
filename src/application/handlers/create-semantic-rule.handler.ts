@@ -14,6 +14,10 @@ import { SEMANTIC_RULE_REPOSITORY_TOKEN } from '../../domain/repositories/semant
 export interface CreateSemanticRuleResult {
   id: string;
   embeddingGenerated: boolean;
+  /** true when the rule was NOT persisted because a near-duplicate already exists */
+  isDuplicate: boolean;
+  /** UUID of the existing rule that is semantically equivalent (only set when isDuplicate=true) */
+  duplicateOfId?: string;
 }
 
 /**
@@ -22,6 +26,8 @@ export interface CreateSemanticRuleResult {
  * Flujo:
  *   1. Crear SemanticRuleAggregate (valida texto, prioridad, tipo)
  *   2. Generar embedding via IEmbeddingService
+ *   2.5 Verificar duplicado semántico (distancia coseno < DEDUP_DISTANCE_THRESHOLD)
+ *       → Si duplicado: retornar sin persistir {isDuplicate: true}
  *   3. Persistir en pgvector via ISemanticRuleRepository
  *   4. Publicar SemanticRuleCreatedEvent al EventBus
  */
@@ -31,6 +37,14 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
   CreateSemanticRuleResult
 > {
   private readonly logger = new Logger(CreateSemanticRuleHandler.name);
+
+  /**
+   * Umbral de distancia coseno para considerar dos reglas duplicadas semánticamente.
+   * - 0.00 = texto idéntico
+   * - 0.12 = paráfrasis directas (elegido conservadoramente para evitar falsos positivos)
+   * - 0.35 = umbral de retrieval (relevancia para scheduling)
+   */
+  private static readonly DEDUP_DISTANCE_THRESHOLD = 0.12;
 
   constructor(
     @Inject(EMBEDDING_SERVICE_TOKEN)
@@ -65,8 +79,9 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
 
     // 2. Generar embedding (puede fallar si la API está caída)
     let embeddingGenerated = false;
+    let vector: number[] | null = null;
     try {
-      const vector = await this.embeddingService.generate(command.ruleText);
+      vector = await this.embeddingService.generate(command.ruleText);
       rule.setEmbedding(vector);
       embeddingGenerated = true;
     } catch (error) {
@@ -74,6 +89,42 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
       this.logger.warn(
         `CreateSemanticRuleHandler: embedding generation failed, rule saved without vector. Error: ${(error as Error).message}`,
       );
+    }
+
+    // 2.5 Verificar duplicado semántico (solo si tenemos embedding)
+    if (vector !== null) {
+      try {
+        const nearDuplicates = await this.ruleRepository.findRelevantRules(
+          vector,
+          command.companyId,
+          command.branchId ?? undefined,
+          command.departmentId ?? undefined,
+          1, // solo necesitamos el más cercano
+        );
+
+        if (
+          nearDuplicates.length > 0 &&
+          nearDuplicates[0].distance < CreateSemanticRuleHandler.DEDUP_DISTANCE_THRESHOLD
+        ) {
+          const existing = nearDuplicates[0].rule;
+          this.logger.warn(
+            `CreateSemanticRuleHandler: duplicate detected — new rule is too similar to existing ` +
+            `rule ${existing.getId()} (distance=${nearDuplicates[0].distance.toFixed(4)}). Rule NOT persisted.`,
+          );
+          return {
+            id: existing.getId(),
+            embeddingGenerated: false,
+            isDuplicate: true,
+            duplicateOfId: existing.getId(),
+          };
+        }
+      } catch (error) {
+        // Si la búsqueda de duplicados falla, continuamos con la creación
+        // (mejor un falso negativo que bloquear la operación)
+        this.logger.warn(
+          `CreateSemanticRuleHandler: duplicate check failed, proceeding with creation. Error: ${(error as Error).message}`,
+        );
+      }
     }
 
     // 3. Persistir
@@ -94,6 +145,6 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     this.logger.log(
       `Semantic rule created — id=${id} embeddingGenerated=${embeddingGenerated}`,
     );
-    return { id, embeddingGenerated };
+    return { id, embeddingGenerated, isDuplicate: false };
   }
 }
