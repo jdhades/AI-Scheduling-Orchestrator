@@ -172,4 +172,59 @@ describe('ShiftCapacityPlannerService', () => {
     const result = planner.plan({ employees, shifts: [], semanticRules: [] });
     expect(result.size).toBe(0);
   });
+
+  // ─── Detección de feriados con formatos de fecha sin año ──────────────────
+
+  it('detects holiday via "N de mes" format (e.g. "16 de abril es feriado")', () => {
+    // 2026-04-16 → "16 de abril"
+    const employees = [1, 2, 3].map((i) => makeEmployee(`e${i}`));
+    const shifts = [
+      makeShift('morning', '2026-04-16', 8, 16, null),
+      makeShift('afternoon', '2026-04-16', 16, 24, null),
+    ];
+    const rules = [
+      makeRule('El 16 de abril es feriado, así que nadie trabaja ese día.'),
+    ];
+
+    const result = planner.plan({ employees, shifts, semanticRules: rules });
+
+    expect(result.get('morning')).toBe(0);
+    expect(result.get('afternoon')).toBe(0);
+  });
+
+  it('detects holiday via "día N" format (e.g. "el día 16 es feriado")', () => {
+    const employees = [1, 2].map((i) => makeEmployee(`e${i}`));
+    const shifts = [makeShift('only', '2026-04-16', 8, 16, null)];
+    const rules = [
+      makeRule('El día 16 es feriado, así que nadie trabaja ese día.'),
+    ];
+
+    const result = planner.plan({ employees, shifts, semanticRules: rules });
+
+    expect(result.get('only')).toBe(0);
+  });
+
+  it('detects holiday via "el N " format with trailing space', () => {
+    const employees = [1, 2].map((i) => makeEmployee(`e${i}`));
+    const shifts = [makeShift('only', '2026-04-16', 8, 16, null)];
+    const rules = [makeRule('El 16 de abril es feriado, nadie trabaja.')];
+
+    const result = planner.plan({ employees, shifts, semanticRules: rules });
+
+    expect(result.get('only')).toBe(0);
+  });
+
+  it('does NOT exclude employees for a different day than the one in the holiday rule', () => {
+    // Rule says "16 de abril" but shifts are on April 15
+    const employees = [1, 2, 3].map((i) => makeEmployee(`e${i}`));
+    const shifts = [makeShift('morning', '2026-04-15', 8, 16, null)];
+    const rules = [
+      makeRule('El 16 de abril es feriado, así que nadie trabaja ese día.'),
+    ];
+
+    const result = planner.plan({ employees, shifts, semanticRules: rules });
+
+    // April 15 is NOT a holiday — pool should be full
+    expect(result.get('morning')).toBe(3);
+  });
 });

@@ -114,12 +114,12 @@ export class ShiftCapacityPlannerService {
    * las reglas semánticas (matching de texto, best-effort).
    *
    * Patrones detectados:
-   *   - Mención del día de la semana (lunes, martes…) o de la fecha ISO en el texto de la regla
-   *   - Si la regla menciona "todos" o "feriado" → excluye a TODOS los empleados
-   *   - Si menciona el nombre de un empleado concreto (no implementado sin datos de nombres)
-   *
-   * Las reglas ambiguas (sin fecha explícita) se ignoran aquí y
-   * el LLM las maneja por su cuenta con el texto completo de la regla.
+   *   - Fecha ISO completa: "2026-04-16"
+   *   - Nombre del día de la semana: "lunes", "monday"
+   *   - Ordinal + mes en español: "16 de abril", "abril 16"
+   *   - Formato numérico corto: "16/04", "04/16"
+   *   - Día numérico solo (con cautela): "día 16", "el 16"
+   *   - Si la regla menciona "feriado" + cualquiera de los anteriores → excluye todos
    */
   private estimateExcludedEmployees(
     dayIso: string, // "YYYY-MM-DD"
@@ -127,12 +127,38 @@ export class ShiftCapacityPlannerService {
     semanticRules: SemanticConstraint[],
   ): number {
     const date = new Date(dayIso + 'T12:00:00Z');
-    const dayName = date
+    const [, monthStr, dayStr] = dayIso.split('-');
+    const dayNum = parseInt(dayStr, 10);   // e.g. 16
+
+    // Nombre del mes en español e inglés
+    const monthNameEs = date
+      .toLocaleDateString('es-ES', { month: 'long' })
+      .toLowerCase(); // "abril"
+    const monthNameEn = date
+      .toLocaleDateString('en-US', { month: 'long' })
+      .toLowerCase(); // "april"
+
+    // Nombre del día de la semana
+    const dayOfWeekEs = date
       .toLocaleDateString('es-ES', { weekday: 'long' })
-      .toLowerCase();
-    const dayNameEn = date
+      .toLowerCase(); // "miércoles"
+    const dayOfWeekEn = date
       .toLocaleDateString('en-US', { weekday: 'long' })
-      .toLowerCase();
+      .toLowerCase(); // "wednesday"
+
+    // Patrones alternativos para la fecha (sin año)
+    const altPatterns = [
+      `${dayNum} de ${monthNameEs}`,          // "16 de abril"
+      `${monthNameEs} ${dayNum}`,             // "abril 16"
+      `${dayNum} de ${monthNameEn}`,          // "16 de april"
+      `${dayStr}/${monthStr}`,                // "16/04"
+      `${monthStr}/${dayStr}`,                // "04/16"
+      `día ${dayNum}`,                        // "día 16"
+      `dia ${dayNum}`,                        // "dia 16" (sin tilde)
+      `el ${dayNum} `,                        // "el 16 " (espacio tras número para evitar "el 160")
+      `el ${dayNum},`,                        // "el 16,"
+      `el ${dayNum}.`,                        // "el 16."
+    ];
 
     let excludeAll = false;
     let excludedByName = 0;
@@ -140,11 +166,12 @@ export class ShiftCapacityPlannerService {
     for (const constraint of semanticRules) {
       const text = constraint.rule.toLowerCase();
 
-      // Solo analizar reglas que mencionen este día concreto
+      // ¿La regla menciona este día por alguno de los patrones conocidos?
       const mentionsThisDay =
         text.includes(dayIso) ||
-        text.includes(dayName) ||
-        text.includes(dayNameEn);
+        text.includes(dayOfWeekEs) ||
+        text.includes(dayOfWeekEn) ||
+        altPatterns.some((p) => text.includes(p));
 
       if (!mentionsThisDay) continue;
 

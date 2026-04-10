@@ -125,6 +125,16 @@ export class PromptOrchestratorService {
       // Capacidad resuelta: usa el valor del planner (ya no existe "Ilimitada")
       const targetCapacity = resolvedCapacities.get(shift.id) ?? 1;
 
+      // Feriado / capacidad cero: ignorar TODAS las propuestas del LLM para este turno.
+      // El turno quedará marcado como cubierto con 0 asignaciones (correcto).
+      if (targetCapacity === 0) {
+        this.logger.log(
+          `Shift ${shift.id} has resolved capacity=0 (holiday/exclusion). All LLM proposals ignored.`,
+        );
+        coveredByLLM.add(shift.id);
+        continue;
+      }
+
       let validCount = 0;
       let intentionallySkipped = false;
 
