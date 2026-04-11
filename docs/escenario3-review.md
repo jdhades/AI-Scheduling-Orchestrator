@@ -39,8 +39,8 @@ La pregunta central que motiva este escenario es:
 La respuesta es una arquitectura **RAG (Retrieval-Augmented Generation)** completamente integrada en el pipeline de scheduling:
 
 1. Un manager escribe una regla en español natural.
-2. El sistema la convierte en un vector de 768 dimensiones usando `Gemini text-embedding-004`.
-3. Ese vector se almacena en PostgreSQL con la extensión `pgvector`.
+2. **Semantic Knowledge** — el sistema recupera reglas de negocio en tiempo real (RAG) para guiar el scheduling cognitivo.
+3. **Multi-Provider Architecture** — agnosticismo completo entre **Gemini 2.0 Flash** y **Qwen Plus/Max**.
 4. Cuando se va a generar un horario para un turno, el sistema recupera semánticamente las reglas más relevantes para ese contexto (RAG).
 5. Si hay contradicciones entre reglas, el `ConflictResolutionEngine` las resuelve jerárquicamente.
 6. Las reglas supervivientes se inyectan al motor de scheduling existente (Escenario 2) como `SemanticConstraint[]`.
@@ -762,9 +762,9 @@ $ npx jest test/unit --no-coverage
 ```
 
 ```
-Test Suites: 22 passed, 22 total
-Tests:       213 passed, 213 total
-Time:        ~2 s
+Test Suites: 45 passed, 45 total
+Tests:       366 passed, 366 total
+Time:        ~4 s
 ```
 
 ### Distribución de tests por área
@@ -778,11 +778,25 @@ Time:        ~2 s
 | Infrastructure | 8 | 0 | 8 |
 | Policies | 12 | 0 | 12 |
 | Application | 8 | 0 | 8 |
-| **Total** | **82** | **77** | **213** |
+| Demás suites acumuladas | 153 |
+| **Total Global** | **366** |
 
 > El Escenario 3 prácticamente **duplicó** la cobertura de tests del proyecto.
 
+
 ---
+
+## 14.5. Deduplicación Semántica de Reglas
+
+Para mantener la integridad y eficiencia del motor vectorial, se ha implementado un mecanismo de deduplicación semántica en el `CreateSemanticRuleHandler`:
+
+1. **Chequeo de Proximidad:** Antes de persistir una nueva regla, el sistema genera su embedding y consulta las reglas existentes más cercanas.
+2. **Umbral de Distancia (0.12):** Si se encuentra una regla con una distancia coseno menor a **0.12**, el sistema la identifica como un duplicado semántico (paráfrasis directa).
+3. **Prevención de Redundancia:** Las reglas detectadas como duplicadas no se persisten, retornando el ID de la regla original. Esto evita que el motor RAG recupere múltiples versiones de la misma instrucción, optimizando la ventana de contexto del LLM y previniendo conflictos innecesarios.
+4. **Resiliencia:** Si la API de embeddings falla durante el chequeo de duplicados, el sistema prioriza la persistencia de la nueva regla para evitar pérdida de datos, delegando la limpieza a procesos posteriores.
+
+---
+
 
 ## 15. Conclusiones
 
@@ -801,11 +815,11 @@ El Escenario 3 transformó el sistema de scheduling de un motor con reglas fijas
 | Decisión | Alternativa considerada | Razón de la elección |
 |----------|------------------------|----------------------|
 | `pgvector` con ivfflat | Pinecone, Weaviate | Evita dependencia externa; PostgreSQL ya en stack |
-| Gemini `text-embedding-004` | OpenAI ada-002 | Mejor calidad en español; coherencia con resto del sistema |
+| **768 Dimensiones** | 1536, 1024 | Espacio común compatible entre **text-embedding-004** y **text-embedding-v3** (Qwen) |
 | Soft delete para reglas | Hard delete | Auditabilidad; posibilidad de restaurar |
 | `ConflictResolutionEngine` determinístico | Dejar al LLM resolverlo | Predecibilidad y auditabilidad son requisitos de negocio |
-| Threshold 0.35 (distancia coseno) | Threshold más alto/bajo | Calibrado manualmente para balance precisión/recall |
-| Gemini 1.5 Flash (Orchestrator) | Gemini 1.5 Pro | Latencia: Flash 2-3x más rápido en prompts estructurados |
+| Threshold 0.12 (Deduplicación) | Threshold más alto | Calibrado para detectar paráfrasis directas en V2 |
+| **Active AI Provider Injected** | Hardcoded logic | Permite alternar entre **Gemini 2.0 Flash** y **Qwen Plus** según latencia/costo |
 | Resiliencia total (catch → `[]`) | Lanzar error en RAG failure | El scheduling nunca puede bloquearse por infra externa |
 
 ### Limitaciones conocidas

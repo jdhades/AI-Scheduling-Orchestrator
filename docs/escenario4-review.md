@@ -1,10 +1,10 @@
-# Escenario 4 — Conversational (WhatsApp + Voz + Gemini): Review Detallado (Geminis)
+# Escenario 4 — Conversacional (WhatsApp + Voz + Gemini/Qwen): Review Detallado
 
 > **Proyecto:** AI Scheduling Orchestrator  
 > **Fecha de implementación:** Marzo 2026  
-> **Stack:** NestJS · Twilio (WhatsApp y Audio) · Gemini 1.5 Pro · CQRS / DDD · Supabase  
+> **Stack:** NestJS · Twilio (WhatsApp y Audio) · Gemini 2.0 Flash / Qwen Plus · CQRS / DDD · Supabase  
 > **Autor principal:** Jean Newman  
-> **Revisión técnica:** Antigravity (IA Assistant - Rama Geminis)
+> **Revisión técnica:** Antigravity (IA Assistant)
 
 ---
 
@@ -43,10 +43,10 @@ Para lograr una comunicación asíncrona y eficiente, se adoptaron las siguiente
 
 1. **Twilio Webhook Excluido de Tenant Middleware:**
    Las peticiones entrantes desde WhatsApp no llevan un encabezado normal de Tenant (ID de la empresa). Por ende, el Controlador `WhatsAppController` está excluido del middleware de tenant clásico. Su labor es usar el número de teléfono (remitente) para resolver a qué `companyId` y `employeeId` pertenece el usuario a través de una búsqueda global superando el aislamiento RLS intencionadamente solo para este punto.
-2. **Gemini 1.5 Pro (Audio y Texto en un solo prompt):**
-   Se prescindió de Whisper (OpenAI) y se aprovechó Gemini para que procese el audio (codificado en Base64) junto al prompt para extraer directamente la intención y entidades (identificadas en JSON) sin latencia en cadenas de peticiones a múltiples APIs.
-3. **Mapeo de Intenciones a CQRS Commands (CommandMapperService):**
-   La capa de inteligencia envía JSONs estructurados (e.g. `{"intent": "swap_shift", "entities": {"date": "..."}}`). Este mapeador transforma el JSON en un Command CQRS. Si falta información vital para la operación, el mapeador solicita clarificaciones amigables antes de disparar un comando.
+2. **AI Agnostic Orchestration (Gemini 2.0 Flash & Qwen Plus):**
+   Se implementó un motor de IA intercambiable. El sistema puede procesar audio (codificado en Base64) y texto usando el proveedor activo (`ACTIVE_AI_PROVIDER`), abstrayendo las diferencias entre las APIs de Google y Alibaba para extraer intenciones y entidades en JSON estructurado.
+3. **Mapeo de Intenciones e i18n Auto-detectable:**
+   La capa de inteligencia no solo detecta la intención, sino también el idioma del usuario. Si un empleado escribe en inglés o portugués, el sistema responde en el mismo idioma detectado, manteniendo la sesión conversacional coherente.
 4. **Fire-and-Forget (No bloqueante):**
    El webhook devuelve `200 OK` inmediatamente a Twilio. El proceso de descarga, paso por Gemini y ejecución de la arquitectura de la app se delega a `setImmediate`, liberando la conexión HTTPS y evitando timeouts para la API del proveedor.
 
@@ -150,9 +150,9 @@ Simuló un End-to-End mockeado de la llegada de HTTP. Confirmando:
 
 ## 6. Resultados Alcanzados
 
-La implementación del Escenario 4 se concretó en el **paso superado de un total de 275 tests unitarios locales para toda la aplicación**, confirmando la no-regresión.
+La implementación del Escenario 4 se concretó en el **paso superado de un total de 366 tests unitarios locales para toda la aplicación**, confirmando la no-regresión.
 
-De ellos, **81 test nuevos y exclusivos** consolidaron al motor conversacional sin ningún cabo suelto.
+De ellos, **un conjunto robusto de tests exclusivos** consolidó al motor conversacional sin ningún cabo suelto.
 
 Entre los logros destacan:
 - Capacidad omnicanal asíncrona (Aceptas voz y texto natural, descargas medios nativamente).

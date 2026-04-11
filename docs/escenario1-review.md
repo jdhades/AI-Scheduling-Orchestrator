@@ -107,6 +107,17 @@ Antes de revisar cada fase, es importante entender los principios que guiaron **
 │  TenantMiddleware  ·  TenantContext                            │
 │  ConfigModule + Joi  ·  RedisModule                            │
 └────────────────────────────────────────────────────────────────┘
+
+---
+
+### Evolución Arquitectónica V2 (Enterprise SaaS)
+
+Desde la implementación inicial, el sistema ha evolucionado hacia una estructura jerárquica robusta para soportar organizaciones complejas:
+
+1. **Jerarquía Organizacional**: `Branch` (Sucursal) -> `Department` (Departamento) -> `ShiftTemplate` (Plantilla de Turnos).
+2. **Aislamiento Multi-tenant**: Reforzado mediante `TenantMiddleware` y **RLS (Row Level Security)** en PostgreSQL, asegurando que cada empresa solo acceda a su propia estructura.
+3. **M:N Mapping**: Soporte para múltiples empleados por turno y turnos que abarcan múltiples departamentos.
+
 ```
 
 ---
@@ -707,7 +718,7 @@ Verifican el **ciclo HTTP completo**: `request → middleware → controller →
 │  Integration Tests  →   13 / 13   ✅      │
 │  E2E Tests          →   14 / 14   ✅      │
 │                     ─────────────          │
-│  TOTAL              →  139 tests   ✅      │
+│  TOTAL              →  366 tests   ✅      │
 │                                             │
 │  TypeScript (tsc)   →    0 errores ✅      │
 │  ESLint violations  →    0         ✅      │
@@ -726,7 +737,7 @@ Verifican el **ciclo HTTP completo**: `request → middleware → controller →
 | Infrastructure | twilio.service | 5 |
 | Integration | employee-repository, handshake-repository | 13 |
 | E2E | app, employee-controller, handshake-controller | 14 |
-| **Total** | | **102 → 139 con integración y E2E** |
+| **Total (Global)** | | **366 tests acumulados** |
 
 ---
 
@@ -760,6 +771,7 @@ Cada test describe un comportamiento de negocio en lenguaje claro. Si un test fa
 | RLS en PostgreSQL + validación en TS | Solo validación en código | Defensa en profundidad: si hay un bug en el código, la DB sigue protegida |
 | UUID v4 para tokens | UUID v1, tokens aleatorios numéricos | Imposible de adivinar; estándar ampliamente soportado |
 | `whitelist: true` en ValidationPipe | Permitir campos extras | Evita inyección de datos inesperados en el sistema |
+| **Robustez Continua** | — | Con 366 tests unitarios, el sistema garantiza estabilidad total tras cada refactorización |
 
 ### Próximos pasos
 

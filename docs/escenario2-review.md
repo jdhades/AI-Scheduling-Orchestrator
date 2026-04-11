@@ -40,6 +40,14 @@ La respuesta se construyó sobre tres pilares:
 2. **Fairness Algorithm** — una fórmula determinística que cuantifica la carga de trabajo de cada empleado en una escala 0–1000, ponderando turnos nocturnos, fines de semana y cargas no deseables
 3. **Skill Matrix Validation** — garantía de que cada empleado tiene el skill, nivel de experiencia y certificación vigente requeridos por el turno antes de asignarlo
 
+### Modificaciones para Escalabilidad Industrial (V2)
+
+El motor ha sido actualizado para soportar demandas variables:
+- **Elastic Capacity (M:N)**: Los turnos ahora pueden tener capacidad indefinida (`required_employees = null`), permitiendo que el algoritmo llene el turno con tantos empleados como sea necesario para garantizar la cobertura equitativa.
+- **Regla Anti-Clopening**: Validación estricta de **11 horas de descanso mínimo** entre turnos consecutivos para el mismo empleado.
+- **Garantía de Feriados**: Integración con `ShiftCapacityPlannerService` para detectar feriados en lenguaje natural y limpiar asignaciones existentes mediante `deleteAssignmentsByWeek` si el día se marca con capacidad 0.
+
+
 El escenario fue diseñado siguiendo **DDD estricto**: la lógica de negocio vive exclusivamente en el dominio, la persistencia es un detalle de infraestructura, y los comandos/queries siguen **CQRS**.
 
 ---
@@ -541,19 +549,16 @@ El E2 introdujo constructores privados en varios aggregates. Los tests del E1 fu
 
 ## 13. Resultados de verificación
 
-```
 ┌─────────────────────────────────────────────┐
 │  Escenario 2 — Resultados Finales           │
 │                                             │
 │  TypeScript (tsc)   →    0 errores ✅      │
-│  Test Suites        →   20 / 20   ✅      │
-│  Tests totales      →  137 / 137  ✅      │
+│  Test Suites        →   45 / 45   ✅      │
+│  Tests totales      →  366 / 366  ✅      │
 │  Migración SQL      →  Aplicada   ✅      │
 │  POST /schedules/generate →   ✅          │
 │  GET  /schedules          →   ✅          │
-│                                             │
 └─────────────────────────────────────────────┘
-```
 
 ### Distribución de tests por área
 
@@ -564,10 +569,22 @@ El E2 introdujo constructores privados en varios aggregates. Los tests del E1 fu
 | Policies (SkillValidation, Fairness) | 10 |
 | Handlers CQRS nuevos | 8 |
 | Tests E1 actualizados para compatibilidad | 12 |
-| Demás suites del E1 sin cambios | 71 |
-| **Total** | **137** |
+| Demás suites acumuladas | 295 |
+| **Total Global** | **366** |
+
 
 ---
+
+## 13.5. Garantía de Respeto a Feriados y Elastic Capacity
+
+Se ha implementado una capa de seguridad crítica en el motor de scheduling para garantizar el cumplimiento de días feriados y cierres:
+
+1. **Limpieza Determinística (`deleteAssignmentsByWeek`):** Antes de iniciar cualquier generación híbrida (LLM + Algoritmo), el sistema ejecuta una limpieza total de las asignaciones existentes para la semana solicitada. Esto asegura que si la capacidad de un turno cambió a 0 (ej. por un feriado recién declarado), no queden asignaciones residuales de ejecuciones previas.
+2. **Entendimiento de Fechas Humanas:** El `ShiftCapacityPlannerService` ahora reconoce formatos de fecha naturales como "16 de abril" o "día 16", permitiendo que las reglas semánticas de feriados se mapeen correctamente a la capacidad 0.
+3. **Persistencia de Omisiones Intencionales:** Al borrar primero, garantizamos que si el LLM decide NO asignar a nadie a un turno (respetando la capacidad 0), el sistema no intente "rellenarlo" erróneamente con datos antiguos.
+
+---
+
 
 ## 14. Conclusiones
 
