@@ -82,17 +82,19 @@ export class GenerateScheduleHandler implements ICommandHandler<
     // 2. Seleccionar estrategia
     const strategy = this.selectStrategy(command.strategyType);
 
-    // 2b. Recuperar reglas semánticas relevantes via RAG (Escenario 3)
-    // Si el servicio falla, semanticRules = [] y el scheduling continúa normalmente
-    const semanticRules = await this.semanticRetrievalService.retrieveForShift({
-      shiftContext: `empresa ${command.companyId} semana ${command.weekStart} estrategia ${command.strategyType}`,
-      companyId: command.companyId,
-      shiftDate: weekStart,
-    });
+    // 2b. Recuperar todas las reglas semánticas activas de la empresa (Escenario 3).
+    // Se usan todas las reglas (no filtrado por similitud) porque el
+    // SemanticConstraintInterpreter resuelve en el SchedulingEngine qué reglas
+    // aplican a qué turnos y empleados concretos mediante pattern matching.
+    // Si el servicio falla, semanticRules = [] y el scheduling continúa normalmente.
+    const semanticRules =
+      await this.semanticRetrievalService.retrieveAllForCompany(
+        command.companyId,
+      );
 
     if (semanticRules.length > 0) {
       this.logger.log(
-        `RAG: ${semanticRules.length} semantic rules applied to schedule generation`,
+        `RAG: ${semanticRules.length} semantic rules will be interpreted against ${shifts.length} shifts`,
       );
     }
 

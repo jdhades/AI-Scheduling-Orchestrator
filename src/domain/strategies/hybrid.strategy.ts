@@ -8,6 +8,7 @@ import type {
   SemanticConstraint,
   StrategyResult,
 } from './scheduling-strategy.interface';
+import { SEMANTIC_BLOCKED_ALL } from './scheduling-strategy.interface';
 
 export interface HybridWeights {
   /** Peso del factor de costo en la fórmula (default: 0.3) */
@@ -62,9 +63,10 @@ export class HybridStrategy implements SchedulingStrategy {
     employees: Employee[],
     shifts: Shift[],
     histories: FairnessHistoryVO[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _semanticRules?: SemanticConstraint[],
+    semanticRules?: SemanticConstraint[],
   ): StrategyResult {
+    const activeConstraints = semanticRules ?? [];
+
     const liveHistory = new Map<string, FairnessHistoryVO>(
       employees.map((e) => {
         const existing = histories.find((h) => h.employeeId === e.id);
@@ -113,6 +115,7 @@ export class HybridStrategy implements SchedulingStrategy {
           employees,
           skillIndex,
           busySlots,
+          activeConstraints,
         );
 
         if (candidates.length === 0) {
@@ -129,12 +132,14 @@ export class HybridStrategy implements SchedulingStrategy {
             shift,
             liveHistory.get(a.id),
             maxRawFairness,
+            activeConstraints,
           );
           const scoreB = this.totalScore(
             b,
             shift,
             liveHistory.get(b.id),
             maxRawFairness,
+            activeConstraints,
           );
           return scoreA - scoreB; // menor = más preferido
         });
@@ -186,6 +191,7 @@ export class HybridStrategy implements SchedulingStrategy {
     shift: Shift,
     history: FairnessHistoryVO | undefined,
     maxRawFairness: number,
+    constraints: SemanticConstraint[] = [],
   ): number {
     const costFactor = this.normalizeCost(employee.experienceMonths);
     const fairnessFactor = Math.min(
@@ -199,11 +205,21 @@ export class HybridStrategy implements SchedulingStrategy {
       shift.startTime,
     );
 
+    // Soft Semantic Constraint (weight=1): penalizar score sin bloquear
+    const hasSoftBlock = constraints.some(
+      (c) =>
+        c.weight === 1 &&
+        c.employeeId === employee.id &&
+        (!c.shiftId || c.shiftId === shift.id),
+    );
+    const semanticPenalty = hasSoftBlock ? 1.5 : 1;
+
     return (
       (this.weights.costWeight * costFactor +
         this.weights.fairnessWeight * fairnessFactor +
         this.weights.demandWeight * demandFactor) *
-      preferenceMultiplier
+      preferenceMultiplier *
+      semanticPenalty
     );
   }
 
@@ -229,7 +245,30 @@ export class HybridStrategy implements SchedulingStrategy {
     employees: Employee[],
     skillIndex: Map<string, Employee[]>,
     busySlots: Map<string, { id: string; startTime: Date; endTime: Date; getDuration: () => number; overlapsWith: (other: Shift) => boolean }[]>,
+    constraints: SemanticConstraint[] = [],
   ): Employee[] {
+    // Hard Semantic: turno completamente bloqueado (feriado, nadie trabaja)
+    const shiftFullyBlocked = constraints.some(
+      (c) =>
+        c.weight >= 2 &&
+        c.employeeId === SEMANTIC_BLOCKED_ALL &&
+        c.shiftId === shift.id,
+    );
+    if (shiftFullyBlocked) return [];
+
+    // IDs bloqueados específicamente para este turno (hard constraints)
+    const hardBlockedIds = new Set(
+      constraints
+        .filter(
+          (c) =>
+            c.weight >= 2 &&
+            c.employeeId &&
+            c.employeeId !== SEMANTIC_BLOCKED_ALL &&
+            (!c.shiftId || c.shiftId === shift.id),
+        )
+        .map((c) => c.employeeId!),
+    );
+
     const pool = shift.requiredSkillId
       ? (skillIndex.get(shift.requiredSkillId) ?? [])
       : employees;
@@ -237,6 +276,9 @@ export class HybridStrategy implements SchedulingStrategy {
     const uniquePool = Array.from(new Set(pool));
 
     return uniquePool.filter((emp) => {
+      // Hard Semantic: empleado bloqueado por regla legal o semántica
+      if (hardBlockedIds.has(emp.id)) return false;
+
       const busy = busySlots.get(emp.id) ?? [];
       if (busy.some((s) => s.overlapsWith(shift))) return false;
 

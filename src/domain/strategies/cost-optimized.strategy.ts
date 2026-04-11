@@ -8,6 +8,7 @@ import type {
   SemanticConstraint,
   StrategyResult,
 } from './scheduling-strategy.interface';
+import { SEMANTIC_BLOCKED_ALL } from './scheduling-strategy.interface';
 
 /**
  * CostOptimizedStrategy — Strategy Pattern
@@ -40,8 +41,7 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
     employees: Employee[],
     shifts: Shift[],
     histories: FairnessHistoryVO[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _semanticRules?: SemanticConstraint[],
+    semanticRules?: SemanticConstraint[],
   ): StrategyResult {
     // Índice de historial por employeeId — O(1) lookup
     const historyIndex = new Map<string, FairnessHistoryVO>(
@@ -58,6 +58,8 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
     // Pre-indexar employees por skill: skillId → Employee[]
     const skillIndex = this.buildSkillIndex(employees);
 
+    const activeConstraints = semanticRules ?? [];
+
     const assignments: ShiftAssignment[] = [];
     const unfilledShifts: Shift[] = [];
 
@@ -72,6 +74,7 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
         employees,
         skillIndex,
         busySlots,
+        activeConstraints,
       );
 
       if (candidates.length === 0) {
@@ -79,10 +82,10 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
         continue;
       }
 
-      // Ordenar por costo efectivo (base + penalización por fairness)
+      // Ordenar por costo efectivo (base + penalización por fairness + soft semantic)
       const ranked = candidates.sort((a, b) => {
-        const costA = this.effectiveCost(a, shift, historyIndex.get(a.id));
-        const costB = this.effectiveCost(b, shift, historyIndex.get(b.id));
+        const costA = this.effectiveCost(a, shift, historyIndex.get(a.id), activeConstraints);
+        const costB = this.effectiveCost(b, shift, historyIndex.get(b.id), activeConstraints);
         return costA - costB;
       });
 
@@ -108,6 +111,7 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
     employee: Employee,
     shift: Shift,
     history?: FairnessHistoryVO,
+    constraints: SemanticConstraint[] = [],
   ): number {
     const baseCost =
       CostOptimizedStrategy.EXPERIENCE_COST[
@@ -129,7 +133,16 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
       shift.startTime,
     );
 
-    return baseCost * fairnessMultiplier * preferenceMultiplier;
+    // Soft Semantic Constraint (weight=1): penalizar pero no bloquear
+    const hasSoftBlock = constraints.some(
+      (c) =>
+        c.weight === 1 &&
+        c.employeeId === employee.id &&
+        (!c.shiftId || c.shiftId === shift.id),
+    );
+    const semanticPenalty = hasSoftBlock ? 1.5 : 1;
+
+    return baseCost * fairnessMultiplier * preferenceMultiplier * semanticPenalty;
   }
 
   private buildSkillIndex(employees: Employee[]): Map<string, Employee[]> {
@@ -148,7 +161,30 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
     employees: Employee[],
     skillIndex: Map<string, Employee[]>,
     busySlots: Map<string, Shift[]>,
+    constraints: SemanticConstraint[] = [],
   ): Employee[] {
+    // Hard Semantic: si alguna constraint bloquea todos los empleados en este turno, retornar vacío
+    const shiftFullyBlocked = constraints.some(
+      (c) =>
+        c.weight >= 2 &&
+        c.employeeId === SEMANTIC_BLOCKED_ALL &&
+        c.shiftId === shift.id,
+    );
+    if (shiftFullyBlocked) return [];
+
+    // IDs de empleados bloqueados específicamente en este turno (hard constraints)
+    const hardBlockedIds = new Set(
+      constraints
+        .filter(
+          (c) =>
+            c.weight >= 2 &&
+            c.employeeId &&
+            c.employeeId !== SEMANTIC_BLOCKED_ALL &&
+            (!c.shiftId || c.shiftId === shift.id),
+        )
+        .map((c) => c.employeeId!),
+    );
+
     const pool = shift.requiredSkillId
       ? (skillIndex.get(shift.requiredSkillId) ?? [])
       : employees;
@@ -156,6 +192,9 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
     const uniquePool = Array.from(new Set(pool));
 
     return uniquePool.filter((emp) => {
+      // Hard Semantic: empleado bloqueado por regla legal o semántica
+      if (hardBlockedIds.has(emp.id)) return false;
+
       const busy = busySlots.get(emp.id) ?? [];
       if (busy.some((s) => s.overlapsWith(shift))) return false;
 

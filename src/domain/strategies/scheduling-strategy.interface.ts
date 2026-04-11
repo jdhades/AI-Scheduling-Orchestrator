@@ -6,11 +6,22 @@ import type { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
 export type StrategyType = 'cost' | 'fairness' | 'hybrid';
 
 /**
- * SemanticConstraint — contrato preparado para el Escenario 3 (RAG).
+ * Sentinel que indica que TODOS los empleados están bloqueados para un turno.
+ * Usado por SemanticConstraintInterpreter para reglas tipo "el 16 nadie trabaja".
+ */
+export const SEMANTIC_BLOCKED_ALL = '*';
+
+/**
+ * SemanticConstraint — contrato entre el RAG y las estrategias de scheduling.
  *
- * En el Escenario 3, el SemanticRuleService llenará este array con reglas
- * extraídas del contexto semántico de la empresa (convenio colectivo, prefs, etc.)
- * Por ahora las estrategias lo reciben opccionalmente y lo ignoran.
+ * El SemanticConstraintInterpreter enriquece este objeto con IDs resueltos:
+ *   - employeeId: ID del empleado bloqueado, o SEMANTIC_BLOCKED_ALL para todos
+ *   - shiftId:    ID del turno afectado (undefined = aplica a todos los turnos)
+ *
+ * weight refleja la prioridad de la regla:
+ *   3 = legal (hard constraint, bloqueo absoluto)
+ *   2 = semántica (hard constraint)
+ *   1 = preferencia (soft constraint, penalización de score)
  */
 export interface SemanticConstraint {
   rule: string;

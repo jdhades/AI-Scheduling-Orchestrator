@@ -8,6 +8,7 @@ import type {
 } from '../strategies/scheduling-strategy.interface';
 import { FairnessCalculator } from './fairness-calculator.service';
 import { ScheduleQualityReport } from './schedule-quality-analyzer.service';
+import { SemanticConstraintInterpreter } from './semantic-constraint-interpreter';
 
 export interface SchedulingOptions {
   maxFairnessDeviation: number;
@@ -61,11 +62,20 @@ export class SchedulingEngine {
       };
     }
 
+    // Enriquecer constraints con IDs resueltos (employeeId, shiftId) antes de
+    // pasarlos a la estrategia. El intérprete hace pattern matching en el texto
+    // de cada regla para mapear nombres → IDs y fechas → shiftIds.
+    const resolvedConstraints = SemanticConstraintInterpreter.interpret(
+      options.semanticConstraints ?? [],
+      employees,
+      shifts,
+    );
+
     const { assignments, unfilledShifts } = strategy.generate(
       employees,
       shifts,
       histories,
-      options.semanticConstraints ?? [],
+      resolvedConstraints,
     );
 
     const quality = this.analyzeQuality(

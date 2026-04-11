@@ -8,6 +8,7 @@ import type {
   SemanticConstraint,
   StrategyResult,
 } from './scheduling-strategy.interface';
+import { SEMANTIC_BLOCKED_ALL } from './scheduling-strategy.interface';
 
 /**
  * FairnessOptimizedStrategy — Strategy Pattern
@@ -32,8 +33,7 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     employees: Employee[],
     shifts: Shift[],
     histories: FairnessHistoryVO[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _semanticRules?: SemanticConstraint[],
+    semanticRules?: SemanticConstraint[],
   ): StrategyResult {
     // Historial mutable en memoria — se actualiza en c/asignación
     const liveHistory = new Map<string, FairnessHistoryVO>(
@@ -51,6 +51,8 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     const busySlots = new Map<string, Shift[]>();
     for (const e of employees) busySlots.set(e.id, []);
 
+    const activeConstraints = semanticRules ?? [];
+
     const assignments: ShiftAssignment[] = [];
     const unfilledShifts: Shift[] = [];
 
@@ -65,6 +67,7 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
         employees,
         skillIndex,
         busySlots,
+        activeConstraints,
       );
 
       if (candidates.length === 0) {
@@ -131,7 +134,30 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     employees: Employee[],
     skillIndex: Map<string, Employee[]>,
     busySlots: Map<string, Shift[]>,
+    constraints: SemanticConstraint[] = [],
   ): Employee[] {
+    // Hard Semantic: turno completamente bloqueado (feriado, nadie trabaja)
+    const shiftFullyBlocked = constraints.some(
+      (c) =>
+        c.weight >= 2 &&
+        c.employeeId === SEMANTIC_BLOCKED_ALL &&
+        c.shiftId === shift.id,
+    );
+    if (shiftFullyBlocked) return [];
+
+    // IDs bloqueados específicamente para este turno (hard constraints)
+    const hardBlockedIds = new Set(
+      constraints
+        .filter(
+          (c) =>
+            c.weight >= 2 &&
+            c.employeeId &&
+            c.employeeId !== SEMANTIC_BLOCKED_ALL &&
+            (!c.shiftId || c.shiftId === shift.id),
+        )
+        .map((c) => c.employeeId!),
+    );
+
     const pool = shift.requiredSkillId
       ? (skillIndex.get(shift.requiredSkillId) ?? [])
       : employees;
@@ -139,6 +165,9 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     const uniquePool = Array.from(new Set(pool));
 
     return uniquePool.filter((emp) => {
+      // Hard Semantic: empleado bloqueado por regla legal o semántica
+      if (hardBlockedIds.has(emp.id)) return false;
+
       const busy = busySlots.get(emp.id) ?? [];
       if (busy.some((s) => s.overlapsWith(shift))) return false;
 
