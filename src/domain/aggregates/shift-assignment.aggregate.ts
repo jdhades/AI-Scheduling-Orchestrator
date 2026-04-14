@@ -6,6 +6,13 @@ import type { StrategyType } from '../strategies/scheduling-strategy.interface';
  * Registra la asignación de un turno específico a un empleado.
  * Incluye un snapshot del fairness score al momento de la asignación,
  * lo que permite auditoría histórica del algoritmo.
+ *
+ * NOTE (rework en progreso): este aggregate está en el medio de un refactor
+ * del modelo de shifts (ver /home/jhav/.claude/plans/gleaming-dazzling-turtle.md).
+ * La tabla `shift_assignments` en BD ya NO tiene `shift_id` — ahora tiene
+ * `template_id + date + origin`. La migración del aggregate a esa nueva shape
+ * se hará en Day 2b del plan. Mientras tanto, el repo mapea en memoria para
+ * mantener compatibilidad con el código consumidor.
  */
 export class ShiftAssignment {
   private constructor(
