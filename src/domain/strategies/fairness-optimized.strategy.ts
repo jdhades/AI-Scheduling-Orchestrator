@@ -8,7 +8,12 @@ import type {
   SemanticConstraint,
   StrategyResult,
 } from './scheduling-strategy.interface';
-import { SEMANTIC_BLOCKED_ALL } from './scheduling-strategy.interface';
+import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
+import {
+  buildSkillIndex,
+  filterCandidatesForShift,
+  type BusySlot,
+} from './shared/strategy-helpers';
 
 /**
  * FairnessOptimizedStrategy — Strategy Pattern
@@ -34,6 +39,8 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     shifts: Shift[],
     histories: FairnessHistoryVO[],
     semanticRules?: SemanticConstraint[],
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
+    multiShiftPermits?: Set<string>,
   ): StrategyResult {
     // Historial mutable en memoria — se actualiza en c/asignación
     const liveHistory = new Map<string, FairnessHistoryVO>(
@@ -47,8 +54,8 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     );
 
     // Pre-indexar employees por skill
-    const skillIndex = this.buildSkillIndex(employees);
-    const busySlots = new Map<string, Shift[]>();
+    const skillIndex = buildSkillIndex(employees);
+    const busySlots = new Map<string, BusySlot[]>();
     for (const e of employees) busySlots.set(e.id, []);
 
     const activeConstraints = semanticRules ?? [];
@@ -68,6 +75,8 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
         skillIndex,
         busySlots,
         activeConstraints,
+        workingTimePolicies,
+        multiShiftPermits,
       );
 
       if (candidates.length === 0) {
@@ -118,93 +127,23 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
     return { assignments, unfilledShifts };
   }
 
-  private buildSkillIndex(employees: Employee[]): Map<string, Employee[]> {
-    const index = new Map<string, Employee[]>();
-    for (const emp of employees) {
-      for (const skill of emp.getSkills()) {
-        if (!index.has(skill.id)) index.set(skill.id, []);
-        index.get(skill.id)!.push(emp);
-      }
-    }
-    return index;
-  }
-
   private getCandidates(
     shift: Shift,
     employees: Employee[],
     skillIndex: Map<string, Employee[]>,
-    busySlots: Map<string, Shift[]>,
+    busySlots: Map<string, BusySlot[]>,
     constraints: SemanticConstraint[] = [],
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
+    multiShiftPermits?: Set<string>,
   ): Employee[] {
-    // Hard Semantic: turno completamente bloqueado (feriado, nadie trabaja)
-    const shiftFullyBlocked = constraints.some(
-      (c) =>
-        c.weight >= 2 &&
-        c.employeeId === SEMANTIC_BLOCKED_ALL &&
-        c.shiftId === shift.id,
-    );
-    if (shiftFullyBlocked) return [];
-
-    // IDs bloqueados específicamente para este turno (hard constraints)
-    const hardBlockedIds = new Set(
-      constraints
-        .filter(
-          (c) =>
-            c.weight >= 2 &&
-            c.employeeId &&
-            c.employeeId !== SEMANTIC_BLOCKED_ALL &&
-            (!c.shiftId || c.shiftId === shift.id),
-        )
-        .map((c) => c.employeeId!),
-    );
-
-    const pool = shift.requiredSkillId
-      ? (skillIndex.get(shift.requiredSkillId) ?? [])
-      : employees;
-
-    const uniquePool = Array.from(new Set(pool));
-
-    return uniquePool.filter((emp) => {
-      // Hard Semantic: empleado bloqueado por regla legal o semántica
-      if (hardBlockedIds.has(emp.id)) return false;
-
-      const busy = busySlots.get(emp.id) ?? [];
-      if (busy.some((s) => s.overlapsWith(shift))) return false;
-
-      const MAX_HOURS_PER_DAY = 8;
-      const MAX_HOURS_PER_WEEK = 40;
-      const MIN_GAP_HOURS = 11;
-      const proposedDuration = shift.getDuration();
-
-      // Hard: weekly hours cap
-      const weeklyHours = busy.reduce((acc, s) => acc + s.getDuration(), 0);
-      if (weeklyHours + proposedDuration > MAX_HOURS_PER_WEEK) return false;
-
-      // Hard: daily hours cap
-      const proposedStartStr = shift.startTime.toISOString().split('T')[0];
-      const dailyHours = busy
-        .filter(
-          (s) => s.startTime.toISOString().split('T')[0] === proposedStartStr,
-        )
-        .reduce((acc, s) => acc + s.getDuration(), 0);
-      if (dailyHours + proposedDuration > MAX_HOURS_PER_DAY) return false;
-
-      // Hard: structural availability
-      if (!emp.isAvailable(shift.startTime, shift.endTime)) return false;
-
-      // Hard: minimum gap between shifts (anti-clopening)
-      const minGapMs = MIN_GAP_HOURS * 60 * 60 * 1000;
-      const gapViolation = busy.some((prev) => {
-        const gapAfter = shift.startTime.getTime() - prev.endTime.getTime();
-        const gapBefore = prev.startTime.getTime() - shift.endTime.getTime();
-        return (
-          (gapAfter >= 0 && gapAfter < minGapMs) ||
-          (gapBefore >= 0 && gapBefore < minGapMs)
-        );
-      });
-      if (gapViolation) return false;
-
-      return true;
+    return filterCandidatesForShift({
+      shift,
+      employees,
+      skillIndex,
+      busySlots,
+      constraints,
+      workingTimePolicies,
+      multiShiftPermits,
     });
   }
 

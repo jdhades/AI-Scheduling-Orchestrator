@@ -5,6 +5,7 @@ import type { ISemanticRuleRepository } from '../repositories/semantic-rule.repo
 import { SEMANTIC_RULE_REPOSITORY_TOKEN } from '../repositories/semantic-rule.repository.interface';
 import { ConflictResolutionEngine } from './conflict-resolution.engine';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
+import type { SemanticRuleAggregate } from '../aggregates/semantic-rule.aggregate';
 
 /**
  * SemanticRetrievalService — Domain Service
@@ -108,6 +109,25 @@ export class SemanticRetrievalService {
       // Resiliencia: el scheduling no se bloquea si el RAG falla
       this.logger.warn(
         `SemanticRetrievalService: failed to retrieve rules (scheduling continues without RAG). Error: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Recupera TODOS los aggregates activos de la empresa (con structure si fue extraída).
+   * Uso principal: el orchestrator pasa los aggregates al StructuredRuleResolver.
+   */
+  async retrieveAggregatesForCompany(
+    companyId: string,
+  ): Promise<SemanticRuleAggregate[]> {
+    if (!companyId) return [];
+    try {
+      const allRules = await this.ruleRepository.findAllByCompany(companyId);
+      return this.conflictEngine.resolveRules(allRules);
+    } catch (error) {
+      this.logger.warn(
+        `SemanticRetrievalService: failed to retrieve aggregates. Error: ${(error as Error).message}`,
       );
       return [];
     }

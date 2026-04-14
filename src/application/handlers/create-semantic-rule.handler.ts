@@ -10,6 +10,7 @@ import type { IEmbeddingService } from '../../domain/services/embedding.service.
 import type { ISemanticRuleRepository } from '../../domain/repositories/semantic-rule.repository.interface';
 import { EMBEDDING_SERVICE_TOKEN } from '../../domain/services/embedding.service.interface';
 import { SEMANTIC_RULE_REPOSITORY_TOKEN } from '../../domain/repositories/semantic-rule.repository.interface';
+import { RuleStructureExtractor } from '../../domain/services/rule-structure-extractor.service';
 
 export interface CreateSemanticRuleResult {
   id: string;
@@ -18,6 +19,10 @@ export interface CreateSemanticRuleResult {
   isDuplicate: boolean;
   /** UUID of the existing rule that is semantically equivalent (only set when isDuplicate=true) */
   duplicateOfId?: string;
+  /** true si el LLM pudo extraer estructura — falso si falló o la marcó como complex */
+  structureExtracted: boolean;
+  /** Intent resuelto por el LLM (block, permit-multi-shift, preference, complex) o undefined */
+  intent?: string;
 }
 
 /**
@@ -52,6 +57,7 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     @Inject(SEMANTIC_RULE_REPOSITORY_TOKEN)
     private readonly ruleRepository: ISemanticRuleRepository,
     private readonly eventBus: EventBus,
+    private readonly structureExtractor: RuleStructureExtractor,
   ) {}
 
   async execute(
@@ -116,6 +122,8 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
             embeddingGenerated: false,
             isDuplicate: true,
             duplicateOfId: existing.getId(),
+            structureExtracted: existing.hasStructure(),
+            intent: existing.getStructure()?.intent,
           };
         }
       } catch (error) {
@@ -125,6 +133,18 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
           `CreateSemanticRuleHandler: duplicate check failed, proceeding with creation. Error: ${(error as Error).message}`,
         );
       }
+    }
+
+    // 2.6 Extraer estructura con LLM (analiza el texto UNA vez y guarda el resultado)
+    const structure = await this.structureExtractor.extract({
+      ruleText: command.ruleText,
+    });
+    if (structure) {
+      rule.setStructure(structure);
+    } else {
+      this.logger.warn(
+        `CreateSemanticRuleHandler: structure extraction failed for "${command.ruleText.substring(0, 60)}" — rule saved without structure. Manager debe revisar si se aplica bien.`,
+      );
     }
 
     // 3. Persistir
@@ -143,8 +163,14 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     );
 
     this.logger.log(
-      `Semantic rule created — id=${id} embeddingGenerated=${embeddingGenerated}`,
+      `Semantic rule created — id=${id} embeddingGenerated=${embeddingGenerated} structureExtracted=${structure !== null} intent=${structure?.intent ?? 'n/a'}`,
     );
-    return { id, embeddingGenerated, isDuplicate: false };
+    return {
+      id,
+      embeddingGenerated,
+      isDuplicate: false,
+      structureExtracted: structure !== null,
+      intent: structure?.intent,
+    };
   }
 }

@@ -13,9 +13,9 @@ import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 export class QwenLLMService implements ILLMService {
   private readonly logger = new Logger(QwenLLMService.name);
   private readonly apiKey: string | undefined;
-  private readonly model = 'qwen-plus'; // O 'qwen-max' o 'qwen-turbo'
+  private readonly model = 'qwen-turbo'; // O 'qwen-max' o 'qwen-turbo'
   private readonly baseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
-  private readonly TIMEOUT_MS = 60_000;
+  private readonly TIMEOUT_MS = 120_000; // qwen-max needs more time than qwen-turbo
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('qwen.apiKey');
@@ -55,7 +55,8 @@ export class QwenLLMService implements ILLMService {
           model: this.model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1, // Bajo para respuestas deterministas estructuradas
-          max_tokens: 2048,
+          max_tokens: 8192, // respuesta puede incluir blocks + permits + assignments; con 4096 se truncaba el JSON
+          response_format: { type: 'json_object' },
         }),
       });
     } finally {

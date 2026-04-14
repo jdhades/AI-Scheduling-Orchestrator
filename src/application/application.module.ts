@@ -34,6 +34,8 @@ import { ConflictResolutionEngine } from '../domain/services/conflict-resolution
 import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
 import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
 import { ShiftCapacityPlannerService } from '../domain/services/shift-capacity-planner.service';
+import { RuleStructureExtractor } from '../domain/services/rule-structure-extractor.service';
+import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
 import { InstantiateWeekHandler } from './commands/instantiate-week/instantiate-week.handler';
 
 /**
@@ -83,6 +85,8 @@ const DomainServices = [
   PromptOrchestratorService,
   ScheduleValidatorService,
   ShiftCapacityPlannerService,
+  RuleStructureExtractor,
+  StructuredRuleResolver,
   InstantiateWeekHandler,
 ];
 

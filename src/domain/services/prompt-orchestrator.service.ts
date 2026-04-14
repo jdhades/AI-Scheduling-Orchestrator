@@ -6,6 +6,8 @@ import { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
 import type { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
 import { LLMScheduleProposalVO } from '../value-objects/llm-schedule-proposal.vo';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
+import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
+import { SemanticConstraintInterpreter } from './semantic-constraint-interpreter';
 import type { ILLMService } from './llm.service.interface';
 import { LLM_SERVICE } from './llm.service.interface';
 import { ScheduleValidatorService } from './schedule-validator.service';
@@ -23,6 +25,8 @@ export interface OrchestratedResult {
   algorithmCorrected: number;
   /** Resumen en lenguaje natural del proceso */
   explanation: string;
+  /** Avisos informativos al manager (exceso de horas, reglas no aplicadas, etc.) */
+  warnings: string[];
 }
 
 /**
@@ -67,6 +71,13 @@ export class PromptOrchestratorService {
     companyId: string;
     weekStart: Date;
     semanticRules: SemanticConstraint[];
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
+    /** Permisos pre-resueltos por StructuredRuleResolver (intent=permit-multi-shift). */
+    preResolvedPermits?: Set<string>;
+    /** Reglas marcadas como complex por el LLM al guardarlas — warning al manager. */
+    preResolvedComplexRules?: { ruleId: string; ruleText: string; reason: string }[];
+    /** Reglas sin structure extraída — warning al manager. */
+    preResolvedUnstructuredRules?: { ruleId: string; ruleText: string }[];
   }): Promise<OrchestratedResult> {
     const {
       employees,
@@ -75,6 +86,10 @@ export class PromptOrchestratorService {
       companyId,
       weekStart,
       semanticRules,
+      workingTimePolicies,
+      preResolvedPermits,
+      preResolvedComplexRules = [],
+      preResolvedUnstructuredRules = [],
     } = params;
 
     // Estado compartido: turnos ya asignados por empleado (para validación de solapamientos)
@@ -84,6 +99,9 @@ export class PromptOrchestratorService {
 
     const llmAssignments: ShiftAssignment[] = [];
     let llmAccepted = 0;
+    // Cuenta de asignaciones por turno incluyendo LLM — para cortar el algoritmo
+    // si el LLM ya llenó parcialmente un turno y el algoritmo intenta llenarlo completo.
+    const shiftFillCount = new Map<string, number>();
 
     // ── STEP 0: Pre-computar capacidades concretas ────────────────────────
     // Elimina el concepto de "Ilimitada" antes de llegar al LLM.
@@ -104,7 +122,39 @@ export class PromptOrchestratorService {
       weekStart,
       companyId,
       resolvedCapacities,
+      workingTimePolicies,
     });
+
+    // Red de seguridad: interpretar las reglas crudas con pattern matching antes
+    // de validar. Cubre casos simples (feriado por fecha, día por nombre, empleado
+    // por nombre). Si una regla no tiene structure extraída, el interpreter la
+    // intenta resolver como último recurso.
+    const interpreterOutput = SemanticConstraintInterpreter.interpret(
+      semanticRules,
+      employees,
+      shifts,
+    );
+    const interpretedResolved = interpreterOutput.filter(
+      (c) => c.employeeId || c.shiftId,
+    );
+
+    // Los blocks ya NO vienen del LLM — son generados por StructuredRuleResolver
+    // al abrir el handler (a partir de las structures guardadas). El LLM solo
+    // propone assignments. Esto evita que el LLM invente restricciones no escritas.
+    const resolvedConstraints: SemanticConstraint[] = [...interpretedResolved];
+
+    this.logger.log(
+      `Resolved constraints (in-prompt): ${interpretedResolved.length} from interpreter (blocks pre-resueltos vienen vía semanticRules del handler)`,
+    );
+
+    // Permisos de doble turno: vienen SOLO de structures con intent=permit-multi-shift
+    // (StructuredRuleResolver al guardar la regla). El LLM ya no los genera.
+    const multiShiftPermits = new Set<string>(preResolvedPermits ?? []);
+    if (multiShiftPermits.size > 0) {
+      this.logger.log(
+        `Multi-shift permits: ${multiShiftPermits.size} pre-resolved`,
+      );
+    }
 
     // Mapa de shiftId → array de asignaciones propuestas por el LLM
     const llmProposalMap = new Map<string, any[]>();
@@ -152,13 +202,18 @@ export class PromptOrchestratorService {
           break;
         }
 
+        // Incluir los blocks resueltos por el LLM (con employeeId/shiftId concretos)
+        // en las reglas semánticas que ve el validator — si no, el feriado no se bloquea.
+        const validationRules = [...semanticRules, ...resolvedConstraints];
         const validation = this.validator.validate(
           shift.id,
           proposedAssignment.employeeId,
           employees,
           shifts,
           alreadyAssigned,
-          semanticRules,
+          validationRules,
+          workingTimePolicies,
+          multiShiftPermits,
         );
 
         if (validation.valid) {
@@ -179,6 +234,7 @@ export class PromptOrchestratorService {
             endTime: shift.endTime,
             overlapsWith: (other: Shift) => shift.overlapsWith(other),
           });
+          shiftFillCount.set(shift.id, (shiftFillCount.get(shift.id) ?? 0) + 1);
           llmAccepted++;
           validCount++;
 
@@ -226,31 +282,92 @@ export class PromptOrchestratorService {
         remainingEmployees,
         remainingShifts,
         histories,
-        semanticRules,
+        resolvedConstraints.length > 0 ? resolvedConstraints : semanticRules,
+        workingTimePolicies,
+        multiShiftPermits,
       );
 
-      // Filtro posterior: asegurar que las asignaciones del algoritmo no se solapen con las del LLM
+      // Filtro posterior: la strategy del fallback no conoce las asignaciones del LLM
+      // (su busySlots arranca vacío). Replicamos acá las hard constraints para que
+      // no se cuelen violaciones.
       for (const a of strategyResult.assignments) {
         const shift = shifts.find((s) => s.id === a.shiftId)!;
         const empBusy = alreadyAssigned.get(a.employeeId)!;
+        const shiftDay = shift.startTime.toISOString().split('T')[0];
+
+        // Hard: solapamiento directo
         if (empBusy.some((bs) => bs.overlapsWith(shift))) {
+          this.logger.debug(
+            `Algorithm assignment skipped: emp=${a.employeeId.substring(0, 8)} overlaps with existing shift on ${shiftDay}`,
+          );
           unfilledShifts.push(shift);
           continue;
         }
+
+        // Hard: un turno/empleado/día (salvo permit explícito)
+        const alreadyWorkingSameDay = empBusy.some(
+          (bs) => bs.startTime.toISOString().split('T')[0] === shiftDay,
+        );
+        if (alreadyWorkingSameDay && !multiShiftPermits.has(`${a.employeeId}|${shiftDay}`)) {
+          this.logger.debug(
+            `Algorithm assignment skipped: emp=${a.employeeId.substring(0, 8)} already works ${shiftDay} (no permit)`,
+          );
+          unfilledShifts.push(shift);
+          continue;
+        }
+
+        // Cap de capacidad: LLM + algoritmo no pueden superar resolvedCapacity
+        const currentFill = shiftFillCount.get(a.shiftId) ?? 0;
+        const cap = resolvedCapacities.get(a.shiftId) ?? 1;
+        if (currentFill >= cap) {
+          this.logger.debug(
+            `Algorithm assignment skipped for shift=${a.shiftId.substring(0, 8)}: capacity=${cap} already reached (${currentFill} already filled)`,
+          );
+          continue;
+        }
+
+        shiftFillCount.set(a.shiftId, currentFill + 1);
         algorithmAssignments.push(a);
         empBusy.push({
           id: shift.id,
           startTime: shift.startTime,
           endTime: shift.endTime,
           overlapsWith: (other: Shift) => shift.overlapsWith(other),
-        }); // Evitar futuros solapamientos en caso de que hubiese
+        });
       }
       unfilledShifts.push(...strategyResult.unfilledShifts);
     }
 
     const allAssignments = [...llmAssignments, ...algorithmAssignments];
     const totalShifts = shifts.length;
-    const coveredShifts = allAssignments.length;
+
+    // Warnings informativos para el manager (soft constraints violadas)
+    const warnings = this.computeWarnings({
+      assignments: allAssignments,
+      shifts,
+      employees,
+      unfilledShifts,
+      semanticRules,
+      resolvedConstraints,
+      workingTimePolicies,
+    });
+    // Warnings adicionales de reglas que el LLM no pudo estructurar al guardarlas
+    for (const r of preResolvedComplexRules) {
+      warnings.push(
+        `Regla compleja (requiere supervisión manual): "${r.ruleText}" — ${r.reason}`,
+      );
+    }
+    for (const r of preResolvedUnstructuredRules) {
+      warnings.push(
+        `Regla sin analizar (el LLM no la procesó al guardarla): "${r.ruleText}" — re-editá la regla para reintentar`,
+      );
+    }
+    if (warnings.length > 0) {
+      this.logger.warn(
+        `Orchestration produced ${warnings.length} warning(s) for manager review`,
+      );
+      warnings.forEach((w) => this.logger.warn(`  ⚠ ${w}`));
+    }
 
     const explanation = this.buildExplanation({
       totalShifts,
@@ -263,10 +380,11 @@ export class PromptOrchestratorService {
 
     this.logger.log(
       `Orchestration complete — total=${totalShifts} llmAccepted=${llmAccepted} ` +
-        `algorithmCorrected=${algorithmCorrected} unfilled=${unfilledShifts.length}`,
+        `algorithmCorrected=${algorithmCorrected} unfilled=${unfilledShifts.length} warnings=${warnings.length}`,
     );
 
     return {
+      warnings,
       assignments: allAssignments,
       unfilledShifts,
       llmAccepted,
@@ -284,13 +402,19 @@ export class PromptOrchestratorService {
     weekStart: Date;
     companyId: string;
     resolvedCapacities: Map<string, number>;
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
   }): Promise<LLMScheduleProposalVO> {
     try {
       const prompt = this.buildSchedulingPrompt(params);
+      this.logger.debug(
+        `LLM prompt (${prompt.length} chars):\n${prompt.slice(0, 2000)}${prompt.length > 2000 ? '\n...[truncated]' : ''}`,
+      );
       const rawResponse = await this.llmService.complete(prompt);
       const proposal = LLMScheduleProposalVO.fromLLMResponse(rawResponse);
 
-      this.logger.log(`LLM returned ${proposal.count()} proposed assignments`);
+      this.logger.log(
+        `LLM returned ${proposal.count()} proposed assignments`,
+      );
 
       return proposal;
     } catch (error) {
@@ -317,8 +441,9 @@ export class PromptOrchestratorService {
     weekStart: Date;
     companyId: string;
     resolvedCapacities: Map<string, number>;
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
   }): string {
-    const { employees, shifts, semanticRules, weekStart, resolvedCapacities } = params;
+    const { employees, shifts, semanticRules, weekStart, resolvedCapacities, workingTimePolicies } = params;
 
     const dateStr = weekStart.toLocaleDateString('es-ES', {
       weekday: 'long',
@@ -329,15 +454,15 @@ export class PromptOrchestratorService {
 
     const employeeSummary = employees
       .slice(0, 20)
-      .map(
-        (e) =>
-          `  - ID: ${e.id} | Skills: [${
-            e
-              .getSkills()
-              .map((s) => s.name)
-              .join(', ') || 'genérico'
-          }]`,
-      )
+      .map((e) => {
+        const skills =
+          e.getSkills().map((s) => s.name).join(', ') || 'genérico';
+        const policy = workingTimePolicies?.get(e.id);
+        const limits = policy
+          ? ` | Límites: ${policy.describe()}`
+          : '';
+        return `  - ID: ${e.id} | Skills: [${skills}]${limits}`;
+      })
       .join('\n');
 
     const shiftSummary = shifts
@@ -374,13 +499,19 @@ ${shiftSummary}
 ## RESTRICCIONES SEMÁNTICAS (DEBES respetarlas)
 ${rulesSummary}
 
+## IMPORTANTE: NO GENERES BLOCKS NI PERMITS
+Las restricciones (feriados, días libres, doble turno) ya fueron **pre-procesadas** por el sistema a partir de las reglas semánticas — el validador las aplicará automáticamente. Vos SOLO debes proponer asignaciones respetando las restricciones mostradas arriba. Si una asignación tuya viola una regla, será rechazada automáticamente.
+
+No inventes bloqueos. No dedusquas patrones no escritos. Si las reglas dicen "Juan libre lunes" pero no hay regla sobre Ana, Ana puede trabajar cualquier día.
+
 ## INSTRUCCIONES
 1. Asigna empleados a cada turno respetando EXACTAMENTE su "Capacidad requerida".
 2. NO existe el concepto de capacidad ilimitada. Cada turno tiene un número exacto de personas requeridas.
 3. Si la "Capacidad requerida" es 0 (por feriado u otra restricción), el turno NO debe ser trabajado por nadie.
 4. Si la capacidad es mayor que 1, debes asignar EXACTAMENTE ese número de empleados (múltiples objetos con el mismo shiftId).
-5. Respeta ESTRICTAMENTE las reglas semánticas con prioridad 1.
+5. Respeta ESTRICTAMENTE las reglas semánticas con prioridad 1 Y los "Límites" individuales de cada empleado (max horas/día, max horas/semana, descanso mínimo entre turnos).
 6. Para cada asignación, indica un nivel de confianza entre 0.0 y 1.0.
+7. El campo "reason" debe ser MUY BREVE (máximo 8 palabras). Prioriza tokens para cubrir todos los turnos.
 
 ## FORMATO DE RESPUESTA (JSON ESTRICTO, sin texto adicional antes del JSON)
 {
@@ -399,6 +530,107 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
 - Si la "Capacidad requerida" de un turno es 0, DEBES enviar exactamente un objeto con "employeeId": "NONE" para ese turno.
 - Para turnos con capacidad > 1, envía múltiples objetos con el mismo shiftId, uno por empleado asignado.
 - Asigna EXACTAMENTE el número indicado en "Capacidad requerida", ni uno más ni uno menos.`;
+  }
+
+  /**
+   * Genera warnings informativos para el manager.
+   *
+   * Warnings soft (no bloquean, solo informan):
+   *   - Turnos no cubiertos con posible razón inferida (feriado, sin candidatos)
+   *   - Empleados sin día libre cuando hay regla rotativa activa
+   *
+   * Nota: los caps de horas/día y horas/semana de la policy son meramente
+   * informativos — no generan warnings. La única regla de horas que se enforza
+   * es "un turno por empleado por día" (hard, validada en validator/helper).
+   */
+  private computeWarnings(params: {
+    assignments: ShiftAssignment[];
+    shifts: Shift[];
+    employees: Employee[];
+    unfilledShifts: Shift[];
+    semanticRules: SemanticConstraint[];
+    resolvedConstraints: SemanticConstraint[];
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
+  }): string[] {
+    const {
+      assignments,
+      shifts,
+      employees,
+      unfilledShifts,
+      semanticRules,
+      resolvedConstraints,
+    } = params;
+    void params.workingTimePolicies;
+
+    const warnings: string[] = [];
+    const shiftById = new Map(shifts.map((s) => [s.id, s]));
+
+    const daysByEmp = new Map<string, Set<string>>();
+    for (const a of assignments) {
+      const shift = shiftById.get(a.shiftId);
+      if (!shift) continue;
+      const day = shift.startTime.toISOString().split('T')[0];
+      if (!daysByEmp.has(a.employeeId)) daysByEmp.set(a.employeeId, new Set());
+      daysByEmp.get(a.employeeId)!.add(day);
+    }
+
+    // 0. Reglas hard (weight≥2) que el interpreter NO pudo resolver automáticamente.
+    //    Dependen 100% de que el LLM las haya cumplido. Le avisamos al manager
+    //    para que verifique manualmente.
+    for (const rule of semanticRules.filter((r) => r.weight >= 2)) {
+      const interpreted = SemanticConstraintInterpreter.interpret(
+        [rule],
+        employees,
+        shifts,
+      );
+      const resolvedAnyId = interpreted.some((c) => c.employeeId || c.shiftId);
+      if (!resolvedAnyId) {
+        warnings.push(
+          `Regla compleja no verificable automáticamente: "${rule.rule}" — revisá el horario manualmente`,
+        );
+      }
+    }
+
+    // 1. Turnos no cubiertos — intentar inferir razón
+    const uniqueUnfilled = Array.from(
+      new Map(unfilledShifts.map((s) => [s.id, s])).values(),
+    );
+    for (const shift of uniqueUnfilled) {
+      const dayStr = shift.startTime.toISOString().split('T')[0];
+      const blockedByHoliday = resolvedConstraints.some(
+        (c) => c.weight >= 2 && c.shiftId === shift.id,
+      );
+      if (blockedByHoliday) continue; // esperado, no es warning
+      warnings.push(
+        `Turno sin cubrir: ${dayStr} ${shift.startTime.toISOString().slice(11, 16)}–${shift.endTime.toISOString().slice(11, 16)} (sin candidatos elegibles)`,
+      );
+    }
+
+    // 2. Empleados sin día libre (si alguna regla semántica habla de día libre rotativo)
+    const hasRotatingDayOffRule = semanticRules.some((r) => {
+      const t = r.rule.toLowerCase();
+      return (
+        t.includes('día libre') ||
+        t.includes('dia libre') ||
+        t.includes('descanso rotativo') ||
+        t.includes('rotativo')
+      );
+    });
+    if (hasRotatingDayOffRule) {
+      const uniqueDays = new Set(
+        shifts.map((s) => s.startTime.toISOString().split('T')[0]),
+      );
+      for (const emp of employees) {
+        const worked = daysByEmp.get(emp.id) ?? new Set();
+        if (worked.size >= uniqueDays.size) {
+          warnings.push(
+            `${emp.name}: sin día libre en la semana (regla rotativa activa)`,
+          );
+        }
+      }
+    }
+
+    return warnings;
   }
 
   private buildExplanation(params: {

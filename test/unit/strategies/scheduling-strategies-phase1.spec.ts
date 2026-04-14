@@ -86,9 +86,10 @@ describe('CostOptimizedStrategy — Phase 1 Filters', () => {
     expect(result.assignments[0].employeeId).toBe('emp-avail');
   });
 
-  it('should respect max 8h per day — second 8h shift on same day is rejected', () => {
+  it('assigns only one shift per day by default (hard constraint)', () => {
+    // Regla base nueva: un empleado solo puede tener 1 turno/día.
+    // Solo una regla semántica explícita (vía multiShiftPermits) puede permitir más.
     const emp = makeEmployee('emp-1', { availability: [] });
-    // Two non-overlapping 8h shifts on the same day (together = 16h, above cap)
     const shift1 = makeShift(
       's1',
       '2026-03-09T08:00:00Z',
@@ -98,30 +99,57 @@ describe('CostOptimizedStrategy — Phase 1 Filters', () => {
       's2',
       '2026-03-09T16:00:00Z',
       '2026-03-10T00:00:00Z',
-    ); // ends at midnight next day
+    );
 
     const result = strategy.generate([emp], [shift1, shift2], []);
-    // Employee can only take one 8h shift per day
     expect(result.assignments).toHaveLength(1);
     expect(result.unfilledShifts).toHaveLength(1);
   });
 
-  it('should respect max 40h per week — employee maxed out across 5 days', () => {
+  it('allows 2 shifts same day when multiShiftPermits authorizes it', () => {
     const emp = makeEmployee('emp-1', { availability: [] });
-    // 5 shifts × 8h = 40h. 6th shift must be rejected.
+    const shift1 = makeShift(
+      's1',
+      '2026-03-09T08:00:00Z',
+      '2026-03-09T12:00:00Z',
+    );
+    const shift2 = makeShift(
+      's2',
+      '2026-03-09T16:00:00Z',
+      '2026-03-09T20:00:00Z',
+    );
+    const permits = new Set(['emp-1|2026-03-09']);
+
+    const result = strategy.generate(
+      [emp],
+      [shift1, shift2],
+      [],
+      undefined,
+      undefined,
+      permits,
+    );
+    expect(result.assignments).toHaveLength(2);
+    expect(result.unfilledShifts).toHaveLength(0);
+  });
+
+  it('assigns 40+ hours (soft cap) — warning emitted by orchestrator, not strategy', () => {
+    // Caps de horas/día y horas/semana son SOFT desde el refactor de jerarquía
+    // (empleado → depto → tenant → fallback). Se respeta el gap mínimo entre turnos
+    // y la disponibilidad, pero el exceso se reporta como warning — el manager decide.
+    const emp = makeEmployee('emp-1', { availability: [] });
     const shifts = [
       makeShift('s1', '2026-03-09T08:00:00Z', '2026-03-09T16:00:00Z'), // Mon
       makeShift('s2', '2026-03-10T08:00:00Z', '2026-03-10T16:00:00Z'), // Tue
       makeShift('s3', '2026-03-11T08:00:00Z', '2026-03-11T16:00:00Z'), // Wed
       makeShift('s4', '2026-03-12T08:00:00Z', '2026-03-12T16:00:00Z'), // Thu
       makeShift('s5', '2026-03-13T08:00:00Z', '2026-03-13T16:00:00Z'), // Fri
-      makeShift('s6', '2026-03-14T08:00:00Z', '2026-03-14T16:00:00Z'), // Sat (over limit)
+      makeShift('s6', '2026-03-14T08:00:00Z', '2026-03-14T16:00:00Z'), // Sat
     ];
 
     const result = strategy.generate([emp], shifts, []);
-    expect(result.assignments).toHaveLength(5);
-    expect(result.unfilledShifts).toHaveLength(1);
-    expect(result.unfilledShifts[0].id).toBe('s6');
+    // 6 shifts = 48h. La strategy ya no rechaza; todos se asignan.
+    expect(result.assignments).toHaveLength(6);
+    expect(result.unfilledShifts).toHaveLength(0);
   });
 });
 

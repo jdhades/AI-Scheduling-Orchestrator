@@ -2,6 +2,7 @@ import type { Employee } from '../aggregates/employee.aggregate';
 import type { Shift } from '../aggregates/shift.aggregate';
 import type { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
 import type { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
+import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
 
 export type StrategyType = 'cost' | 'fairness' | 'hybrid';
 
@@ -55,6 +56,8 @@ export interface SchedulingStrategy {
     shifts: Shift[],
     histories: FairnessHistoryVO[],
     semanticRules?: SemanticConstraint[],
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
+    multiShiftPermits?: Set<string>,
   ): StrategyResult;
 }
 

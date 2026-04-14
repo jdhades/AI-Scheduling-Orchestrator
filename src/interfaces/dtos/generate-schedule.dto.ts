@@ -8,6 +8,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { StrategyType } from '../../domain/strategies/scheduling-strategy.interface';
+import { IsNotPastDate } from '../validators/is-not-past-date.validator';
 
 /**
  * GenerateScheduleDto
@@ -21,6 +22,7 @@ export class GenerateScheduleDto {
    * @example "2024-03-04"
    */
   @IsDateString()
+  @IsNotPastDate()
   weekStart: string;
 
   /**

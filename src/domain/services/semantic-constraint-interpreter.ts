@@ -25,7 +25,15 @@ import {
  * Diseñado para el idioma del negocio (ES). Sin dependencia de LLM.
  */
 export class SemanticConstraintInterpreter {
-  /** Patrones que indican bloqueo total del turno (nadie puede trabajar) */
+  /**
+   * Patrones que indican bloqueo total del turno (nadie puede trabajar).
+   *
+   * TODO(config-per-tenant): hardcodeado en español/inglés. Mismo problema que
+   * `ROTATING_DAY_OFF_PATTERNS` que se eliminó: pattern matching frágil. Solo
+   * se usa en el path determinístico puro (sin LLM); cuando el LLM responde,
+   * los blocks vienen ya resueltos. Considerar mover a config por idioma o
+   * delegar 100% al LLM y eliminar este intérprete.
+   */
   private static readonly ALL_BLOCKED_PATTERNS = [
     'nadie trabaja',
     'nadie puede trabajar',
@@ -94,6 +102,11 @@ export class SemanticConstraintInterpreter {
     const result: SemanticConstraint[] = [];
 
     for (const constraint of constraints) {
+      // Constraint ya resuelto por el LLM (tiene employeeId + shiftId concretos) — pasar directo.
+      if (constraint.employeeId && constraint.shiftId) {
+        result.push(constraint);
+        continue;
+      }
       const expanded = this.expandConstraint(constraint, employees, shifts);
       result.push(...expanded);
     }

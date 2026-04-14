@@ -6,6 +6,7 @@ import { SkillValidationPolicy } from '../policies/skill-validation.policy';
 import { EmployeeRegisteredEvent } from '../events/employee-registered.event';
 import { EmployeeAvailability } from '../value-objects/employee-availability.vo';
 import { EmployeePreference } from '../value-objects/employee-preference.vo';
+import type { WorkingTimePolicyOverrides } from '../value-objects/working-time-policy.vo';
 
 export class Employee extends AggregateRoot {
   private skills: CompanySkill[] = [];
@@ -21,6 +22,8 @@ export class Employee extends AggregateRoot {
     private experience: ExperienceLevel,
     public locale: string = 'es',
     public readonly departmentId?: string,
+    public readonly contractType?: string,
+    public readonly workingTimeOverrides: WorkingTimePolicyOverrides = {},
   ) {
     super();
   }
@@ -34,8 +37,10 @@ export class Employee extends AggregateRoot {
     experience: ExperienceLevel,
     locale: string = 'es',
     departmentId?: string,
+    contractType?: string,
+    workingTimeOverrides: WorkingTimePolicyOverrides = {},
   ): Employee {
-    const employee = new Employee(id, companyId, name, role, phone, experience, locale, departmentId);
+    const employee = new Employee(id, companyId, name, role, phone, experience, locale, departmentId, contractType, workingTimeOverrides);
     employee.apply(new EmployeeRegisteredEvent(id, companyId, phone.value));
     return employee;
   }
@@ -54,6 +59,8 @@ export class Employee extends AggregateRoot {
     availability?: EmployeeAvailability[];
     preferences?: EmployeePreference[];
     departmentId?: string;
+    contractType?: string;
+    workingTimeOverrides?: WorkingTimePolicyOverrides;
   }): Employee {
     const emp = new Employee(
       data.id,
@@ -64,6 +71,8 @@ export class Employee extends AggregateRoot {
       data.experience,
       data.locale ?? 'es',
       data.departmentId,
+      data.contractType,
+      data.workingTimeOverrides ?? {},
     );
     emp.availability = data.availability ?? [];
     emp.preferences = data.preferences ?? [];

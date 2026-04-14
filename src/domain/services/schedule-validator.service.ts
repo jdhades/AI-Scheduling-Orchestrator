@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { Shift } from '../aggregates/shift.aggregate';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
+import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interface';
+import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
 
 /**
  * Resultado de la validación de una propuesta de asignación del LLM.
@@ -29,6 +31,7 @@ export interface AssignmentValidationResult {
  */
 @Injectable()
 export class ScheduleValidatorService {
+  private readonly logger = new Logger(ScheduleValidatorService.name);
   /**
    * Valida una propuesta de asignación individual.
    *
@@ -46,8 +49,18 @@ export class ScheduleValidatorService {
     shifts: Shift[],
     alreadyAssigned: Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>,
     semanticRules: SemanticConstraint[],
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
+    multiShiftPermits?: Set<string>,
   ): AssignmentValidationResult {
     const violations: string[] = [];
+
+    const hardCount = semanticRules.filter((c) => c.weight >= 2).length;
+    const resolvedCount = semanticRules.filter(
+      (c) => c.employeeId && c.shiftId,
+    ).length;
+    this.logger.debug(
+      `validate(shift=${shiftId.slice(0, 8)} emp=${employeeId.slice(0, 8)}): ${semanticRules.length} rules (${hardCount} hard, ${resolvedCount} with resolved IDs)`,
+    );
 
     // 1. Verificar existencia
     const employee = employees.find((e) => e.id === employeeId);
@@ -86,6 +99,20 @@ export class ScheduleValidatorService {
       );
     }
 
+    // 3b. Un turno por empleado por día (salvo permit explícito)
+    const shiftDay = shift.startTime.toISOString().split('T')[0];
+    const otherOnSameDay = existingShifts.find(
+      (s) => s.startTime.toISOString().split('T')[0] === shiftDay,
+    );
+    if (otherOnSameDay && otherOnSameDay.id !== shiftId) {
+      const permitted = multiShiftPermits?.has(`${employeeId}|${shiftDay}`);
+      if (!permitted) {
+        violations.push(
+          `Employee ${employeeId} already has shift ${otherOnSameDay.id} on ${shiftDay} — only one shift per day unless explicitly permitted by a semantic rule`,
+        );
+      }
+    }
+
     // 4. Verificar disponibilidad estructural del empleado (Hard Constraint)
     if (!employee.isAvailable(shift.startTime, shift.endTime)) {
       violations.push(
@@ -94,38 +121,37 @@ export class ScheduleValidatorService {
       );
     }
 
-    // 5. Verificar gap mínimo entre turnos (Hard Constraint — anti-"clopening")
-    const MIN_GAP_HOURS = 11;
-    const minGapMs = MIN_GAP_HOURS * 60 * 60 * 1000;
-    for (const prev of existingShifts) {
-      const gapAfterPrev = shift.startTime.getTime() - prev.endTime.getTime();
-      const gapBeforePrev = prev.startTime.getTime() - shift.endTime.getTime();
-      if (gapAfterPrev >= 0 && gapAfterPrev < minGapMs) {
-        violations.push(
-          `Employee ${employeeId} needs at least ${MIN_GAP_HOURS}h rest after shift ${prev.id} before shift ${shiftId}`,
-        );
-      }
-      if (gapBeforePrev >= 0 && gapBeforePrev < minGapMs) {
-        violations.push(
-          `Employee ${employeeId} needs at least ${MIN_GAP_HOURS}h rest before shift ${prev.id} after shift ${shiftId}`,
-        );
-      }
+    // workingTimePolicies reservado para futuras hard constraints (hoy no se aplica acá).
+    void workingTimePolicies;
+
+    // 6. Hard Semantic Constraints (weight >= 2): el LLM nunca puede violarlas.
+    //    Mismo patrón que filterCandidatesForShift — solo bloquea si hay IDs resueltos
+    //    (por el LLM vía blocks[] o por el SemanticConstraintInterpreter).
+    const hardSemanticBlocks = semanticRules.filter((c) => c.weight >= 2);
+
+    // 6a. Turno totalmente bloqueado (ej. feriado colectivo)
+    const shiftFullyBlocked = hardSemanticBlocks.some(
+      (c) =>
+        c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === shiftId,
+    );
+    if (shiftFullyBlocked) {
+      violations.push(
+        `Shift ${shiftId} is blocked for all employees by hard semantic rule (e.g. holiday)`,
+      );
     }
 
-    // 6. Verificar restricciones semánticas LEGALES (prioridad 1)
-    //    Estas son absolutas — el LLM nunca puede violarlas
-    const legalRestrictions = semanticRules.filter(
-      (r) => r.weight >= 1 && (r as any).priority === 1,
+    // 6b. Empleado concreto bloqueado para este turno
+    const employeeBlocked = hardSemanticBlocks.some(
+      (c) =>
+        c.employeeId &&
+        c.employeeId !== SEMANTIC_BLOCKED_ALL &&
+        c.employeeId === employeeId &&
+        (!c.shiftId || c.shiftId === shiftId),
     );
-    for (const restriction of legalRestrictions) {
-      if (
-        restriction.employeeId === employeeId ||
-        restriction.shiftId === shiftId
-      ) {
-        violations.push(
-          `Legal restriction violated: "${restriction.rule}" applies to employee/shift`,
-        );
-      }
+    if (employeeBlocked) {
+      violations.push(
+        `Employee ${employeeId} is blocked from shift ${shiftId} by hard semantic rule`,
+      );
     }
 
     return {

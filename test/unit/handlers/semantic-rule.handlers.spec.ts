@@ -65,6 +65,7 @@ describe('CreateSemanticRuleHandler', () => {
       embeddingService,
       repository,
       eventBus,
+      { extract: jest.fn().mockResolvedValue(null) } as any,
     );
   });
 
@@ -143,7 +144,12 @@ describe('CreateSemanticRuleHandler — deduplication', () => {
     embeddingService = makeMockEmbeddingService();
     repository = makeMockRepository();
     eventBus = makeEventBusMock();
-    handler = new CreateSemanticRuleHandler(embeddingService, repository, eventBus);
+    handler = new CreateSemanticRuleHandler(
+      embeddingService,
+      repository,
+      eventBus,
+      { extract: jest.fn().mockResolvedValue(null) } as any,
+    );
   });
 
   it('should reject near-duplicate and NOT persist it (distance < threshold)', async () => {

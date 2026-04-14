@@ -146,6 +146,8 @@ export class ShiftCapacityPlannerService {
       .toLocaleDateString('en-US', { weekday: 'long' })
       .toLowerCase(); // "wednesday"
 
+    // TODO(config-per-tenant): patterns hardcodeados en español/inglés. Mismo problema
+    // que SemanticConstraintInterpreter — debería resolverse con el LLM o config por locale.
     // Patrones alternativos para la fecha (sin año)
     const altPatterns = [
       `${dayNum} de ${monthNameEs}`,          // "16 de abril"
@@ -175,6 +177,8 @@ export class ShiftCapacityPlannerService {
 
       if (!mentionsThisDay) continue;
 
+      // TODO(config-per-tenant): keywords hardcodeados (feriado/holiday/cerrado/...).
+      // Duplica los de SemanticConstraintInterpreter.ALL_BLOCKED_PATTERNS — unificar.
       // Feriado o descanso colectivo → excluye toda la plantilla
       if (
         text.includes('feriado') ||
@@ -192,6 +196,7 @@ export class ShiftCapacityPlannerService {
       }
 
       // Exclusión de empleado individual por nombre (nombre del employee en el texto)
+      // TODO(config-per-tenant): umbral mágico length>2 — sensibilidad de matching de nombres.
       for (const employee of employees) {
         const nameParts = employee.name.toLowerCase().split(' ');
         if (nameParts.some((part) => part.length > 2 && text.includes(part))) {

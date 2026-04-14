@@ -1,5 +1,5 @@
 import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
-import { Inject, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Logger } from '@nestjs/common';
 import { GenerateScheduleCommand } from '../commands/generate-schedule.command';
 import { ScheduleAggregate } from '../../domain/aggregates/schedule.aggregate';
 import { CostOptimizedStrategy } from '../../domain/strategies/cost-optimized.strategy';
@@ -59,6 +59,14 @@ export class GenerateScheduleHandler implements ICommandHandler<
   ): Promise<GenerateScheduleResult> {
     const weekStart = new Date(`${command.weekStart}T00:00:00.000Z`);
 
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    if (weekStart < today) {
+      throw new BadRequestException(
+        `weekStart must not be a past date (received ${command.weekStart}, today is ${today.toISOString().split('T')[0]} UTC)`,
+      );
+    }
+
     this.logger.log(
       `Generating schedule — company=${command.companyId} week=${command.weekStart} strategy=${command.strategyType}`,
     );
@@ -94,7 +102,14 @@ export class GenerateScheduleHandler implements ICommandHandler<
 
     if (semanticRules.length > 0) {
       this.logger.log(
-        `RAG: ${semanticRules.length} semantic rules will be interpreted against ${shifts.length} shifts`,
+        `RAG: ${semanticRules.length} semantic rules retrieved for company ${command.companyId}`,
+      );
+      semanticRules.forEach((r, i) =>
+        this.logger.debug(`  rule[${i}] weight=${r.weight} | "${r.rule}"`),
+      );
+    } else {
+      this.logger.warn(
+        `RAG: 0 semantic rules retrieved for company ${command.companyId} — scheduling will run without semantic constraints`,
       );
     }
 

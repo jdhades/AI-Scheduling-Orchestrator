@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { Shift } from '../aggregates/shift.aggregate';
 import { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
@@ -6,6 +7,7 @@ import type {
   SchedulingStrategy,
   SemanticConstraint,
 } from '../strategies/scheduling-strategy.interface';
+import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interface';
 import { FairnessCalculator } from './fairness-calculator.service';
 import { ScheduleQualityReport } from './schedule-quality-analyzer.service';
 import { SemanticConstraintInterpreter } from './semantic-constraint-interpreter';
@@ -14,6 +16,10 @@ export interface SchedulingOptions {
   maxFairnessDeviation: number;
   /** Reglas semánticas del RAG — vacío hasta Escenario 3 */
   semanticConstraints?: SemanticConstraint[];
+  /** Working time policies resueltas por jerarquía (employee → dept → tenant). */
+  workingTimePolicies?: Map<string, import('../value-objects/working-time-policy.vo').WorkingTimePolicyVO>;
+  /** `${employeeId}|YYYY-MM-DD` autorizados a tener 2+ turnos ese día. */
+  multiShiftPermits?: Set<string>;
 }
 
 export interface ScheduleResult {
@@ -37,6 +43,8 @@ export interface ScheduleResult {
  * incluidas cumplen este requisito (pre-indexación con Map).
  */
 export class SchedulingEngine {
+  private readonly logger = new Logger(SchedulingEngine.name);
+
   constructor(private readonly fairnessCalc: FairnessCalculator) {}
 
   run(
@@ -65,17 +73,49 @@ export class SchedulingEngine {
     // Enriquecer constraints con IDs resueltos (employeeId, shiftId) antes de
     // pasarlos a la estrategia. El intérprete hace pattern matching en el texto
     // de cada regla para mapear nombres → IDs y fechas → shiftIds.
+    const rawConstraints = options.semanticConstraints ?? [];
     const resolvedConstraints = SemanticConstraintInterpreter.interpret(
-      options.semanticConstraints ?? [],
+      rawConstraints,
       employees,
       shifts,
     );
+
+    if (rawConstraints.length > 0) {
+      const hardBlocks = resolvedConstraints.filter(
+        (c) => c.weight >= 2 && c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId,
+      );
+      const empBlocks = resolvedConstraints.filter(
+        (c) => c.weight >= 2 && c.employeeId && c.employeeId !== SEMANTIC_BLOCKED_ALL,
+      );
+      const unresolved = resolvedConstraints.filter(
+        (c) => !c.employeeId && !c.shiftId,
+      );
+
+      this.logger.log(
+        `SemanticInterpreter: ${rawConstraints.length} raw → ${resolvedConstraints.length} resolved ` +
+        `(${hardBlocks.length} full-shift blocks, ${empBlocks.length} employee blocks, ${unresolved.length} unresolved)`,
+      );
+
+      if (hardBlocks.length > 0) {
+        hardBlocks.forEach((c) =>
+          this.logger.log(`  BLOCKED shift=${c.shiftId} (all employees) — "${c.rule}"`),
+        );
+      }
+
+      if (unresolved.length > 0) {
+        unresolved.forEach((c) =>
+          this.logger.warn(`  UNRESOLVED constraint (no shiftId/employeeId matched) — "${c.rule}"`),
+        );
+      }
+    }
 
     const { assignments, unfilledShifts } = strategy.generate(
       employees,
       shifts,
       histories,
       resolvedConstraints,
+      options.workingTimePolicies,
+      options.multiShiftPermits,
     );
 
     const quality = this.analyzeQuality(

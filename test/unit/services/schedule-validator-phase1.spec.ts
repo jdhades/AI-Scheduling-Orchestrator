@@ -123,37 +123,11 @@ describe('ScheduleValidatorService — Phase 1 Constraints', () => {
 
   // ─── Minimum Shift Gap (Anti-Clopening) ───────────────────────────────────
 
-  describe('Minimum Shift Gap (Hard Constraint — 11h rest)', () => {
-    it('passes when gap between shifts is exactly 11 hours (boundary)', () => {
+  describe('Minimum Shift Gap — removed (manager decides on residual rest)', () => {
+    it('does NOT block when shifts are back-to-back (gap=0)', () => {
+      // Anti-"clopening" ya no es hard constraint: el manager revisa el horario
+      // y ajusta si hace falta. Solo sigue siendo hard el solapamiento directo.
       const emp = makeEmployee('e1', []);
-      // First shift ends at 22:00, next one starts at 09:00 next day = 11h gap
-      const prevShift = makeShift(
-        's-prev',
-        '2026-03-09T14:00:00Z',
-        '2026-03-09T22:00:00Z',
-      );
-      const nextShift = makeShift(
-        's-next',
-        '2026-03-10T09:00:00Z',
-        '2026-03-10T17:00:00Z',
-      );
-      const assigned = new Map([['e1', [prevShift]]]);
-
-      const result = validator.validate(
-        's-next',
-        'e1',
-        [emp],
-        [prevShift, nextShift],
-        assigned,
-        NO_RULES,
-      );
-      // 11h gap exactly = NOT a violation (< minGapMs means violation, = means ok)
-      expect(result.valid).toBe(true);
-    });
-
-    it('fails when rest period between shifts is less than 11 hours', () => {
-      const emp = makeEmployee('e1', []);
-      // Last shift ends 22:00, next shift starts 06:00 next day = only 8h gap
       const prevShift = makeShift(
         's-prev',
         '2026-03-09T14:00:00Z',
@@ -163,33 +137,6 @@ describe('ScheduleValidatorService — Phase 1 Constraints', () => {
         's-next',
         '2026-03-10T06:00:00Z',
         '2026-03-10T14:00:00Z',
-      );
-      const assigned = new Map([['e1', [prevShift]]]);
-
-      const result = validator.validate(
-        's-next',
-        'e1',
-        [emp],
-        [prevShift, nextShift],
-        assigned,
-        NO_RULES,
-      );
-      expect(result.valid).toBe(false);
-      expect(result.violations.some((v) => v.includes('rest'))).toBe(true);
-    });
-
-    it('passes when shifts are on different days with more than 11h gap', () => {
-      const emp = makeEmployee('e1', []);
-      // Shift ends Monday 16:00, next starts Wednesday 09:00 = 41h gap
-      const prevShift = makeShift(
-        's-prev',
-        '2026-03-09T08:00:00Z',
-        '2026-03-09T16:00:00Z',
-      );
-      const nextShift = makeShift(
-        's-next',
-        '2026-03-11T09:00:00Z',
-        '2026-03-11T17:00:00Z',
       );
       const assigned = new Map([['e1', [prevShift]]]);
 

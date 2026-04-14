@@ -60,7 +60,49 @@ export class GeminiLLMService implements ILLMService {
             temperature: 0.1, // Bajo: necesitamos respuestas deterministas
             topK: 20,
             topP: 0.8,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 4096, // ~30 asignaciones × 50 tokens/objeto + overhead JSON
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'object',
+              properties: {
+                blocks: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      employeeId: { type: 'string' },
+                      shiftId:    { type: 'string' },
+                    },
+                    required: ['employeeId', 'shiftId'],
+                  },
+                },
+                multi_shift_permits: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      employeeId: { type: 'string' },
+                      day:        { type: 'string' },
+                    },
+                    required: ['employeeId', 'day'],
+                  },
+                },
+                assignments: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      shiftId:    { type: 'string' },
+                      employeeId: { type: 'string' },
+                      reason:     { type: 'string' },
+                      confidence: { type: 'number' },
+                    },
+                    required: ['shiftId', 'employeeId'],
+                  },
+                },
+              },
+              required: ['assignments'],
+            },
           },
         }),
       });

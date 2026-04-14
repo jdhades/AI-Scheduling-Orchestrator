@@ -1,8 +1,15 @@
 import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
 import { Inject, Logger } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { PromptOrchestratorService } from '../../domain/services/prompt-orchestrator.service';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
+import { StructuredRuleResolver } from '../../domain/services/structured-rule-resolver.service';
+import { WorkingTimePolicyResolver } from '../../domain/services/working-time-policy.resolver';
+import {
+  WorkingTimePolicyVO,
+  type WorkingTimePolicyOverrides,
+} from '../../domain/value-objects/working-time-policy.vo';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { InstantiateWeekHandler } from '../commands/instantiate-week/instantiate-week.handler';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -13,6 +20,7 @@ import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
 import { FAIRNESS_HISTORY_REPOSITORY } from '../../domain/repositories/fairness-history.repository';
 import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.vo';
+import type { Employee } from '../../domain/aggregates/employee.aggregate';
 import type { Shift } from '../../domain/aggregates/shift.aggregate';
 
 export interface HybridScheduleResult {
@@ -24,6 +32,8 @@ export interface HybridScheduleResult {
   algorithmCorrected: number;
   /** Resumen en lenguaje natural */
   explanation: string;
+  /** Avisos para el manager (exceso de horas, turnos sin cubrir, etc.) */
+  warnings: string[];
 }
 
 /**
@@ -55,7 +65,78 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
     private readonly promptOrchestrator: PromptOrchestratorService,
     private readonly notificationsGateway: NotificationsGateway,
     private readonly instantiateWeekHandler: InstantiateWeekHandler,
+    private readonly structuredRuleResolver: StructuredRuleResolver,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
+
+  /**
+   * Resuelve la WorkingTimePolicy de cada empleado mediante merge jerárquico
+   * (employee → department → company → fallback del sistema).
+   */
+  private async resolveWorkingTimePolicies(
+    companyId: string,
+    employees: Employee[],
+  ): Promise<Map<string, WorkingTimePolicyVO>> {
+    const [companyRes, deptsRes] = await Promise.all([
+      this.supabase
+        .from('companies')
+        .select('default_max_hours_per_day, default_max_hours_per_week')
+        .eq('id', companyId)
+        .single(),
+      this.supabase
+        .from('departments')
+        .select('id, max_hours_per_day, max_hours_per_week')
+        .eq('company_id', companyId),
+    ]);
+
+    const companyOverrides: WorkingTimePolicyOverrides = {
+      maxHoursPerDay: companyRes.data?.default_max_hours_per_day != null ? Number(companyRes.data.default_max_hours_per_day) : null,
+      maxHoursPerWeek: companyRes.data?.default_max_hours_per_week != null ? Number(companyRes.data.default_max_hours_per_week) : null,
+    };
+
+    const deptOverridesById = new Map<string, WorkingTimePolicyOverrides>();
+    for (const d of deptsRes.data ?? []) {
+      deptOverridesById.set(d.id, {
+        maxHoursPerDay: d.max_hours_per_day != null ? Number(d.max_hours_per_day) : null,
+        maxHoursPerWeek: d.max_hours_per_week != null ? Number(d.max_hours_per_week) : null,
+      });
+    }
+
+    const result = new Map<string, WorkingTimePolicyVO>();
+    let customCount = 0;
+    for (const emp of employees) {
+      const dept = emp.departmentId ? deptOverridesById.get(emp.departmentId) : undefined;
+      const policy = WorkingTimePolicyResolver.resolve({
+        employee: emp.workingTimeOverrides,
+        department: dept,
+        company: companyOverrides,
+      });
+
+      // Log detallado por empleado con origen de cada campo
+      const origin = (key: 'maxHoursPerDay' | 'maxHoursPerWeek'): string => {
+        if (emp.workingTimeOverrides?.[key] != null) return 'employee';
+        if (dept?.[key] != null) return 'department';
+        if (companyOverrides[key] != null) return 'company';
+        return 'system-fallback';
+      };
+      this.logger.log(
+        `  ${emp.name.padEnd(20)} → max ${policy.maxHoursPerDay}h/día (${origin('maxHoursPerDay')}), ${policy.maxHoursPerWeek}h/semana (${origin('maxHoursPerWeek')})`,
+      );
+
+      const hasOverride =
+        (emp.workingTimeOverrides &&
+          Object.values(emp.workingTimeOverrides).some((v) => v != null)) ||
+        (dept && Object.values(dept).some((v) => v != null)) ||
+        Object.values(companyOverrides).some((v) => v != null);
+      if (hasOverride) customCount++;
+      result.set(emp.id, policy);
+    }
+    this.logger.log(
+      `WorkingTimePolicies resolved: ${employees.length} employees (${customCount} with overrides, ${employees.length - customCount} on pure system fallback)`,
+    );
+    return result;
+  }
 
   async execute(
     command: GenerateHybridScheduleCommand,
@@ -101,16 +182,43 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       `Loaded — employees=${employees.length} shifts=${shifts.length}`,
     );
 
-    // 2. RAG: recuperar todas las reglas semánticas relevantes (Modo Degradado si falla la conectividad/cuota LLM)
-    let semanticRules: any[] = [];
-    try {
-      semanticRules = await this.semanticRetrievalService.retrieveAllForCompany(command.companyId);
-      this.logger.log(`RAG: ${semanticRules.length} semantic rules retrieved`);
-    } catch (error) {
-      this.logger.warn(
-        `RAG Degradado: No se pudieron recuperar reglas semánticas debido a un error [${(error as Error).message}]. Continúa la asignación sin restricciones extra.`
+    // 2. RAG: recuperar aggregates (con structure si fue extraída por LLM al crearlas)
+    const ruleAggregates = await this.semanticRetrievalService
+      .retrieveAggregatesForCompany(command.companyId)
+      .catch((error) => {
+        this.logger.warn(
+          `RAG Degradado: No se pudieron recuperar reglas semánticas [${(error as Error).message}]. Continúa sin restricciones.`,
+        );
+        return [];
+      });
+    this.logger.log(`RAG: ${ruleAggregates.length} semantic rules retrieved`);
+
+    // 2a. Resolver structure → constraints con IDs concretos (sin NLP en caliente)
+    const resolved = this.structuredRuleResolver.resolve(
+      ruleAggregates,
+      employees,
+      shifts,
+    );
+    if (resolved.complexRules.length > 0) {
+      resolved.complexRules.forEach((r) =>
+        this.logger.warn(`Regla compleja (requiere supervisión): "${r.ruleText}" — ${r.reason}`),
       );
     }
+    if (resolved.unstructuredRules.length > 0) {
+      resolved.unstructuredRules.forEach((r) =>
+        this.logger.warn(`Regla sin structure (el LLM no la analizó al crearla): "${r.ruleText}"`),
+      );
+    }
+
+    // Para compatibilidad con el orchestrator actual, pasamos constraints resueltos
+    // como semanticRules (ya tienen IDs de empleados/turnos concretos).
+    const semanticRules = resolved.constraints;
+
+    // 2b. Resolver working time policies por jerarquía (employee → dept → tenant → fallback)
+    const workingTimePolicies = await this.resolveWorkingTimePolicies(
+      command.companyId,
+      employees,
+    );
 
     // 3. Orquestar LLM + algoritmo
     const result = await this.promptOrchestrator.orchestrate({
@@ -120,6 +228,10 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       companyId: command.companyId,
       weekStart,
       semanticRules,
+      workingTimePolicies,
+      preResolvedPermits: resolved.multiShiftPermits,
+      preResolvedComplexRules: resolved.complexRules,
+      preResolvedUnstructuredRules: resolved.unstructuredRules,
     });
 
     // 4. Limpiar asignaciones previas de la semana y persistir las nuevas
@@ -163,6 +275,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       llmAccepted: result.llmAccepted,
       algorithmCorrected: result.algorithmCorrected,
       explanation: result.explanation,
+      warnings: result.warnings,
     };
   }
 

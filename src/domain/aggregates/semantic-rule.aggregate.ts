@@ -1,6 +1,7 @@
 import { RulePriority } from '../value-objects/rule-priority.vo';
 import { RuleType } from '../value-objects/rule-type.vo';
 import { RuleEmbedding } from '../value-objects/rule-embedding.vo';
+import type { RuleStructure } from '../value-objects/rule-structure.vo';
 
 export interface SemanticRulePersistenceRow {
   id: string;
@@ -12,6 +13,7 @@ export interface SemanticRulePersistenceRow {
   created_by: string | null;
   is_active: boolean;
   metadata: Record<string, unknown>;
+  structure: RuleStructure | null;
   created_at: string | Date;
   expires_at?: string | Date | null;
   branch_id?: string | null;
@@ -48,6 +50,7 @@ export class SemanticRuleAggregate {
     private isActive: boolean,
     private readonly createdBy: string | null,
     private readonly metadata: Record<string, unknown>,
+    private structure: RuleStructure | null,
     private readonly createdAt: Date,
     private readonly expiresAt: Date | null,
     private readonly branchId: string | null,
@@ -82,6 +85,7 @@ export class SemanticRuleAggregate {
       true,
       params.createdBy ?? null,
       params.metadata ?? {},
+      null, // structure: extraída por LLM después via setStructure()
       new Date(),
       params.expiresAt ?? null,
       params.branchId ?? null,
@@ -106,6 +110,7 @@ export class SemanticRuleAggregate {
       row.is_active,
       row.created_by,
       row.metadata ?? {},
+      row.structure ?? null,
       new Date(row.created_at),
       row.expires_at ? new Date(row.expires_at) : null,
       row.branch_id ?? null,
@@ -126,14 +131,31 @@ export class SemanticRuleAggregate {
   }
 
   /**
-   * Actualiza el texto de la regla e invalida el embedding actual.
-   * El serivicio de aplicación deberá re-generar el embedding después.
+   * Actualiza el texto de la regla e invalida el embedding y la estructura.
+   * El servicio de aplicación deberá re-generar ambos después.
    * @throws Error si el nuevo texto no cumple con los límites de longitud
    */
   updateText(newText: string): void {
     SemanticRuleAggregate.validateRuleText(newText);
     this.ruleText = newText.trim();
     this.embedding = null; // invalidar — requiere re-embedding
+    this.structure = null; // invalidar — requiere re-extracción por LLM
+  }
+
+  /**
+   * Asigna la estructura extraída por el LLM. Se llama una vez después de create()
+   * o updateText().
+   */
+  setStructure(structure: RuleStructure | null): void {
+    this.structure = structure;
+  }
+
+  getStructure(): RuleStructure | null {
+    return this.structure;
+  }
+
+  hasStructure(): boolean {
+    return this.structure !== null;
   }
 
   /**

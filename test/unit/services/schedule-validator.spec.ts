@@ -238,4 +238,113 @@ describe('ScheduleValidatorService', () => {
 
     expect(validator.isAvailable(emp, shift2, emptyAssigned)).toBe(false);
   });
+
+  // ─── Hard Semantic Constraints (weight >= 2) ─────────────────────────────
+  describe('hard semantic constraints', () => {
+    it('rejects when shift is blocked for all employees (feriado)', () => {
+      const emp = makeEmployee('e1');
+      const shift = makeShift('s1', null, 8, 16);
+      emptyAssigned.set('e1', []);
+
+      const constraints = [
+        {
+          rule: 'El 16 de abril nadie trabaja (feriado)',
+          weight: 2,
+          employeeId: '*', // SEMANTIC_BLOCKED_ALL
+          shiftId: 's1',
+        },
+      ];
+
+      const result = validator.validate(
+        's1',
+        'e1',
+        [emp],
+        [shift],
+        emptyAssigned,
+        constraints,
+      );
+
+      expect(result.valid).toBe(false);
+      expect(result.violations.some((v) => v.includes('blocked for all'))).toBe(true);
+    });
+
+    it('rejects when employee is specifically blocked from shift', () => {
+      const emp = makeEmployee('e1');
+      const shift = makeShift('s1', null, 8, 16);
+      emptyAssigned.set('e1', []);
+
+      const constraints = [
+        {
+          rule: 'Ana tiene día libre el lunes',
+          weight: 2,
+          employeeId: 'e1',
+          shiftId: 's1',
+        },
+      ];
+
+      const result = validator.validate(
+        's1',
+        'e1',
+        [emp],
+        [shift],
+        emptyAssigned,
+        constraints,
+      );
+
+      expect(result.valid).toBe(false);
+      expect(result.violations.some((v) => v.includes('blocked from shift'))).toBe(true);
+    });
+
+    it('allows assignment when a different employee is blocked', () => {
+      const emp = makeEmployee('e1', 'skill-nurse');
+      const shift = makeShift('s1', 'skill-nurse', 8, 16);
+      emptyAssigned.set('e1', []);
+
+      const constraints = [
+        {
+          rule: 'Ana (e2) tiene día libre el lunes',
+          weight: 2,
+          employeeId: 'e2', // otro empleado, no e1
+          shiftId: 's1',
+        },
+      ];
+
+      const result = validator.validate(
+        's1',
+        'e1',
+        [emp],
+        [shift],
+        emptyAssigned,
+        constraints,
+      );
+
+      expect(result.valid).toBe(true);
+    });
+
+    it('ignores soft constraints (weight=1) in hard validation', () => {
+      const emp = makeEmployee('e1', 'skill-nurse');
+      const shift = makeShift('s1', 'skill-nurse', 8, 16);
+      emptyAssigned.set('e1', []);
+
+      const constraints = [
+        {
+          rule: 'Ana prefiere no trabajar el lunes',
+          weight: 1, // soft — no debe bloquear
+          employeeId: 'e1',
+          shiftId: 's1',
+        },
+      ];
+
+      const result = validator.validate(
+        's1',
+        'e1',
+        [emp],
+        [shift],
+        emptyAssigned,
+        constraints,
+      );
+
+      expect(result.valid).toBe(true);
+    });
+  });
 });

@@ -155,6 +155,11 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       availability,
       preferences,
       departmentId: row.department_id,
+      contractType: row.contract_type ?? undefined,
+      workingTimeOverrides: {
+        maxHoursPerDay: row.max_hours_per_day != null ? Number(row.max_hours_per_day) : null,
+        maxHoursPerWeek: row.max_hours_per_week != null ? Number(row.max_hours_per_week) : null,
+      },
     });
 
     // Hydrate skills

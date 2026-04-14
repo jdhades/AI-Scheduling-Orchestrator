@@ -8,7 +8,12 @@ import type {
   SemanticConstraint,
   StrategyResult,
 } from './scheduling-strategy.interface';
-import { SEMANTIC_BLOCKED_ALL } from './scheduling-strategy.interface';
+import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
+import {
+  buildSkillIndex,
+  filterCandidatesForShift,
+  type BusySlot,
+} from './shared/strategy-helpers';
 
 export interface HybridWeights {
   /** Peso del factor de costo en la fórmula (default: 0.3) */
@@ -19,6 +24,9 @@ export interface HybridWeights {
   demandWeight: number;
 }
 
+// TODO(config-per-tenant): pesos hardcodeados — definen la filosofía de optimización
+// (cost vs fairness vs demand). Cada empresa debería poder ajustarlos. Mover a config
+// por compañía o exponer endpoint admin.
 const DEFAULT_WEIGHTS: HybridWeights = {
   costWeight: 0.3,
   fairnessWeight: 0.5,
@@ -64,6 +72,8 @@ export class HybridStrategy implements SchedulingStrategy {
     shifts: Shift[],
     histories: FairnessHistoryVO[],
     semanticRules?: SemanticConstraint[],
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
+    multiShiftPermits?: Set<string>,
   ): StrategyResult {
     const activeConstraints = semanticRules ?? [];
 
@@ -77,8 +87,8 @@ export class HybridStrategy implements SchedulingStrategy {
       }),
     );
 
-    const skillIndex = this.buildSkillIndex(employees);
-    const busySlots = new Map<string, { id: string; startTime: Date; endTime: Date; getDuration: () => number; overlapsWith: (other: Shift) => boolean }[]>();
+    const skillIndex = buildSkillIndex(employees);
+    const busySlots = new Map<string, BusySlot[]>();
     for (const e of employees) busySlots.set(e.id, []);
 
     // Max score para normalización
@@ -97,6 +107,8 @@ export class HybridStrategy implements SchedulingStrategy {
 
     for (const shift of sortedShifts) {
       // Si la capacidad es null, repartimos equitativamente los empleados entre los turnos sin capacidad de ese día
+      // TODO(config-per-tenant): fórmula ceil(employees/turnos) hardcodeada. Otras empresas
+      // podrían querer floor, promedio, o distribución ponderada por skill.
       let dynamicCapacity = Number.MAX_SAFE_INTEGER;
       if (shift.requiredEmployees === null) {
         const startDay = shift.startTime.toISOString().split('T')[0];
@@ -116,6 +128,8 @@ export class HybridStrategy implements SchedulingStrategy {
           skillIndex,
           busySlots,
           activeConstraints,
+          workingTimePolicies,
+          multiShiftPermits,
         );
 
         if (candidates.length === 0) {
@@ -212,6 +226,8 @@ export class HybridStrategy implements SchedulingStrategy {
         c.employeeId === employee.id &&
         (!c.shiftId || c.shiftId === shift.id),
     );
+    // TODO(config-per-tenant): factor 1.5 hardcodeado — severidad de penalización
+    // de soft constraints. Algunas empresas querrán 1.1 (más permisivo) o 2.0 (más estricto).
     const semanticPenalty = hasSoftBlock ? 1.5 : 1;
 
     return (
@@ -223,99 +239,31 @@ export class HybridStrategy implements SchedulingStrategy {
     );
   }
 
+  // TODO(config-per-tenant): umbrales 6/24 meses para junior/intermediate/senior están
+  // hardcodeados. Cada empresa tiene su propia escala de seniority.
   private normalizeCost(experienceMonths: number): number {
     if (experienceMonths < 6) return 1 / 3; // junior
     if (experienceMonths < 24) return 2 / 3; // intermediate
     return 1; // senior
   }
 
-  private buildSkillIndex(employees: Employee[]): Map<string, Employee[]> {
-    const index = new Map<string, Employee[]>();
-    for (const emp of employees) {
-      for (const skill of emp.getSkills()) {
-        if (!index.has(skill.id)) index.set(skill.id, []);
-        index.get(skill.id)!.push(emp);
-      }
-    }
-    return index;
-  }
-
   private getCandidates(
     shift: Shift,
     employees: Employee[],
     skillIndex: Map<string, Employee[]>,
-    busySlots: Map<string, { id: string; startTime: Date; endTime: Date; getDuration: () => number; overlapsWith: (other: Shift) => boolean }[]>,
+    busySlots: Map<string, BusySlot[]>,
     constraints: SemanticConstraint[] = [],
+    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
+    multiShiftPermits?: Set<string>,
   ): Employee[] {
-    // Hard Semantic: turno completamente bloqueado (feriado, nadie trabaja)
-    const shiftFullyBlocked = constraints.some(
-      (c) =>
-        c.weight >= 2 &&
-        c.employeeId === SEMANTIC_BLOCKED_ALL &&
-        c.shiftId === shift.id,
-    );
-    if (shiftFullyBlocked) return [];
-
-    // IDs bloqueados específicamente para este turno (hard constraints)
-    const hardBlockedIds = new Set(
-      constraints
-        .filter(
-          (c) =>
-            c.weight >= 2 &&
-            c.employeeId &&
-            c.employeeId !== SEMANTIC_BLOCKED_ALL &&
-            (!c.shiftId || c.shiftId === shift.id),
-        )
-        .map((c) => c.employeeId!),
-    );
-
-    const pool = shift.requiredSkillId
-      ? (skillIndex.get(shift.requiredSkillId) ?? [])
-      : employees;
-
-    const uniquePool = Array.from(new Set(pool));
-
-    return uniquePool.filter((emp) => {
-      // Hard Semantic: empleado bloqueado por regla legal o semántica
-      if (hardBlockedIds.has(emp.id)) return false;
-
-      const busy = busySlots.get(emp.id) ?? [];
-      if (busy.some((s) => s.overlapsWith(shift))) return false;
-
-      const MAX_HOURS_PER_DAY = 8;
-      const MAX_HOURS_PER_WEEK = 40;
-      const MIN_GAP_HOURS = 11;
-      const proposedDuration = shift.getDuration();
-
-      // Hard: weekly hours cap
-      const weeklyHours = busy.reduce((acc, s) => acc + s.getDuration(), 0);
-      if (weeklyHours + proposedDuration > MAX_HOURS_PER_WEEK) return false;
-
-      // Hard: daily hours cap
-      const proposedStartStr = shift.startTime.toISOString().split('T')[0];
-      const dailyHours = busy
-        .filter(
-          (s) => s.startTime.toISOString().split('T')[0] === proposedStartStr,
-        )
-        .reduce((acc, s) => acc + s.getDuration(), 0);
-      if (dailyHours + proposedDuration > MAX_HOURS_PER_DAY) return false;
-
-      // Hard: structural availability
-      if (!emp.isAvailable(shift.startTime, shift.endTime)) return false;
-
-      // Hard: minimum gap between shifts (anti-clopening)
-      const minGapMs = MIN_GAP_HOURS * 60 * 60 * 1000;
-      const gapViolation = busy.some((prev) => {
-        const gapAfter = shift.startTime.getTime() - prev.endTime.getTime();
-        const gapBefore = prev.startTime.getTime() - shift.endTime.getTime();
-        return (
-          (gapAfter >= 0 && gapAfter < minGapMs) ||
-          (gapBefore >= 0 && gapBefore < minGapMs)
-        );
-      });
-      if (gapViolation) return false;
-
-      return true;
+    return filterCandidatesForShift({
+      shift,
+      employees,
+      skillIndex,
+      busySlots,
+      constraints,
+      workingTimePolicies,
+      multiShiftPermits,
     });
   }
 

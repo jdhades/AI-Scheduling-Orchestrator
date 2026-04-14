@@ -476,6 +476,11 @@ export class MessageRouterService {
           if (resObj && typeof resObj === 'object' && resObj.explanation) {
               reply = resObj.explanation;
           }
+          // Anexar warnings (reglas en supervisión manual, turnos sin cubrir, etc.)
+          if (resObj && Array.isArray(resObj.warnings) && resObj.warnings.length > 0) {
+              reply += `\n\n⚠️ *Requieren tu revisión:*\n` +
+                  resObj.warnings.map((w: string) => `• ${w}`).join('\n');
+          }
       }
       this._reply(from, reply);
     } catch (err) {
@@ -501,28 +506,38 @@ export class MessageRouterService {
   ): Promise<boolean> {
      const step = sessionEntities.generateStep;
      if (step === 'SELECT_TEMPLATE') {
+         let cmd: GenerateHybridScheduleCommand;
          if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
-             const cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart);
-             await this.commandBus.execute(cmd);
-             await this.sessionRepository.clearSession(from);
-             this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
-             return true;
+             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart);
+         } else {
+             const templateId = sessionEntities[`option${selection}_templateId`];
+             if (!templateId) {
+                 this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+                 return true;
+             }
+             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId);
          }
 
-         const templateId = sessionEntities[`option${selection}_templateId`];
-         if (!templateId) {
-             this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
-             return true; 
-         }
-
-         const cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId);
-         await this.commandBus.execute(cmd);
+         const result = await this.commandBus.execute(cmd);
          await this.sessionRepository.clearSession(from);
-         this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+         this._reply(from, this._formatScheduleReply(result, locale));
          return true;
      }
 
      return false;
+  }
+
+  /** Formatea la respuesta del hybrid schedule incluyendo explanation + warnings. */
+  private _formatScheduleReply(result: any, locale: string): string {
+    let reply = this.i18n.t('bot.general.success', { lang: locale });
+    if (result && typeof result === 'object' && result.explanation) {
+      reply = result.explanation;
+    }
+    if (result && Array.isArray(result.warnings) && result.warnings.length > 0) {
+      reply += `\n\n⚠️ *Requieren tu revisión:*\n` +
+        result.warnings.map((w: string) => `• ${w}`).join('\n');
+    }
+    return reply;
   }
 
   private _getNextMondayStr(): string {

@@ -5,6 +5,7 @@ import type {
   ISemanticRuleRepository,
   SemanticRuleWithDistance,
 } from '../../domain/repositories/semantic-rule.repository.interface';
+import { isValidRuleStructure } from '../../domain/value-objects/rule-structure.vo';
 
 /**
  * SupabaseSemanticRuleRepository — Infrastructure Repository
@@ -35,6 +36,7 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       created_by: rule.getCreatedBy(),
       is_active: rule.getIsActive(),
       metadata: rule.getMetadata(),
+      structure: rule.getStructure(),
       expires_at: rule.getExpiresAt()?.toISOString() ?? null,
       branch_id: rule.getBranchId() ?? null,
       department_id: rule.getDepartmentId() ?? null,
@@ -136,6 +138,9 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
   // -------------------------------------------------------------------------
 
   private toDomain(row: Record<string, unknown>): SemanticRuleAggregate {
+    const rawStructure = row.structure;
+    const structure = isValidRuleStructure(rawStructure) ? rawStructure : null;
+
     return SemanticRuleAggregate.fromPersistence({
       id: row.id as string,
       company_id: row.company_id as string,
@@ -149,6 +154,7 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       created_by: (row.created_by as string) ?? null,
       is_active: row.is_active as boolean,
       metadata: (row.metadata as Record<string, unknown>) ?? {},
+      structure,
       created_at: row.created_at as string,
       expires_at: (row.expires_at as string) ?? null,
       branch_id: (row.branch_id as string) ?? null,
