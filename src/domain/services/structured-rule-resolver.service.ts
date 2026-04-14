@@ -1,15 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Employee } from '../aggregates/employee.aggregate';
-import type { Shift } from '../aggregates/shift.aggregate';
 import type { SemanticRuleAggregate } from '../aggregates/semantic-rule.aggregate';
+import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import {
   SEMANTIC_BLOCKED_ALL,
   type SemanticConstraint,
 } from '../strategies/scheduling-strategy.interface';
 import type {
   DateMatcher,
+  HourRange,
   RuleStructure,
-  ShiftTypeMatcher,
+  ShiftNameMatcher,
 } from '../value-objects/rule-structure.vo';
 
 export interface ResolvedRuleOutput {
@@ -26,10 +27,11 @@ export interface ResolvedRuleOutput {
 /**
  * StructuredRuleResolver — Domain Service
  *
- * Traduce `RuleStructure` + lista de empleados/shifts de la semana →
- * constraints concretos con IDs resueltos. Sin NLP ni patrones hardcodeados:
- * el LLM ya hizo el análisis al guardar la regla, aquí solo se hace matching
- * determinístico contra los IDs de la semana.
+ * Traduce `RuleStructure` + lista de empleados/slots de la semana →
+ * constraints con IDs concretos (`slot.slotKey = templateId|YYYY-MM-DD`).
+ * Sin NLP ni magic numbers: el matching es determinístico contra datos ya
+ * extraídos por el LLM al guardar la regla (fechas, nombres de template,
+ * rangos horarios explícitos).
  */
 @Injectable()
 export class StructuredRuleResolver {
@@ -38,7 +40,7 @@ export class StructuredRuleResolver {
   resolve(
     rules: SemanticRuleAggregate[],
     employees: Employee[],
-    shifts: Shift[],
+    slots: VirtualShiftSlot[],
   ): ResolvedRuleOutput {
     const constraints: SemanticConstraint[] = [];
     const multiShiftPermits = new Set<string>();
@@ -64,20 +66,21 @@ export class StructuredRuleResolver {
         continue;
       }
 
-      if (struct.intent === 'preference') {
-        // No genera hard constraints, solo se reporta como informativo.
-        continue;
-      }
+      if (struct.intent === 'preference') continue;
 
       // Safety net: structure degenerada (block/permit sin datos concretos).
-      // Si el LLM marcó block/permit pero no hay matchers útiles, la regla se
-      // silenciaría. La tratamos como complex y reportamos warning al manager.
       const hasConcreteDates = struct.dateMatchers.length > 0;
-      const hasConcreteShiftTypes = !!struct.shiftTypeMatchers?.length;
+      const hasConcreteNames = !!struct.shiftNameMatchers?.length;
+      const hasConcreteHourRanges = !!struct.hourRangeMatchers?.length;
       const hasSpecificEmployees = struct.employeeMatchers.some(
         (m) => m.type === 'name',
       );
-      if (!hasConcreteDates && !hasConcreteShiftTypes && !hasSpecificEmployees) {
+      if (
+        !hasConcreteDates &&
+        !hasConcreteNames &&
+        !hasConcreteHourRanges &&
+        !hasSpecificEmployees
+      ) {
         complexRules.push({
           ruleId: rule.getId(),
           ruleText: rule.getRuleText(),
@@ -89,39 +92,35 @@ export class StructuredRuleResolver {
       }
 
       const weight = this.priorityToWeight(rule.getPriority().getValue());
-      const matchingShifts = this.matchShifts(struct, shifts);
+      const matchingSlots = this.matchSlots(struct, slots);
       const matchingEmployees = this.matchEmployees(struct, employees);
 
       if (struct.intent === 'block') {
         const { employeeIds, allEmployees } = matchingEmployees;
 
-        // Safety net anti-avalancha: si una sola regla con allEmployees bloquearía
-        // más de la mitad de los turnos de la semana, casi seguro el LLM la interpretó
-        // mal (ej. "cada empleado día libre" → bloqueó toda la semana). Tratarla como
-        // complex y avisar al manager en vez de aplicarla silenciosamente.
-        const totalShiftsInWeek = shifts.length;
+        // Safety anti-avalancha: si bloquea >50% de la semana para TODOS
+        const total = slots.length;
         const wouldBlockAll =
-          allEmployees &&
-          totalShiftsInWeek > 0 &&
-          matchingShifts.length / totalShiftsInWeek > 0.5;
+          allEmployees && total > 0 && matchingSlots.length / total > 0.5;
         if (wouldBlockAll) {
           complexRules.push({
             ruleId: rule.getId(),
             ruleText: rule.getRuleText(),
             reason:
-              `La structure cubriría ${matchingShifts.length}/${totalShiftsInWeek} turnos (${Math.round((matchingShifts.length / totalShiftsInWeek) * 100)}%) para todos los empleados — ` +
-              `probablemente es una regla de distribución, no de bloqueo. Revisá el texto.`,
+              `La structure cubriría ${matchingSlots.length}/${total} slots ` +
+              `(${Math.round((matchingSlots.length / total) * 100)}%) para todos los ` +
+              `empleados — probablemente es una regla de distribución, no de bloqueo.`,
           });
           continue;
         }
 
-        for (const shift of matchingShifts) {
+        for (const slot of matchingSlots) {
           if (allEmployees) {
             constraints.push({
               rule: rule.getRuleText(),
               weight,
               employeeId: SEMANTIC_BLOCKED_ALL,
-              shiftId: shift.id,
+              shiftId: slot.slotKey,
             });
           } else {
             for (const empId of employeeIds) {
@@ -129,27 +128,31 @@ export class StructuredRuleResolver {
                 rule: rule.getRuleText(),
                 weight,
                 employeeId: empId,
-                shiftId: shift.id,
+                shiftId: slot.slotKey,
               });
             }
           }
         }
-        // Si la regla bloquea a un empleado sin restricción de shift (ej. "Pedro nunca de noche" sin fecha),
-        // generar constraints contra todos los shifts del tipo matcheado.
-        if (matchingShifts.length === 0 && !allEmployees && employeeIds.length > 0) {
+
+        // Regla que bloquea empleado sin restricción de slot (ej. "Pedro no de noche"
+        // sin matching de ningún slot concreto)
+        if (
+          matchingSlots.length === 0 &&
+          !allEmployees &&
+          employeeIds.length > 0
+        ) {
           for (const empId of employeeIds) {
             constraints.push({
               rule: rule.getRuleText(),
               weight,
               employeeId: empId,
-              // sin shiftId → aplica a todos; las strategies ya lo interpretan así
             });
           }
         }
       }
 
       if (struct.intent === 'permit-multi-shift') {
-        const daysAffected = this.expandDateMatchers(struct.dateMatchers, shifts);
+        const daysAffected = this.expandDateMatchers(struct.dateMatchers, slots);
         for (const empId of matchingEmployees.employeeIds) {
           for (const day of daysAffected) {
             multiShiftPermits.add(`${empId}|${day}`);
@@ -194,25 +197,82 @@ export class StructuredRuleResolver {
     return { employeeIds: Array.from(new Set(ids)), allEmployees: all };
   }
 
-  private matchShifts(struct: RuleStructure, shifts: Shift[]): Shift[] {
-    // Si no hay matchers de fecha ni de tipo → no devolvemos shifts (la regla
-    // aplica a empleados globalmente, ver caso "sin matchingShifts" en resolve()).
+  private matchSlots(
+    struct: RuleStructure,
+    slots: VirtualShiftSlot[],
+  ): VirtualShiftSlot[] {
     const hasDate = struct.dateMatchers.length > 0;
-    const hasType = !!struct.shiftTypeMatchers && struct.shiftTypeMatchers.length > 0;
-    if (!hasDate && !hasType) return [];
+    const hasName = !!struct.shiftNameMatchers?.length;
+    const hasHourRange = !!struct.hourRangeMatchers?.length;
+    if (!hasDate && !hasName && !hasHourRange) return [];
 
-    return shifts.filter((s) => {
-      const matchesDate = !hasDate || this.shiftMatchesDate(s, struct.dateMatchers);
-      const matchesType =
-        !hasType || this.shiftMatchesType(s, struct.shiftTypeMatchers!);
-      return matchesDate && matchesType;
+    return slots.filter((slot) => {
+      const dateOk = !hasDate || this.slotMatchesDate(slot, struct.dateMatchers);
+      const nameOk =
+        !hasName || this.slotMatchesName(slot, struct.shiftNameMatchers!);
+      const hourOk =
+        !hasHourRange ||
+        this.slotMatchesHourRange(slot, struct.hourRangeMatchers!);
+      return dateOk && nameOk && hourOk;
     });
   }
 
-  private shiftMatchesDate(shift: Shift, matchers: DateMatcher[]): boolean {
-    const shiftDay = shift.startTime.toISOString().split('T')[0];
-    const dayOfWeek = shift.startTime.getUTCDay(); // 0=Sun, 1=Mon...
-    const dayNames = [
+  private slotMatchesDate(
+    slot: VirtualShiftSlot,
+    matchers: DateMatcher[],
+  ): boolean {
+    const slotDayName = this.dayOfWeekName(slot.startTime.getUTCDay());
+    return matchers.some((m) => {
+      if (m.type === 'iso-date') return m.value === slot.date;
+      if (m.type === 'day-of-week') return m.value === slotDayName;
+      return false;
+    });
+  }
+
+  /** Substring match case-insensitive sobre el nombre del template. */
+  private slotMatchesName(
+    slot: VirtualShiftSlot,
+    matchers: ShiftNameMatcher[],
+  ): boolean {
+    const nameLower = slot.templateName.toLowerCase();
+    return matchers.some((m) => nameLower.includes(m.toLowerCase()));
+  }
+
+  /**
+   * ¿La hora de inicio del slot cae dentro de algún rango?
+   * Si end < start el rango cruza medianoche (ej. 22:00–06:00).
+   */
+  private slotMatchesHourRange(
+    slot: VirtualShiftSlot,
+    ranges: HourRange[],
+  ): boolean {
+    const m = slot.startTime.getUTCHours() * 60 + slot.startTime.getUTCMinutes();
+    return ranges.some((r) => {
+      const [sh, sm] = r.start.split(':').map(Number);
+      const [eh, em] = r.end.split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin = eh * 60 + em;
+      if (endMin > startMin) {
+        return m >= startMin && m < endMin;
+      }
+      // Wraps midnight: [start, 24:00) ∪ [00:00, end)
+      return m >= startMin || m < endMin;
+    });
+  }
+
+  private expandDateMatchers(
+    matchers: DateMatcher[],
+    slots: VirtualShiftSlot[],
+  ): string[] {
+    const days = new Set<string>();
+    for (const slot of slots) {
+      if (this.slotMatchesDate(slot, matchers)) days.add(slot.date);
+    }
+    return [...days];
+  }
+
+  private dayOfWeekName(d: number): string {
+    const names = [
       'sunday',
       'monday',
       'tuesday',
@@ -221,43 +281,6 @@ export class StructuredRuleResolver {
       'friday',
       'saturday',
     ];
-    const shiftDayName = dayNames[dayOfWeek];
-
-    return matchers.some((m) => {
-      if (m.type === 'iso-date') return m.value === shiftDay;
-      if (m.type === 'day-of-week') return m.value === shiftDayName;
-      return false;
-    });
-  }
-
-  private shiftMatchesType(shift: Shift, matchers: ShiftTypeMatcher[]): boolean {
-    const hour = shift.startTime.getUTCHours();
-    // Mapeo simple basado en hora de inicio. Ajustable por empresa más adelante.
-    const isNight = hour >= 22 || hour < 6;
-    const isMorning = hour >= 6 && hour < 12;
-    const isAfternoon = hour >= 12 && hour < 18;
-    const isDay = !isNight;
-
-    return matchers.some((m) => {
-      if (m === 'night') return isNight;
-      if (m === 'morning') return isMorning;
-      if (m === 'afternoon') return isAfternoon;
-      if (m === 'day') return isDay;
-      return false;
-    });
-  }
-
-  private expandDateMatchers(
-    matchers: DateMatcher[],
-    shifts: Shift[],
-  ): string[] {
-    const days = new Set<string>();
-    for (const shift of shifts) {
-      const shiftDay = shift.startTime.toISOString().split('T')[0];
-      if (this.shiftMatchesDate(shift, matchers)) {
-        days.add(shiftDay);
-      }
-    }
-    return [...days];
+    return names[d];
   }
 }

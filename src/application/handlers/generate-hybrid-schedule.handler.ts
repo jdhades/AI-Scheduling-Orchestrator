@@ -228,11 +228,12 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       });
     this.logger.log(`RAG: ${ruleAggregates.length} semantic rules retrieved`);
 
-    // 2a. Resolver structure → constraints con IDs concretos (sin NLP en caliente)
+    // 2a. Resolver structure → constraints con IDs concretos (sin NLP en caliente).
+    // El resolver opera sobre VirtualShiftSlot; el shiftId de los constraints es slotKey.
     const resolved = this.structuredRuleResolver.resolve(
       ruleAggregates,
       employees,
-      shifts,
+      slots,
     );
     if (resolved.complexRules.length > 0) {
       resolved.complexRules.forEach((r) =>

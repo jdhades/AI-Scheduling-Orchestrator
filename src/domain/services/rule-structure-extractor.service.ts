@@ -97,7 +97,8 @@ Semantics: "X cannot work on Y"
 Parameters:
   employeeMatchers: [{type:"name", value:"..."} | {type:"all"}]
   dateMatchers: [{type:"iso-date", value:"YYYY-MM-DD"} | {type:"day-of-week", value:"monday"|"tuesday"|"wednesday"|"thursday"|"friday"|"saturday"|"sunday"}]
-  shiftTypeMatchers?: ["day"|"night"|"morning"|"afternoon"]
+  shiftNameMatchers?: ["substring1", "substring2"]  // case-insensitive match against shift_template.name
+  hourRangeMatchers?: [{start:"HH:MM", end:"HH:MM"}] // explicit clock ranges; end<start wraps midnight
 
 ## 2. permit-multi-shift — Exception to "one shift per day"
 Semantics: authorize an employee to cover 2+ shifts on the same day
@@ -144,9 +145,15 @@ Parameters:
   "intent": "block" | "permit-multi-shift" | "preference" | "complex",
   "employeeMatchers": [ { "type": "all" } | { "type": "name", "value": "..." } ],
   "dateMatchers": [ { "type": "iso-date", "value": "YYYY-MM-DD" } | { "type": "day-of-week", "value": "monday"|"tuesday"|"wednesday"|"thursday"|"friday"|"saturday"|"sunday" } ],
-  "shiftTypeMatchers": ["day"|"night"|"morning"|"afternoon"],
+  "shiftNameMatchers": ["substring", ...],
+  "hourRangeMatchers": [{"start": "HH:MM", "end": "HH:MM"}],
   "complexReason": "only when intent=complex — explain what does not fit"
 }
+
+NOTES ON SHIFT MATCHING (pick one, never both):
+- Use "shiftNameMatchers" when the rule references a shift by its NAME (e.g. "apertura", "cocina", "cierre"). Use the substring(s) the manager wrote.
+- Use "hourRangeMatchers" when the rule references CLOCK HOURS (e.g. "between 22 and 6", "after 5pm"). Convert AM/PM to 24h "HH:MM".
+- Do NOT invent abstract categories like "night" or "morning" — those are not in the schema. If the rule is ambiguous (just "at night"), use intent=complex.
 
 Return ONLY the JSON (no markdown, no explanation text).`;
   }
