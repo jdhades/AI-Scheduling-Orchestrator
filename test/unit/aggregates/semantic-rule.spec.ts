@@ -167,7 +167,11 @@ describe('ConflictResolutionEngine', () => {
     expect(result[0].getId()).toBe(rule.getId());
   });
 
-  it('should prefer legal rule over semantic rule (same type)', () => {
+  it('keeps both legal and semantic restrictions at different priorities (no auto-conflict)', () => {
+    // Tras eliminar el branch `priority_clash` en ConflictResolutionEngine
+    // (reglas con distinta prioridad ya no se descartan entre sí), las 2
+    // reglas coexisten. El motor de scheduling aplica ambas; si contradicen
+    // lo mismo el efecto neto es el mismo (ambas bloquean).
     const legal = makeRule({
       id: 'legal-1',
       priority: RulePriority.legal(),
@@ -181,7 +185,7 @@ describe('ConflictResolutionEngine', () => {
     const result = engine.resolveRules([semantic, legal]);
     const ids = result.map((r) => r.getId());
     expect(ids).toContain('legal-1');
-    expect(ids).not.toContain('semantic-1');
+    expect(ids).toContain('semantic-1');
   });
 
   it('should keep both restriction and preference when they are at the same priority (no conflict)', () => {
@@ -205,7 +209,9 @@ describe('ConflictResolutionEngine', () => {
     expect(ids).toContain('pref-1');
   });
 
-  it('should keep non-conflicting rules (different types at same priority)', () => {
+  it('keeps both rules when same priority and both blocking (no auto-conflict)', () => {
+    // Tras el fix: priority+blocking no es evidencia de contradicción real.
+    // Dos restricciones pueden coexistir (ej. "feriado 16/4" + "día libre rotativo").
     const restriction = makeRule({
       id: 'res-1',
       priority: RulePriority.semantic(),
@@ -216,12 +222,11 @@ describe('ConflictResolutionEngine', () => {
       priority: RulePriority.semantic(),
       ruleType: RuleType.create('requirement'),
     });
-    // Same priority + BOTH blocking → conflict → one eliminated
     const result = engine.resolveRules([restriction, requirement]);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
   });
 
-  it('should mark escalation when same priority and same blocking type conflict', () => {
+  it('no escalation triggered — engine never eliminates rules anymore', () => {
     const r1 = makeRule({
       id: 'r1',
       priority: RulePriority.legal(),
@@ -234,8 +239,7 @@ describe('ConflictResolutionEngine', () => {
     });
     engine.resolveRules([r1, r2]);
     const escalations = engine.getLastEscalations();
-    expect(escalations.length).toBeGreaterThan(0);
-    expect(escalations[0].requiresEscalation).toBe(true);
+    expect(escalations.length).toBe(0);
   });
 
   it('should sort rules by priority ascending (legal first)', () => {

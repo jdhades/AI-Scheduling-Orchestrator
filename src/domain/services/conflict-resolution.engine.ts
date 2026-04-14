@@ -106,30 +106,21 @@ export class ConflictResolutionEngine {
   }
 
   /**
-   * Determina si dos reglas están en conflicto.
+   * Dos reglas NO se consideran contradictorias solo por tener misma prioridad y
+   * ambas ser blocking. Dos restricciones pueden perfectamente coexistir y
+   * complementarse (ej. "16 feriado" + "día libre rotativo" — independientes).
    *
-   * Dos reglas son conflictivas si:
-   *   - Ambas son de tipo blocking (restriction/requirement)
-   *   - Tienen la misma prioridad
+   * Detectar una contradicción real requiere NLP semántico (saber que las reglas
+   * apuntan al mismo pair employee/shift con veredictos opuestos). Esto lo hace
+   * el LLM en el prompt o el SemanticConstraintInterpreter al resolver IDs.
    *
-   * Regla-preferencia vs cualquier otra cosa → no conflicto (se aplican ambas)
+   * Por eso este método siempre retorna null: NUNCA eliminamos reglas aquí.
+   * Todas las reglas recuperadas del RAG llegan al motor de scheduling.
    */
   private getConflictType(
-    a: SemanticRuleAggregate,
-    b: SemanticRuleAggregate,
+    _a: SemanticRuleAggregate,
+    _b: SemanticRuleAggregate,
   ): RuleConflict['conflictType'] | null {
-    const aBlocks = a.getRuleType().isBlocking();
-    const bBlocks = b.getRuleType().isBlocking();
-    const samePriority = a.getPriority().equals(b.getPriority());
-
-    if (aBlocks && bBlocks && samePriority) {
-      return 'direct_contradiction';
-    }
-
-    if (!samePriority && (aBlocks || bBlocks)) {
-      return 'priority_clash';
-    }
-
     return null;
   }
 
