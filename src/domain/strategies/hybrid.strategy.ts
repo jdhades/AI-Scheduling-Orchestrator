@@ -171,9 +171,11 @@ export class HybridStrategy implements SchedulingStrategy {
         assignments.push(
           ShiftAssignment.create({
             id: randomUUID(),
-            shiftId: shift.id,
+            templateId: shift.templateId ?? '',
+            date: shift.startTime.toISOString().split('T')[0],
             employeeId: winner.id,
             companyId: shift.companyId,
+            origin: 'membership',
             strategyType: this.type,
             fairnessSnapshot: snapshot,
           }),

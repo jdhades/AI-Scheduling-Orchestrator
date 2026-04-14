@@ -64,7 +64,9 @@ export class SupabaseShiftRepository implements IShiftRepository {
   async saveAssignment(assignment: ShiftAssignment): Promise<void> {
     const { error } = await this.supabase.from('shift_assignments').upsert({
       id: assignment.id,
-      shift_id: assignment.shiftId,
+      template_id: assignment.templateId,
+      date: assignment.date,
+      origin: assignment.origin,
       employee_id: assignment.employeeId,
       company_id: assignment.companyId,
       assigned_at: assignment.assignedAt.toISOString(),
@@ -213,9 +215,11 @@ export class SupabaseShiftRepository implements IShiftRepository {
   private assignmentToDomain(row: Record<string, any>): ShiftAssignment {
     return ShiftAssignment.fromPersistence({
       id: row.id,
-      shiftId: row.shift_id,
+      templateId: row.template_id,
+      date: row.date,
       employeeId: row.employee_id,
       companyId: row.company_id,
+      origin: row.origin ?? 'membership',
       assignedAt: new Date(row.assigned_at),
       assignedByStrategy: (row.assigned_by_strategy ??
         'hybrid') as StrategyType,

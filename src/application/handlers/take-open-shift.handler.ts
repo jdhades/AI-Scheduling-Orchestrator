@@ -49,11 +49,23 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
     await this.shiftRepo.deleteAssignment(requesterAssignment.id);
 
     // 4. Create new assignment for target shift
+    // TODO(day-9-rework): este handler espera `targetShiftId` como identificador
+    // del slot, pero con el modelo nuevo el slot es (templateId, date). El
+    // command debe actualizarse para llevar ambos. Por ahora interpretamos
+    // `targetShiftId` como el slotKey con formato "templateId|YYYY-MM-DD".
+    const [targetTemplateId, targetDate] = targetShiftId.split('|');
+    if (!targetTemplateId || !targetDate) {
+      throw new Error(
+        `TakeOpenShiftHandler: invalid slot key "${targetShiftId}". Expected "templateId|YYYY-MM-DD".`,
+      );
+    }
     const newAssignment = ShiftAssignment.create({
       id: randomUUID(),
-      shiftId: targetShiftId,
+      templateId: targetTemplateId,
+      date: targetDate,
       employeeId: requesterId,
       companyId: companyId,
+      origin: 'exception',
       strategyType: 'hybrid', // manual override
       fairnessSnapshot: {},
     });

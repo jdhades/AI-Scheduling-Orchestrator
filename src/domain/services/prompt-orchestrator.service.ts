@@ -225,9 +225,11 @@ export class PromptOrchestratorService {
           // ✅ LLM propuesta válida → aceptar
           const assignment = ShiftAssignment.create({
             id: randomUUID(),
-            shiftId: shift.id,
+            templateId: shift.templateId ?? '',
+            date: shift.startTime.toISOString().split('T')[0],
             employeeId: proposedAssignment.employeeId,
             companyId,
+            origin: 'membership',
             strategyType: 'hybrid',
             fairnessSnapshot: {},
           });
