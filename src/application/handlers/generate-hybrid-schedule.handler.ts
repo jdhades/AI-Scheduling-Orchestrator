@@ -232,6 +232,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       preResolvedPermits: resolved.multiShiftPermits,
       preResolvedComplexRules: resolved.complexRules,
       preResolvedUnstructuredRules: resolved.unstructuredRules,
+      locale: command.locale ?? 'es',
     });
 
     // 4. Limpiar asignaciones previas de la semana y persistir las nuevas

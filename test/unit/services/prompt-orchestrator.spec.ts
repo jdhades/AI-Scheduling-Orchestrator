@@ -100,6 +100,7 @@ describe('PromptOrchestratorService', () => {
       makeLLMMock(llmResponse),
       validator,
       capacityPlanner,
+      { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
       employees,
@@ -132,6 +133,7 @@ describe('PromptOrchestratorService', () => {
       makeLLMMock(invalidResponse),
       validator,
       capacityPlanner,
+      { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
       employees,
@@ -145,7 +147,7 @@ describe('PromptOrchestratorService', () => {
     // LLM propusó a NON_EXISTENT → rechazado → algoritmo cubre s1
     expect(result.llmAccepted).toBe(0);
     expect(result.algorithmCorrected).toBeGreaterThanOrEqual(1);
-    expect(result.explanation).toContain('algoritmo determinístico');
+    expect(result.explanation).toContain('bot.schedule.explanation_algorithm');
   });
 
   it('should fall back to full algorithm when LLM throws an error', async () => {
@@ -153,7 +155,12 @@ describe('PromptOrchestratorService', () => {
       complete: jest.fn().mockRejectedValue(new Error('Gemini API timeout')),
     };
 
-    const orchestrator = new PromptOrchestratorService(failingLLM, validator, capacityPlanner);
+    const orchestrator = new PromptOrchestratorService(
+      failingLLM,
+      validator,
+      capacityPlanner,
+      { t: (key: string) => key } as any,
+    );
     const result = await orchestrator.orchestrate({
       employees,
       shifts,
@@ -167,7 +174,7 @@ describe('PromptOrchestratorService', () => {
     expect(result.llmAccepted).toBe(0);
     // El resultado no debe lanzar excepción — el orquestador es resiliente
     expect(result).toBeDefined();
-    expect(result.explanation).toContain('LLM no pudo generar propuestas');
+    expect(result.explanation).toContain('bot.schedule.explanation_llm_failed');
   });
 
   it('should fall back to algorithm when LLM returns empty response', async () => {
@@ -177,7 +184,7 @@ describe('PromptOrchestratorService', () => {
         .mockResolvedValue('No tengo propuestas para este schedule.'),
     };
 
-    const orchestrator = new PromptOrchestratorService(emptyLLM, validator, capacityPlanner);
+    const orchestrator = new PromptOrchestratorService(emptyLLM, validator, capacityPlanner, { t: (key: string) => key } as any);
     const result = await orchestrator.orchestrate({
       employees,
       shifts,
@@ -208,6 +215,7 @@ describe('PromptOrchestratorService', () => {
       makeLLMMock(lowConfidenceResponse),
       validator,
       capacityPlanner,
+      { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
       employees,
@@ -236,6 +244,7 @@ describe('PromptOrchestratorService', () => {
       makeLLMMock(overlapResponse),
       validator,
       capacityPlanner,
+      { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
       employees,
@@ -258,6 +267,7 @@ describe('PromptOrchestratorService', () => {
       makeLLMMock(llmResponse),
       validator,
       capacityPlanner,
+      { t: (key: string) => key } as any,
     );
 
     const result = await orchestrator.orchestrate({
@@ -290,6 +300,7 @@ describe('PromptOrchestratorService', () => {
       makeLLMMock(llmResponse),
       validator,
       capacityPlanner,
+      { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
       employees: singleEmployee,

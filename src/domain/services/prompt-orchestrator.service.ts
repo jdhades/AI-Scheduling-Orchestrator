@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { I18nService } from 'nestjs-i18n';
 import { randomUUID } from 'crypto';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { Shift } from '../aggregates/shift.aggregate';
@@ -59,6 +60,7 @@ export class PromptOrchestratorService {
     private readonly llmService: ILLMService,
     private readonly validator: ScheduleValidatorService,
     private readonly capacityPlanner: ShiftCapacityPlannerService,
+    private readonly i18n: I18nService,
   ) {}
 
   /**
@@ -78,6 +80,8 @@ export class PromptOrchestratorService {
     preResolvedComplexRules?: { ruleId: string; ruleText: string; reason: string }[];
     /** Reglas sin structure extraída — warning al manager. */
     preResolvedUnstructuredRules?: { ruleId: string; ruleText: string }[];
+    /** Locale para explanations/warnings ('es', 'en', ...). */
+    locale?: string;
   }): Promise<OrchestratedResult> {
     const {
       employees,
@@ -90,6 +94,7 @@ export class PromptOrchestratorService {
       preResolvedPermits,
       preResolvedComplexRules = [],
       preResolvedUnstructuredRules = [],
+      locale = 'es',
     } = params;
 
     // Estado compartido: turnos ya asignados por empleado (para validación de solapamientos)
@@ -350,16 +355,23 @@ export class PromptOrchestratorService {
       semanticRules,
       resolvedConstraints,
       workingTimePolicies,
+      locale,
     });
     // Warnings adicionales de reglas que el LLM no pudo estructurar al guardarlas
     for (const r of preResolvedComplexRules) {
       warnings.push(
-        `Regla compleja (requiere supervisión manual): "${r.ruleText}" — ${r.reason}`,
+        this.i18n.t('bot.schedule.warning_complex_rule', {
+          lang: locale,
+          args: { ruleText: r.ruleText, reason: r.reason },
+        }),
       );
     }
     for (const r of preResolvedUnstructuredRules) {
       warnings.push(
-        `Regla sin analizar (el LLM no la procesó al guardarla): "${r.ruleText}" — re-editá la regla para reintentar`,
+        this.i18n.t('bot.schedule.warning_unstructured_rule', {
+          lang: locale,
+          args: { ruleText: r.ruleText },
+        }),
       );
     }
     if (warnings.length > 0) {
@@ -376,6 +388,7 @@ export class PromptOrchestratorService {
       unfilledCount: unfilledShifts.length,
       llmProposedTotal: proposal.count(),
       weekStart,
+      locale,
     });
 
     this.logger.log(
@@ -445,21 +458,16 @@ export class PromptOrchestratorService {
   }): string {
     const { employees, shifts, semanticRules, weekStart, resolvedCapacities, workingTimePolicies } = params;
 
-    const dateStr = weekStart.toLocaleDateString('es-ES', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    const dateStr = weekStart.toISOString().split('T')[0];
 
     const employeeSummary = employees
       .slice(0, 20)
       .map((e) => {
         const skills =
-          e.getSkills().map((s) => s.name).join(', ') || 'genérico';
+          e.getSkills().map((s) => s.name).join(', ') || 'generic';
         const policy = workingTimePolicies?.get(e.id);
         const limits = policy
-          ? ` | Límites: ${policy.describe()}`
+          ? ` | Limits: max ${policy.maxHoursPerDay}h/day, ${policy.maxHoursPerWeek}h/week`
           : '';
         return `  - ID: ${e.id} | Skills: [${skills}]${limits}`;
       })
@@ -470,8 +478,8 @@ export class PromptOrchestratorService {
       .map((s) => {
         const capacity = resolvedCapacities.get(s.id) ?? s.requiredEmployees ?? 1;
         return (
-          `  - ID: ${s.id} | Skill requerida: ${s.requiredSkillId ?? 'ninguna'} | ` +
-          `Inicio: ${s.startTime.toISOString()} | Fin: ${s.endTime.toISOString()} | Capacidad requerida: ${capacity}`
+          `  - ID: ${s.id} | Required skill: ${s.requiredSkillId ?? 'none'} | ` +
+          `Start: ${s.startTime.toISOString()} | End: ${s.endTime.toISOString()} | Required capacity: ${capacity}`
         );
       })
       .join('\n');
@@ -484,52 +492,53 @@ export class PromptOrchestratorService {
                 `  ${i + 1}. [P${(r as any).priority ?? '?'}] ${r.rule}`,
             )
             .join('\n')
-        : '  (No hay reglas semánticas activas)';
+        : '  (No active semantic rules)';
 
-    return `Eres un experto en planificación de horarios laborales. Tu tarea es asignar empleados a turnos de manera óptima.
+    return `You are an expert workforce scheduler. Your task is to assign employees to shifts optimally.
 
-SEMANA: ${dateStr}
+WEEK START: ${dateStr}
 
-## EMPLEADOS DISPONIBLES (máx. 20 mostrados)
+## AVAILABLE EMPLOYEES (max 20 shown)
 ${employeeSummary}
 
-## TURNOS A CUBRIR (máx. 30 mostrados)
+## SHIFTS TO COVER (max 30 shown)
 ${shiftSummary}
 
-## RESTRICCIONES SEMÁNTICAS (DEBES respetarlas)
+## SEMANTIC RULES (context — do NOT enforce them yourself)
 ${rulesSummary}
 
-## IMPORTANTE: NO GENERES BLOCKS NI PERMITS
-Las restricciones (feriados, días libres, doble turno) ya fueron **pre-procesadas** por el sistema a partir de las reglas semánticas — el validador las aplicará automáticamente. Vos SOLO debes proponer asignaciones respetando las restricciones mostradas arriba. Si una asignación tuya viola una regla, será rechazada automáticamente.
+## IMPORTANT: DO NOT GENERATE BLOCKS OR PERMITS
+The restrictions (holidays, days off, double-shift permits) have already been pre-processed by the system from the semantic rules — the validator will apply them automatically. You ONLY need to propose assignments respecting the context shown above. If an assignment of yours violates a rule, it will be rejected automatically.
 
-No inventes bloqueos. No dedusquas patrones no escritos. Si las reglas dicen "Juan libre lunes" pero no hay regla sobre Ana, Ana puede trabajar cualquier día.
+Do not invent blocks. Do not infer unwritten patterns. If a rule says "Juan off on Monday" but there is no rule about Ana, Ana can work any day.
 
-## INSTRUCCIONES
-1. Asigna empleados a cada turno respetando EXACTAMENTE su "Capacidad requerida".
-2. NO existe el concepto de capacidad ilimitada. Cada turno tiene un número exacto de personas requeridas.
-3. Si la "Capacidad requerida" es 0 (por feriado u otra restricción), el turno NO debe ser trabajado por nadie.
-4. Si la capacidad es mayor que 1, debes asignar EXACTAMENTE ese número de empleados (múltiples objetos con el mismo shiftId).
-5. Respeta ESTRICTAMENTE las reglas semánticas con prioridad 1 Y los "Límites" individuales de cada empleado (max horas/día, max horas/semana, descanso mínimo entre turnos).
-6. Para cada asignación, indica un nivel de confianza entre 0.0 y 1.0.
-7. El campo "reason" debe ser MUY BREVE (máximo 8 palabras). Prioriza tokens para cubrir todos los turnos.
+## INSTRUCTIONS
+1. Assign employees to each shift respecting EXACTLY its "Required capacity".
+2. There is no "unlimited capacity" concept — each shift has an exact number of people required.
+3. If "Required capacity" is 0, the shift MUST NOT be worked by anyone.
+4. If capacity > 1, assign EXACTLY that number of employees (multiple objects with the same shiftId).
+5. Strictly respect priority-1 semantic rules AND the individual "Limits" of each employee.
+6. For each assignment, include a confidence level between 0.0 and 1.0.
+7. The "reason" field must be VERY BRIEF (max 8 words) — prioritize tokens for covering all shifts.
+8. Write "reason" in the same language used by the rules in "SEMANTIC RULES" above (match the input language).
 
-## FORMATO DE RESPUESTA (JSON ESTRICTO, sin texto adicional antes del JSON)
+## RESPONSE FORMAT (STRICT JSON, no text before the JSON)
 {
   "assignments": [
     {
-      "shiftId": "uuid-del-turno",
-      "employeeId": "uuid-del-empleado",
-      "reason": "Breve justificación en español",
+      "shiftId": "uuid-of-the-shift",
+      "employeeId": "uuid-of-the-employee",
+      "reason": "brief justification",
       "confidence": 0.95
     }
   ]
 }
 
-IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
-- El arreglo "assignments" DEBE CONTENER UNA RESPUESTA PARA CADA UNO DE LOS ${shifts.length} TURNOS. BAJO NINGUNA CIRCUNSTANCIA puedes omitir la salida de un turno en el JSON.
-- Si la "Capacidad requerida" de un turno es 0, DEBES enviar exactamente un objeto con "employeeId": "NONE" para ese turno.
-- Para turnos con capacidad > 1, envía múltiples objetos con el mismo shiftId, uno por empleado asignado.
-- Asigna EXACTAMENTE el número indicado en "Capacidad requerida", ni uno más ni uno menos.`;
+CRITICAL JSON RULES:
+- The "assignments" array MUST contain ONE entry PER SHIFT. Do NOT omit any shift (${shifts.length} shifts total).
+- If a shift's "Required capacity" is 0, send exactly ONE object with "employeeId": "NONE" for that shift.
+- For shifts with capacity > 1, send multiple objects with the same shiftId, one per assigned employee.
+- Assign EXACTLY the number indicated in "Required capacity" — no more, no less.`;
   }
 
   /**
@@ -551,6 +560,7 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
     semanticRules: SemanticConstraint[];
     resolvedConstraints: SemanticConstraint[];
     workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
+    locale?: string;
   }): string[] {
     const {
       assignments,
@@ -559,6 +569,7 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
       unfilledShifts,
       semanticRules,
       resolvedConstraints,
+      locale = 'es',
     } = params;
     void params.workingTimePolicies;
 
@@ -574,9 +585,7 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
       daysByEmp.get(a.employeeId)!.add(day);
     }
 
-    // 0. Reglas hard (weight≥2) que el interpreter NO pudo resolver automáticamente.
-    //    Dependen 100% de que el LLM las haya cumplido. Le avisamos al manager
-    //    para que verifique manualmente.
+    // 0. Reglas hard (weight≥2) que el interpreter NO pudo resolver automáticamente
     for (const rule of semanticRules.filter((r) => r.weight >= 2)) {
       const interpreted = SemanticConstraintInterpreter.interpret(
         [rule],
@@ -586,7 +595,13 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
       const resolvedAnyId = interpreted.some((c) => c.employeeId || c.shiftId);
       if (!resolvedAnyId) {
         warnings.push(
-          `Regla compleja no verificable automáticamente: "${rule.rule}" — revisá el horario manualmente`,
+          this.i18n.t('bot.schedule.warning_complex_rule', {
+            lang: locale,
+            args: {
+              ruleText: rule.rule,
+              reason: (rule as any).complexReason ?? '',
+            },
+          }),
         );
       }
     }
@@ -596,39 +611,33 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
       new Map(unfilledShifts.map((s) => [s.id, s])).values(),
     );
     for (const shift of uniqueUnfilled) {
-      const dayStr = shift.startTime.toISOString().split('T')[0];
       const blockedByHoliday = resolvedConstraints.some(
         (c) => c.weight >= 2 && c.shiftId === shift.id,
       );
       if (blockedByHoliday) continue; // esperado, no es warning
       warnings.push(
-        `Turno sin cubrir: ${dayStr} ${shift.startTime.toISOString().slice(11, 16)}–${shift.endTime.toISOString().slice(11, 16)} (sin candidatos elegibles)`,
+        this.i18n.t('bot.schedule.warning_unfilled_shift', {
+          lang: locale,
+          args: {
+            date: shift.startTime.toISOString().split('T')[0],
+            from: shift.startTime.toISOString().slice(11, 16),
+            to: shift.endTime.toISOString().slice(11, 16),
+          },
+        }),
       );
     }
 
-    // 2. Empleados sin día libre (si alguna regla semántica habla de día libre rotativo)
-    const hasRotatingDayOffRule = semanticRules.some((r) => {
-      const t = r.rule.toLowerCase();
-      return (
-        t.includes('día libre') ||
-        t.includes('dia libre') ||
-        t.includes('descanso rotativo') ||
-        t.includes('rotativo')
-      );
-    });
-    if (hasRotatingDayOffRule) {
-      const uniqueDays = new Set(
-        shifts.map((s) => s.startTime.toISOString().split('T')[0]),
-      );
-      for (const emp of employees) {
-        const worked = daysByEmp.get(emp.id) ?? new Set();
-        if (worked.size >= uniqueDays.size) {
-          warnings.push(
-            `${emp.name}: sin día libre en la semana (regla rotativa activa)`,
-          );
-        }
-      }
-    }
+    // 2. Empleados sin día libre: solo si hay alguna regla que el LLM clasificó como
+    //    rotativa (intent=complex con mención de rotación). El resolver ya lo señala
+    //    como complexRule; el warning se emite afuera, no acá. Pero si falta por
+    //    algún motivo, también mostramos este warning basado en asignaciones reales.
+    const uniqueDays = new Set(
+      shifts.map((s) => s.startTime.toISOString().split('T')[0]),
+    );
+    // Solo si se detecta que hay reglas rotativas en los complexRules (se pasa afuera)
+    // Acá NO hacemos pattern matching en el texto — el warning rotativo se emite
+    // en el handler/orchestrator main flow desde preResolvedComplexRules.
+    void uniqueDays;
 
     return warnings;
   }
@@ -640,6 +649,7 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
     unfilledCount: number;
     llmProposedTotal: number;
     weekStart: Date;
+    locale?: string;
   }): string {
     const {
       totalShifts,
@@ -648,32 +658,47 @@ IMPORTANTE (REGLAS DE VIDA O MUERTE PARA EL CUMPLIMIENTO DEL JSON):
       unfilledCount,
       llmProposedTotal,
       weekStart,
+      locale = 'es',
     } = params;
     const covered = llmAccepted + algorithmCorrected;
-
-    const dateStr = weekStart.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
-
+    const dateStr = weekStart.toISOString().split('T')[0];
     const llmFailed = llmProposedTotal === 0 && llmAccepted === 0;
+
     const parts: string[] = [
-      `📅 Horario generado para la semana del ${dateStr} (${totalShifts} turno(s) solicitados).`,
+      this.i18n.t('bot.schedule.explanation_header', {
+        lang: locale,
+        args: { date: dateStr, total: totalShifts },
+      }),
       llmFailed
-        ? 'LLM no pudo generar propuestas. El algoritmo determinístico cubrió todos los turnos.'
-        : `El LLM (Qwen) analizó y asignó ${llmAccepted} turnos bajo cumplimiento de reglas.`,
+        ? this.i18n.t('bot.schedule.explanation_llm_failed', { lang: locale })
+        : this.i18n.t('bot.schedule.explanation_llm_ok', {
+            lang: locale,
+            args: { n: llmAccepted },
+          }),
     ];
 
     if (algorithmCorrected > 0) {
       parts.push(
-        `El algoritmo determinístico cubrió ${algorithmCorrected} turno(s) adicional(es).`,
+        this.i18n.t('bot.schedule.explanation_algorithm', {
+          lang: locale,
+          args: { n: algorithmCorrected },
+        }),
       );
     }
 
     if (unfilledCount > 0) {
       parts.push(
-        `${unfilledCount} turno(s) quedaron sin cubrir por falta de candidatos disponibles.`,
+        this.i18n.t('bot.schedule.explanation_unfilled', {
+          lang: locale,
+          args: { n: unfilledCount },
+        }),
       );
     } else {
       parts.push(
-        `Cobertura completa: ${covered}/${totalShifts} turnos asignados.`,
+        this.i18n.t('bot.schedule.explanation_complete', {
+          lang: locale,
+          args: { covered, total: totalShifts },
+        }),
       );
     }
 

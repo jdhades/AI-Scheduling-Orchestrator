@@ -508,14 +508,14 @@ export class MessageRouterService {
      if (step === 'SELECT_TEMPLATE') {
          let cmd: GenerateHybridScheduleCommand;
          if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
-             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart);
+             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, undefined, locale);
          } else {
              const templateId = sessionEntities[`option${selection}_templateId`];
              if (!templateId) {
                  this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
                  return true;
              }
-             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId);
+             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId, locale);
          }
 
          const result = await this.commandBus.execute(cmd);
@@ -534,7 +534,8 @@ export class MessageRouterService {
       reply = result.explanation;
     }
     if (result && Array.isArray(result.warnings) && result.warnings.length > 0) {
-      reply += `\n\n⚠️ *Requieren tu revisión:*\n` +
+      const header = this.i18n.t('bot.schedule.warnings_header', { lang: locale });
+      reply += `\n\n${header}\n` +
         result.warnings.map((w: string) => `• ${w}`).join('\n');
     }
     return reply;

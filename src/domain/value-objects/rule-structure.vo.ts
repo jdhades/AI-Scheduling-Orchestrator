@@ -11,9 +11,19 @@ export type EmployeeMatcher =
   | { type: 'name'; value: string }
   | { type: 'all' };
 
+/** Canonical English day-of-week values — kept in a single representation in DB. */
+export type DayOfWeek =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday';
+
 export type DateMatcher =
-  | { type: 'iso-date'; value: string } // ej. "2026-04-25"
-  | { type: 'day-of-week'; value: string }; // ej. "lunes", "martes"
+  | { type: 'iso-date'; value: string } // e.g. "2026-04-25"
+  | { type: 'day-of-week'; value: DayOfWeek };
 
 export type ShiftTypeMatcher = 'day' | 'night' | 'morning' | 'afternoon';
 
@@ -54,11 +64,22 @@ export function isValidRuleStructure(value: unknown): value is RuleStructure {
   }
 
   if (!Array.isArray(v.dateMatchers)) return false;
+  const dayNames: DayOfWeek[] = [
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+    'sunday',
+  ];
   for (const d of v.dateMatchers) {
     const dd = d as Record<string, unknown>;
+    if (dd?.type === 'iso-date' && typeof dd.value === 'string') continue;
     if (
-      (dd?.type === 'iso-date' || dd?.type === 'day-of-week') &&
-      typeof dd.value === 'string'
+      dd?.type === 'day-of-week' &&
+      typeof dd.value === 'string' &&
+      dayNames.includes(dd.value as DayOfWeek)
     ) {
       continue;
     }

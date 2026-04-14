@@ -39,7 +39,18 @@
     "none_this_week": "📅 You don't have any shifts assigned for this week.",
     "title_that_week": "📅 *Your schedule for the week of {date}:*",
     "title_this_week": "📅 *Your schedule for this week:*",
-    "anything_else": "Do you need anything else?"
+    "anything_else": "Do you need anything else?",
+    "explanation_header": "📅 Schedule generated for the week of {date} ({total} shift(s) requested).",
+    "explanation_llm_ok": "The LLM analyzed and assigned {n} shifts respecting the rules.",
+    "explanation_llm_failed": "LLM could not generate proposals. The deterministic algorithm covered all shifts.",
+    "explanation_algorithm": "The deterministic algorithm covered {n} additional shift(s).",
+    "explanation_unfilled": "{n} shift(s) could not be filled due to unavailable candidates.",
+    "explanation_complete": "Full coverage: {covered}/{total} shifts assigned.",
+    "warnings_header": "⚠️ *Needs your review:*",
+    "warning_complex_rule": "Complex rule (requires manual supervision): \"{ruleText}\" — {reason}",
+    "warning_unstructured_rule": "Unanalyzed rule: \"{ruleText}\" — please re-edit the rule to retry",
+    "warning_unfilled_shift": "Unfilled shift: {date} {from}–{to} (no eligible candidates)",
+    "warning_no_day_off": "{name}: no day off this week (rotating day-off rule active)"
   },
   "rules": {
     "missing_text": "⚠️ To create a rule, please state the restriction or preference. For example: 'On Fridays I need 2 cashiers'."

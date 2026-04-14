@@ -8,7 +8,6 @@ import {
 } from '../strategies/scheduling-strategy.interface';
 import type {
   DateMatcher,
-  EmployeeMatcher,
   RuleStructure,
   ShiftTypeMatcher,
 } from '../value-objects/rule-structure.vo';
@@ -214,22 +213,19 @@ export class StructuredRuleResolver {
     const shiftDay = shift.startTime.toISOString().split('T')[0];
     const dayOfWeek = shift.startTime.getUTCDay(); // 0=Sun, 1=Mon...
     const dayNames = [
-      'domingo',
-      'lunes',
-      'martes',
-      'miercoles',
-      'jueves',
-      'viernes',
-      'sabado',
+      'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
     ];
     const shiftDayName = dayNames[dayOfWeek];
 
     return matchers.some((m) => {
       if (m.type === 'iso-date') return m.value === shiftDay;
-      if (m.type === 'day-of-week') {
-        const norm = m.value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        return norm === shiftDayName;
-      }
+      if (m.type === 'day-of-week') return m.value === shiftDayName;
       return false;
     });
   }

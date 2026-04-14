@@ -39,7 +39,18 @@
     "none_this_week": "📅 No tienes turnos asignados esta semana.",
     "title_that_week": "📅 *Tu horario para la semana del {date}:*",
     "title_this_week": "📅 *Tu horario esta semana:*",
-    "anything_else": "¿Necesitas algo más?"
+    "anything_else": "¿Necesitas algo más?",
+    "explanation_header": "📅 Horario generado para la semana del {date} ({total} turno(s) solicitados).",
+    "explanation_llm_ok": "El LLM analizó y asignó {n} turnos bajo cumplimiento de reglas.",
+    "explanation_llm_failed": "LLM no pudo generar propuestas. El algoritmo determinístico cubrió todos los turnos.",
+    "explanation_algorithm": "El algoritmo determinístico cubrió {n} turno(s) adicional(es).",
+    "explanation_unfilled": "{n} turno(s) quedaron sin cubrir por falta de candidatos disponibles.",
+    "explanation_complete": "Cobertura completa: {covered}/{total} turnos asignados.",
+    "warnings_header": "⚠️ *Requieren tu revisión:*",
+    "warning_complex_rule": "Regla compleja (requiere supervisión manual): \"{ruleText}\" — {reason}",
+    "warning_unstructured_rule": "Regla sin analizar: \"{ruleText}\" — re-editá la regla para reintentar",
+    "warning_unfilled_shift": "Turno sin cubrir: {date} {from}–{to} (sin candidatos elegibles)",
+    "warning_no_day_off": "{name}: sin día libre en la semana (regla rotativa activa)"
   },
   "rules": {
     "missing_text": "⚠️ Para crear una regla, por favor dime cuál es la restricción o preferencia. Por ejemplo: 'Los viernes necesito 2 cajeros'."
