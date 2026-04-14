@@ -1,0 +1,157 @@
+{
+  "version": "2.0.0",
+  "generated": "2026-04-11",
+  "strict": true,
+  "requireRootContextFirst": true,
+  "rootContext": "docs/00_root_context.md",
+
+  "priorityOrder": ["docs", "agents", "skills"],
+
+  "repos": {
+    "orchestrator": {
+      "root": "/home/jhav/ai-scheduling-orchestrator",
+      "stack": "NestJS 10 / Node 20 / TypeScript strict",
+      "pattern": "Clean Architecture + DDD + CQRS",
+      "database": "Supabase (PostgreSQL + pgvector + RLS)",
+      "asyncJobs": "Redis Streams"
+    },
+    "frontend": {
+      "root": "/home/jhav/ai-scheduling-frontend",
+      "stack": "Vite + React 19 + Zustand + React Query",
+      "pattern": "SPA — no SSR, no Next.js"
+    }
+  },
+
+  "docs": {
+    "root_context": "docs/00_root_context.md",
+    "security_architecture": "docs/SECURITY-ARCHITECTURE.md",
+    "escenario1_review": "docs/escenario1-review.md",
+    "escenario2_review": "docs/escenario2-review.md",
+    "escenario3_review": "docs/escenario3-review.md",
+    "escenario4_review": "docs/escenario4-review.md",
+    "escenario5_review": "docs/escenario5-review.md"
+  },
+
+  "agents": {
+    "catalog": ".agents/AGENTS.md",
+    "architecture": ".agents/ARCHITECTURE.md",
+    "system_map": ".agents/SYSTEM-MAP.md",
+    "scheduler_engine": ".agents/SCHEDULER-ENGINE.md",
+    "rules_engine": ".agents/RULES-ENGINE.md",
+    "skills_catalog": ".agents/SKILLS-CATALOG.md",
+    "event_flows": ".agents/EVENT-FLOWS.md"
+  },
+
+  "skills": {
+    "backend": {
+      "backend_security_coder": ".agents/skills/backend-security-coder/SKILL.md",
+      "git_commit": ".agents/skills/git-commit/SKILL.md"
+    },
+    "frontend": {
+      "base": "/home/jhav/ai-scheduling-frontend/.agents/instructions.md",
+      "frontend_design": "/home/jhav/ai-scheduling-frontend/.agents/skills/frontend-design/SKILL.md",
+      "frontend_security_coder": "/home/jhav/ai-scheduling-frontend/.agents/skills/frontend-security-coder/SKILL.md",
+      "frontend_ui_ux_engineer": "/home/jhav/ai-scheduling-frontend/.agents/skills/frontend-ui-ux-engineer/SKILL.md",
+      "vercel_react_best_practices": "/home/jhav/ai-scheduling-frontend/.agents/skills/vercel-react-best-practices/SKILL.md",
+      "styling": "/home/jhav/ai-scheduling-frontend/.agents/skills/styling.md"
+    }
+  },
+
+  "antigravity": {
+    "base": "/home/jhav/.gemini/antigravity",
+    "knowledgeItems": {
+      "master_status": "/home/jhav/.gemini/antigravity/knowledge/master-orchestrator-v2-status/artifacts/truth_engine.md",
+      "testing_status": "/home/jhav/.gemini/antigravity/knowledge/master-orchestrator-v2-status/artifacts/testing_status.md"
+    },
+    "brain": {
+      "foundation_review": "/home/jhav/.gemini/antigravity/brain/c4be378e-0b16-4d03-9590-c4d6fffe17fb/fase1-review.md",
+      "scheduling_review": "/home/jhav/.gemini/antigravity/brain/c4be378e-0b16-4d03-9590-c4d6fffe17fb/escenario2-review.md",
+      "architecture_report": "/home/jhav/.gemini/antigravity/brain/c85641ac-d05e-41a0-8ecd-14f1fc698344/architecture_report.md",
+      "api_endpoints": "/home/jhav/.gemini/antigravity/brain/c85641ac-d05e-41a0-8ecd-14f1fc698344/api_endpoints.md",
+      "event_flows": "/home/jhav/.gemini/antigravity/brain/c85641ac-d05e-41a0-8ecd-14f1fc698344/event_flows.md",
+      "api_consumers": "/home/jhav/.gemini/antigravity/brain/c85641ac-d05e-41a0-8ecd-14f1fc698344/api_consumers.md",
+      "whatsapp_integration": "/home/jhav/.gemini/antigravity/brain/d246cc74-972c-4508-8f97-05f711bd80dc/implementation_plan.md",
+      "semantic_dedup": "/home/jhav/.gemini/antigravity/brain/86edf1ff-75dc-4e62-a31f-7c6eadbbe316/implementation_plan.md",
+      "enterprise_v2": "/home/jhav/.gemini/antigravity/brain/2ec2f1e6-ee6d-4794-a819-7d959d7379f6/implementation_plan.md"
+    }
+  },
+
+  "scenarioStatus": {
+    "escenario1_foundation": "complete",
+    "escenario2_scheduling_engine": "complete",
+    "escenario3_semantic_rag": "complete",
+    "escenario4_whatsapp_voice": "in_progress",
+    "escenario5_incident_ocr": "in_progress",
+    "escenario6_frontend_admin": "in_progress"
+  },
+
+  "criticalInvariants": {
+    "minGapBetweenShiftsHours": 11,
+    "maxHoursPerDay": 8,
+    "maxHoursPerWeek": 40,
+    "fairnessScoreMin": 0,
+    "fairnessScoreMax": 1000,
+    "fairnessThresholdGuardDefault": 700,
+    "embeddingDimensions": 768,
+    "embeddingModel": "text-embedding-004",
+    "ragRetrievalThreshold": 0.35,
+    "deduplicationThreshold": 0.12,
+    "semanticBlockedAllSentinel": "*"
+  },
+
+  "dateResolutionRules": {
+    "no_past_schedules": true,
+    "interpret_week_start": "if user says a day number (e.g., 13), interpret as the next upcoming date with that day, never a past date",
+    "week_generation_logic": "generate schedule for the week starting on the interpreted date",
+    "date_resolution": {
+      "if_day_only": "use next month if the day already passed this month",
+      "if_day_in_future_this_month": "use this month",
+      "never_use_past_dates": true
+    },
+    "error_correction": {
+      "if_model_generates_past_week": "regenerate using next valid future date"
+    },
+    "enforcementPoints": [
+      "Frontend date picker — disable past dates",
+      "GenerateScheduleHandler — validate weekStart >= today UTC",
+      "AI/LLM context — resolve day-number inputs before building command"
+    ]
+  },
+
+  "securityDebt": {
+    "high": [
+      "No JWT/Bearer Token auth — X-Company-Id header only",
+      "Cross-tenant phone lookup in WhatsApp webhook"
+    ],
+    "medium": [
+      "No rate limiting on Gemini API endpoints",
+      "Twilio HMAC-SHA1 validation skipped in NODE_ENV=test",
+      "companyId accepted as query param fallback",
+      "No global ValidationPipe"
+    ],
+    "plannedMitigations": [
+      "@nestjs/throttler",
+      "JWT middleware",
+      "@CurrentTenant() decorator",
+      "API versioning /api/v1/"
+    ]
+  },
+
+  "conventions": {
+    "commits": "Conventional Commits — always invoke git-commit skill",
+    "language": "TypeScript strict — Spanish allowed in comments and domain identifiers",
+    "testLocations": {
+      "unit": "test/unit/",
+      "integration": "test/integration/"
+    },
+    "noDatabaseMocking": true,
+    "newEndpointChecklist": "invoke backend-security-coder skill before PR",
+    "domainServices": "pure static or stateless — no @Injectable() unless external deps",
+    "naming": {
+      "aggregates": "PascalCase",
+      "valueObjects": "suffix VO",
+      "events": "suffix Event",
+      "commands": "suffix Command"
+    }
+  }
+}
