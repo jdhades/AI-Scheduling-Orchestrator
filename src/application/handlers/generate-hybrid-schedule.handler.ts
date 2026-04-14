@@ -11,7 +11,12 @@ import {
   type WorkingTimePolicyOverrides,
 } from '../../domain/value-objects/working-time-policy.vo';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
-import { InstantiateWeekHandler } from '../commands/instantiate-week/instantiate-week.handler';
+import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
+import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import { Shift } from '../../domain/aggregates/shift.aggregate';
+import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
+import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
+import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
 import type { IFairnessHistoryRepository } from '../../domain/repositories/fairness-history.repository';
@@ -21,7 +26,6 @@ import { FAIRNESS_HISTORY_REPOSITORY } from '../../domain/repositories/fairness-
 import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.vo';
 import type { Employee } from '../../domain/aggregates/employee.aggregate';
-import type { Shift } from '../../domain/aggregates/shift.aggregate';
 
 export interface HybridScheduleResult {
   assignmentsCount: number;
@@ -64,11 +68,35 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
     private readonly semanticRetrievalService: SemanticRetrievalService,
     private readonly promptOrchestrator: PromptOrchestratorService,
     private readonly notificationsGateway: NotificationsGateway,
-    private readonly instantiateWeekHandler: InstantiateWeekHandler,
     private readonly structuredRuleResolver: StructuredRuleResolver,
+    private readonly shiftSlotGenerator: ShiftSlotGeneratorService,
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly shiftTemplateRepository: IShiftTemplateRepository,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
   ) {}
+
+  /**
+   * Adapter shim: convierte VirtualShiftSlot → Shift legacy para mantener
+   * compatibilidad con el orchestrator y strategies hasta Day 8 del rework.
+   * El `id` del shift artificial es el slotKey (templateId|date), coherente
+   * con el getter deprecated de ShiftAssignment.
+   */
+  private slotToShift(slot: VirtualShiftSlot): Shift {
+    return Shift.create({
+      id: slot.slotKey,
+      companyId: slot.companyId,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      requiredSkillId: slot.requiredSkillId,
+      requiredSkillLevel: 'junior',
+      requiredExperienceMonths: 0,
+      demandScore: DemandWeight.create(slot.demandScore),
+      undesirableWeight: UndesirableWeight.create(slot.undesirableWeight),
+      templateId: slot.templateId,
+      requiredEmployees: slot.requiredEmployees,
+    });
+  }
 
   /**
    * Resuelve la WorkingTimePolicy de cada empleado mediante merge jerárquico
@@ -153,30 +181,37 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       `Hybrid schedule — company=${command.companyId} week=${weekStartStr} (from input ${command.weekStart})`,
     );
 
-    // 1. Cargar datos en paralelo
-    let [employees, shifts, histories] = await Promise.all([
+    // 1. Cargar datos: empleados, templates activos, fairness history.
+    //    Los shifts ya NO se persisten — se materializan virtualmente cada vez
+    //    que se genera el horario (modelo nuevo: slot generator + memberships).
+    const [employees, allTemplates, histories] = await Promise.all([
       this.employeeRepository.findAllByCompany(command.companyId),
-      this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart),
+      this.shiftTemplateRepository.findAllByCompany(command.companyId),
       this.fairnessRepository.findByWeek(command.companyId, weekStart),
     ]);
 
-    // 1b. Auto-instantiate from templates if no shifts exist for this week
-    if (shifts.length === 0) {
-      this.logger.log(`No shifts found for week ${weekStartStr} — auto-instantiating from templates...`);
-      const instantiateResult = await this.instantiateWeekHandler.execute({
-        companyId: command.companyId,
-        weekStart: weekStartStr,
-      });
-      this.logger.log(`Instantiated ${instantiateResult.generated} shifts from templates`);
-
-      // Reload shifts after instantiation
-      shifts = await this.shiftRepository.findByCompanyAndWeek(command.companyId, weekStart);
-    }
-
+    // Filtrar templates: activos + (opcional) por templateId del command
+    const activeTemplates = allTemplates.filter((t) => t.isActive);
+    const templates = command.shiftTemplateId
+      ? activeTemplates.filter((t) => t.id === command.shiftTemplateId)
+      : activeTemplates;
     if (command.shiftTemplateId) {
-      shifts = shifts.filter((s) => s.templateId === command.shiftTemplateId);
-      this.logger.log(`Filtered shifts to template ${command.shiftTemplateId} — ${shifts.length} remain`);
+      this.logger.log(
+        `Filtered templates to ${command.shiftTemplateId} — ${templates.length} remain`,
+      );
     }
+
+    // 1b. Generar slots virtuales para la semana (no persistidos)
+    const slots = this.shiftSlotGenerator.generateSlotsForWeek(templates, weekStart);
+
+    // Adapter shim Slot→Shift hasta Day 8 (orchestrator/strategies se
+    // refactorean para operar directamente sobre VirtualShiftSlot).
+    const shifts = slots.map((s) => this.slotToShift(s));
+
+    // Capacidades: directamente del template (NULL = 0 / opcional, no se inventa)
+    const resolvedCapacities = new Map<string, number>(
+      slots.map((s) => [s.slotKey, s.requiredEmployees ?? 0]),
+    );
 
     this.logger.log(
       `Loaded — employees=${employees.length} shifts=${shifts.length}`,
@@ -233,6 +268,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       preResolvedComplexRules: resolved.complexRules,
       preResolvedUnstructuredRules: resolved.unstructuredRules,
       locale: command.locale ?? 'es',
+      resolvedCapacities,
     });
 
     // 4. Limpiar asignaciones previas de la semana y persistir las nuevas

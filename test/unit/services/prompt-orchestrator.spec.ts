@@ -1,6 +1,5 @@
 import { PromptOrchestratorService } from '../../../src/domain/services/prompt-orchestrator.service';
 import { ScheduleValidatorService } from '../../../src/domain/services/schedule-validator.service';
-import { ShiftCapacityPlannerService } from '../../../src/domain/services/shift-capacity-planner.service';
 import { LLMScheduleProposalVO } from '../../../src/domain/value-objects/llm-schedule-proposal.vo';
 import type { ILLMService } from '../../../src/domain/services/llm.service.interface';
 import { Employee } from '../../../src/domain/aggregates/employee.aggregate';
@@ -67,13 +66,11 @@ function makeValidLLMResponse(shiftId: string, employeeId: string): string {
 
 describe('PromptOrchestratorService', () => {
   let validator: ScheduleValidatorService;
-  let capacityPlanner: ShiftCapacityPlannerService;
   let employees: Employee[];
   let shifts: Shift[];
 
   beforeEach(() => {
     validator = new ScheduleValidatorService();
-    capacityPlanner = new ShiftCapacityPlannerService();
     employees = [makeEmployee('e1'), makeEmployee('e2')];
     shifts = [makeShift('s1', 8, 16), makeShift('s2', 12, 20)];
   });
@@ -99,7 +96,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       makeLLMMock(llmResponse),
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
@@ -132,7 +128,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       makeLLMMock(invalidResponse),
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
@@ -158,7 +153,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       failingLLM,
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
@@ -184,7 +178,7 @@ describe('PromptOrchestratorService', () => {
         .mockResolvedValue('No tengo propuestas para este schedule.'),
     };
 
-    const orchestrator = new PromptOrchestratorService(emptyLLM, validator, capacityPlanner, { t: (key: string) => key } as any);
+    const orchestrator = new PromptOrchestratorService(emptyLLM, validator, { t: (key: string) => key } as any);
     const result = await orchestrator.orchestrate({
       employees,
       shifts,
@@ -214,7 +208,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       makeLLMMock(lowConfidenceResponse),
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
@@ -243,7 +236,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       makeLLMMock(overlapResponse),
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({
@@ -266,7 +258,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       makeLLMMock(llmResponse),
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
 
@@ -299,7 +290,6 @@ describe('PromptOrchestratorService', () => {
     const orchestrator = new PromptOrchestratorService(
       makeLLMMock(llmResponse),
       validator,
-      capacityPlanner,
       { t: (key: string) => key } as any,
     );
     const result = await orchestrator.orchestrate({

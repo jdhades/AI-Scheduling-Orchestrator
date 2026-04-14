@@ -13,7 +13,6 @@ import type { ILLMService } from './llm.service.interface';
 import { LLM_SERVICE } from './llm.service.interface';
 import { ScheduleValidatorService } from './schedule-validator.service';
 import { HybridStrategy } from '../strategies/hybrid.strategy';
-import { ShiftCapacityPlannerService } from './shift-capacity-planner.service';
 
 // ─── Result Types ──────────────────────────────────────────────────────────────
 
@@ -59,7 +58,6 @@ export class PromptOrchestratorService {
     @Inject(LLM_SERVICE)
     private readonly llmService: ILLMService,
     private readonly validator: ScheduleValidatorService,
-    private readonly capacityPlanner: ShiftCapacityPlannerService,
     private readonly i18n: I18nService,
   ) {}
 
@@ -82,6 +80,12 @@ export class PromptOrchestratorService {
     preResolvedUnstructuredRules?: { ruleId: string; ruleText: string }[];
     /** Locale para explanations/warnings ('es', 'en', ...). */
     locale?: string;
+    /**
+     * Capacidades resueltas por slot (`shift.id` → required count). El handler las
+     * provee directamente: en el modelo nuevo, `slot.requiredEmployees ?? 0`. Si
+     * no se pasa, se asume cuota 1 por shift (compat con consumers legacy).
+     */
+    resolvedCapacities?: Map<string, number>;
   }): Promise<OrchestratedResult> {
     const {
       employees,
@@ -95,6 +99,7 @@ export class PromptOrchestratorService {
       preResolvedComplexRules = [],
       preResolvedUnstructuredRules = [],
       locale = 'es',
+      resolvedCapacities: passedCapacities,
     } = params;
 
     // Estado compartido: turnos ya asignados por empleado (para validación de solapamientos)
@@ -108,13 +113,12 @@ export class PromptOrchestratorService {
     // si el LLM ya llenó parcialmente un turno y el algoritmo intenta llenarlo completo.
     const shiftFillCount = new Map<string, number>();
 
-    // ── STEP 0: Pre-computar capacidades concretas ────────────────────────
-    // Elimina el concepto de "Ilimitada" antes de llegar al LLM.
-    const resolvedCapacities = this.capacityPlanner.plan({
-      employees,
-      shifts,
-      semanticRules,
-    });
+    // ── STEP 0: Capacidades por slot ──────────────────────────────────────
+    // En el modelo nuevo el handler ya las provee desde `slot.requiredEmployees`
+    // (null = opcional → 0). Si no llegan, fallback a 1 por shift legacy.
+    const resolvedCapacities = passedCapacities ?? new Map<string, number>(
+      shifts.map((s) => [s.id, s.requiredEmployees ?? 1]),
+    );
     this.logger.log(
       `CapacityPlanner resolved: ${[...resolvedCapacities.entries()].map(([id, cap]) => `${id.substring(0, 6)}→${cap}`).join(', ')}`,
     );

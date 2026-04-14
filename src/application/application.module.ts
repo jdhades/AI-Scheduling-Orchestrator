@@ -33,10 +33,10 @@ import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
 import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
 import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
-import { ShiftCapacityPlannerService } from '../domain/services/shift-capacity-planner.service';
 import { RuleStructureExtractor } from '../domain/services/rule-structure-extractor.service';
 import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
-import { InstantiateWeekHandler } from './commands/instantiate-week/instantiate-week.handler';
+import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
+import { MembershipAssignmentService } from '../domain/services/membership-assignment.service';
 
 /**
  * ApplicationModule
@@ -84,10 +84,10 @@ const DomainServices = [
   ConflictResolutionEngine,
   PromptOrchestratorService,
   ScheduleValidatorService,
-  ShiftCapacityPlannerService,
   RuleStructureExtractor,
   StructuredRuleResolver,
-  InstantiateWeekHandler,
+  ShiftSlotGeneratorService,
+  MembershipAssignmentService,
 ];
 
 @Module({

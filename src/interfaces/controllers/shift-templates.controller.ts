@@ -14,8 +14,6 @@ import type { IShiftTemplateRepository } from '../../domain/repositories/shift-t
 import { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
-import { InstantiateWeekHandler } from '../../application/commands/instantiate-week/instantiate-week.handler';
-
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
 export class CreateShiftTemplateDto {
@@ -28,10 +26,6 @@ export class CreateShiftTemplateDto {
   undesirableWeight?: number;
 }
 
-export class InstantiateWeekDto {
-  weekStart: string; // "YYYY-MM-DD" (must be Monday)
-}
-
 // ─── Controller ───────────────────────────────────────────────────────────────
 
 /**
@@ -40,7 +34,9 @@ export class InstantiateWeekDto {
  * GET    /shift-templates                 — list active templates for company
  * POST   /shift-templates                 — create a new template
  * DELETE /shift-templates/:id             — remove a template
- * POST   /shift-templates/instantiate     — generate shifts for a week from templates
+ *
+ * NOTE: el endpoint POST /shift-templates/instantiate fue eliminado en el
+ * rework del modelo de shifts (instancias virtuales generadas en runtime).
  */
 @Controller('shift-templates')
 export class ShiftTemplatesController {
@@ -49,7 +45,6 @@ export class ShiftTemplatesController {
   constructor(
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
-    private readonly instantiateWeekHandler: InstantiateWeekHandler,
   ) {}
 
   /**
@@ -101,24 +96,6 @@ export class ShiftTemplatesController {
   ): Promise<{ success: boolean }> {
     await this.templateRepo.delete(id, companyId);
     return { success: true };
-  }
-
-  /**
-   * POST /shift-templates/instantiate?companyId=...
-   * Generates concrete shifts for the given week from all active templates.
-   */
-  @Post('instantiate')
-  async instantiate(
-    @Query('companyId') companyId: string,
-    @Body() dto: InstantiateWeekDto,
-  ) {
-    this.logger.log(
-      `Instantiating week ${dto.weekStart} for company ${companyId}`,
-    );
-    return this.instantiateWeekHandler.execute({
-      companyId,
-      weekStart: dto.weekStart,
-    });
   }
 
   private toDto(t: ShiftTemplate): object {
