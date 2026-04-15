@@ -12,7 +12,7 @@ import {
 } from '../../domain/value-objects/working-time-policy.vo';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
-import { MembershipAssignmentService } from '../../domain/services/membership-assignment.service';
+import { WeekScheduleBuilder } from '../../domain/services/week-schedule-builder.service';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -66,7 +66,7 @@ export class GenerateHybridScheduleHandler
     private readonly notificationsGateway: NotificationsGateway,
     private readonly structuredRuleResolver: StructuredRuleResolver,
     private readonly shiftSlotGenerator: ShiftSlotGeneratorService,
-    private readonly membershipAssignmentService: MembershipAssignmentService,
+    private readonly weekScheduleBuilder: WeekScheduleBuilder,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly shiftTemplateRepository: IShiftTemplateRepository,
     @Inject(SHIFT_MEMBERSHIP_REPOSITORY)
@@ -230,38 +230,25 @@ export class GenerateHybridScheduleHandler
       employees,
     );
 
-    // Memberships = reglas hard inamovibles. Se materializan como assignments
-    // ANTES de consultar al LLM: el LLM solo decide huecos no cubiertos por
-    // memberships.
-    const preAssignments = this.membershipAssignmentService.generateBaseAssignments({
+    void workingTimePolicies; // policies son informativas en este motor, no aplican caps hard
+    void resolvedCapacities; // el builder lee slot.requiredEmployees directo
+
+    // Motor employee-first: una línea por empleado resuelve las 7 celdas
+    // siguiendo los 5 pasos del diseño. Sin LLM por ahora (se integrará en
+    // una fase posterior como proveedor de líneas preliminares).
+    const buildResult = this.weekScheduleBuilder.build({
+      employees,
       slots,
       memberships,
-      employees,
+      histories,
       semanticRules,
       multiShiftPermits: resolved.multiShiftPermits,
-    });
-
-    const result = await this.promptOrchestrator.orchestrate({
-      employees,
-      slots,
-      histories,
-      companyId: command.companyId,
       weekStart,
-      semanticRules,
-      workingTimePolicies,
-      preResolvedPermits: resolved.multiShiftPermits,
-      preResolvedComplexRules: resolved.complexRules,
-      preResolvedUnstructuredRules: resolved.unstructuredRules,
-      locale: command.locale ?? 'es',
-      resolvedCapacities,
-      preAssignments,
+      companyId: command.companyId,
     });
 
-    // Las membership-assignments son parte del resultado final; el orchestrator
-    // solo devuelve lo que el LLM+algoritmo añadieron encima.
-    const allAssignments = [...preAssignments, ...result.assignments];
+    const allAssignments = buildResult.assignments;
 
-    // Limpiar asignaciones previas del rango semanal antes de persistir
     const deletedCount = await this.assignmentRepository.deleteByDateRange(
       command.companyId,
       weekStartStr,
@@ -289,19 +276,39 @@ export class GenerateHybridScheduleHandler
       command.weekStart,
     );
 
+    const warnings: string[] = [];
+    for (const u of buildResult.underfilled) {
+      warnings.push(
+        this.i18nWarnUnderfilled(u.slot.slotKey, u.target, u.filled, command.locale ?? 'es'),
+      );
+    }
+    for (const r of resolved.complexRules) {
+      warnings.push(`Regla compleja (supervisión): "${r.ruleText}" — ${r.reason}`);
+    }
+    for (const r of resolved.unstructuredRules) {
+      warnings.push(`Regla sin análisis: "${r.ruleText}"`);
+    }
+
     this.logger.log(
       `Hybrid schedule complete — total=${allAssignments.length} ` +
-        `(memberships=${preAssignments.length} llmAccepted=${result.llmAccepted} algorithmCorrected=${result.algorithmCorrected}) ` +
-        `unfilled=${result.unfilledSlots.length}`,
+        `(rest=${buildResult.restDays.length} underfilled=${buildResult.underfilled.length})`,
+    );
+
+    const explanation = this.buildExplanation(
+      allAssignments.length,
+      buildResult.restDays.length,
+      buildResult.underfilled.length,
+      weekStart,
+      command.locale ?? 'es',
     );
 
     return {
       assignmentsCount: allAssignments.length,
-      unfilledShiftsCount: result.unfilledSlots.length,
-      llmAccepted: result.llmAccepted,
-      algorithmCorrected: result.algorithmCorrected,
-      explanation: result.explanation,
-      warnings: result.warnings,
+      unfilledShiftsCount: buildResult.underfilled.length,
+      llmAccepted: 0,
+      algorithmCorrected: allAssignments.length,
+      explanation,
+      warnings,
     };
   }
 
@@ -336,5 +343,30 @@ export class GenerateHybridScheduleHandler
     }
 
     return [...historyMap.values()];
+  }
+
+  private i18nWarnUnderfilled(
+    slotKey: string,
+    target: number,
+    filled: number,
+    _locale: string,
+  ): string {
+    return `Slot ${slotKey}: target=${target} empleados, cubiertos=${filled}.`;
+  }
+
+  private buildExplanation(
+    total: number,
+    rests: number,
+    underfilled: number,
+    weekStart: Date,
+    _locale: string,
+  ): string {
+    const d = weekStart.toISOString().split('T')[0];
+    const parts = [
+      `Horario generado para la semana del ${d}: ${total} asignaciones.`,
+      `Días libres: ${rests}.`,
+    ];
+    if (underfilled > 0) parts.push(`${underfilled} slot(s) bajo su target.`);
+    return parts.join(' ');
   }
 }
