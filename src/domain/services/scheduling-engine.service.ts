@@ -11,6 +11,7 @@ import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interfac
 import { FairnessCalculator } from './fairness-calculator.service';
 import { ScheduleQualityReport } from './schedule-quality-analyzer.service';
 import { SemanticConstraintInterpreter } from './semantic-constraint-interpreter';
+import { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 
 export interface SchedulingOptions {
   maxFairnessDeviation: number;
@@ -109,14 +110,36 @@ export class SchedulingEngine {
       }
     }
 
-    const { assignments, unfilledShifts } = strategy.generate(
+    const slots: VirtualShiftSlot[] = shifts.map((s) =>
+      VirtualShiftSlot.create({
+        templateId: s.templateId ?? s.id,
+        companyId: s.companyId,
+        date: s.startTime.toISOString().split('T')[0],
+        startTime: s.startTime,
+        endTime: s.endTime,
+        templateName: (s as unknown as { name?: string }).name ?? '',
+        requiredSkillId: s.requiredSkillId ?? null,
+        requiredEmployees: s.requiredEmployees ?? 1,
+        demandScore: s.demandScore.value,
+        undesirableWeight: (s.undesirableWeight as unknown as { value?: number }).value ?? Number(s.undesirableWeight),
+      }),
+    );
+    const shiftBySlotKey = new Map<string, Shift>(
+      slots.map((slot, i) => [slot.slotKey, shifts[i]]),
+    );
+
+    const { assignments, unfilledSlots } = strategy.generate(
       employees,
-      shifts,
+      slots,
       histories,
       resolvedConstraints,
       options.workingTimePolicies,
       options.multiShiftPermits,
     );
+
+    const unfilledShifts: Shift[] = unfilledSlots
+      .map((slot) => shiftBySlotKey.get(slot.slotKey))
+      .filter((s): s is Shift => s !== undefined);
 
     const quality = this.analyzeQuality(
       assignments,

@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto';
 import type { Employee } from '../aggregates/employee.aggregate';
-import type { Shift } from '../aggregates/shift.aggregate';
 import { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
 import { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
 import type {
@@ -8,25 +7,21 @@ import type {
   SemanticConstraint,
   StrategyResult,
 } from './scheduling-strategy.interface';
+import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
 import {
   buildSkillIndex,
-  filterCandidatesForShift,
+  filterCandidatesForSlot,
   type BusySlot,
 } from './shared/strategy-helpers';
 
 export interface HybridWeights {
-  /** Peso del factor de costo en la fórmula (default: 0.3) */
   costWeight: number;
-  /** Peso del factor de fairness en la fórmula (default: 0.5) */
   fairnessWeight: number;
-  /** Peso del factor de demanda en la fórmula (default: 0.2) */
   demandWeight: number;
 }
 
-// TODO(config-per-tenant): pesos hardcodeados — definen la filosofía de optimización
-// (cost vs fairness vs demand). Cada empresa debería poder ajustarlos. Mover a config
-// por compañía o exponer endpoint admin.
+// TODO(config-per-tenant): pesos hardcodeados — filosofía de optimización.
 const DEFAULT_WEIGHTS: HybridWeights = {
   costWeight: 0.3,
   fairnessWeight: 0.5,
@@ -34,42 +29,25 @@ const DEFAULT_WEIGHTS: HybridWeights = {
 };
 
 /**
- * HybridStrategy — Strategy Pattern (DEFAULT para producción)
- *
- * Score combinado configurable por empresa:
- *   TotalScore = (CostWeight × costFactor) + (FairnessWeight × fairnessFactor) + (DemandWeight × demandFactor)
- *
- * costFactor:     normalizado [0..1] — mayor costo/hora = mayor score = menos preferido
- * fairnessFactor: normalizado [0..1] — mayor acumulación = mayor score = menos preferido
- * demandFactor:   normalizado [0..1] — mayor demanda del turno = se garantiza cobertura
- *
- * El candidato con MENOR TotalScore se asigna primero.
+ * HybridStrategy — Strategy Pattern (DEFAULT).
+ * Opera sobre VirtualShiftSlot (template × date). El candidato con menor
+ * TotalScore = w_c·cost + w_f·fairness + w_d·demand se asigna primero.
  */
 export class HybridStrategy implements SchedulingStrategy {
   readonly type = 'hybrid' as const;
-
   private readonly weights: HybridWeights;
 
   constructor(weights?: Partial<HybridWeights>) {
     this.weights = { ...DEFAULT_WEIGHTS, ...weights };
-    this.validateWeights();
-  }
-
-  private validateWeights(): void {
-    const sum =
-      this.weights.costWeight +
-      this.weights.fairnessWeight +
-      this.weights.demandWeight;
+    const sum = this.weights.costWeight + this.weights.fairnessWeight + this.weights.demandWeight;
     if (Math.abs(sum - 1.0) > 0.001) {
-      throw new Error(
-        `HybridStrategy weights must sum to 1.0, got ${sum.toFixed(3)}`,
-      );
+      throw new Error(`HybridStrategy weights must sum to 1.0, got ${sum.toFixed(3)}`);
     }
   }
 
   generate(
     employees: Employee[],
-    shifts: Shift[],
+    slots: VirtualShiftSlot[],
     histories: FairnessHistoryVO[],
     semanticRules?: SemanticConstraint[],
     workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
@@ -91,90 +69,65 @@ export class HybridStrategy implements SchedulingStrategy {
     const busySlots = new Map<string, BusySlot[]>();
     for (const e of employees) busySlots.set(e.id, []);
 
-    // Max score para normalización
     const maxRawFairness = Math.max(
       ...histories.map((h) => h.computeRawScore()),
-      1, // evitar div/0
+      1,
     );
 
     const assignments: ShiftAssignment[] = [];
-    const unfilledShifts: Shift[] = [];
+    const unfilledSlots: VirtualShiftSlot[] = [];
 
-    // Turnos más críticos (demanda) primero
-    const sortedShifts = [...shifts].sort(
-      (a, b) => b.demandScore.value - a.demandScore.value,
+    // Slots más críticos (demanda) primero
+    const sortedSlots = [...slots].sort(
+      (a, b) => b.demandScore - a.demandScore,
     );
 
-    for (const shift of sortedShifts) {
-      // Si la capacidad es null, repartimos equitativamente los empleados entre los turnos sin capacidad de ese día
-      // TODO(config-per-tenant): fórmula ceil(employees/turnos) hardcodeada. Otras empresas
-      // podrían querer floor, promedio, o distribución ponderada por skill.
-      let dynamicCapacity = Number.MAX_SAFE_INTEGER;
-      if (shift.requiredEmployees === null) {
-        const startDay = shift.startTime.toISOString().split('T')[0];
-        const dynamicShiftsToday = sortedShifts.filter(
-          (s) => s.startTime.toISOString().split('T')[0] === startDay && s.requiredEmployees === null
-        ).length;
-        dynamicCapacity = dynamicShiftsToday > 0 ? Math.ceil(employees.length / dynamicShiftsToday) : 1;
-      }
-      
-      const targetCapacity = shift.requiredEmployees ?? dynamicCapacity;
-      let assignedToThisShift = 0;
+    for (const slot of sortedSlots) {
+      // Capacidad del slot: si el template no lo especifica (NULL), no se fuerza cobertura.
+      // Nuevo modelo: no se inventan cuotas. Si requiredEmployees es null, saltar (opcional).
+      const targetCapacity = slot.requiredEmployees ?? 0;
+      if (targetCapacity <= 0) continue;
 
-      while (assignedToThisShift < targetCapacity) {
-        const candidates = this.getCandidates(
-          shift,
+      let assignedToThisSlot = 0;
+      while (assignedToThisSlot < targetCapacity) {
+        const candidates = filterCandidatesForSlot({
+          slot,
           employees,
           skillIndex,
           busySlots,
-          activeConstraints,
+          constraints: activeConstraints,
           workingTimePolicies,
           multiShiftPermits,
-        );
+        });
 
         if (candidates.length === 0) {
-          if (assignedToThisShift === 0 && targetCapacity !== Number.MAX_SAFE_INTEGER) {
-            // Solo marcarlo como no cubierto si no llegamos a cubrir ni 1 habiéndolo requerido.
-            unfilledShifts.push(shift);
-          }
-          break; // No hay más gente que pueda tomar este turno
+          if (assignedToThisSlot === 0) unfilledSlots.push(slot);
+          break;
         }
 
         const ranked = candidates.sort((a, b) => {
-          const scoreA = this.totalScore(
-            a,
-            shift,
-            liveHistory.get(a.id),
-            maxRawFairness,
-            activeConstraints,
-          );
-          const scoreB = this.totalScore(
-            b,
-            shift,
-            liveHistory.get(b.id),
-            maxRawFairness,
-            activeConstraints,
-          );
-          return scoreA - scoreB; // menor = más preferido
+          const scoreA = this.totalScore(a, slot, liveHistory.get(a.id), maxRawFairness, activeConstraints);
+          const scoreB = this.totalScore(b, slot, liveHistory.get(b.id), maxRawFairness, activeConstraints);
+          return scoreA - scoreB;
         });
 
         const winner = ranked[0];
         busySlots.get(winner.id)!.push({
-          id: shift.id,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-          getDuration: () => shift.getDuration(),
-          overlapsWith: (other: Shift) => shift.overlapsWith(other),
+          slotKey: slot.slotKey,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          getDuration: () => slot.getDuration(),
+          overlapsWith: (other) => slot.overlapsWith(other),
         });
 
         const snapshot = this.buildSnapshot(liveHistory);
         assignments.push(
           ShiftAssignment.create({
             id: randomUUID(),
-            templateId: shift.templateId ?? '',
-            date: shift.startTime.toISOString().split('T')[0],
+            templateId: slot.templateId,
+            date: slot.date,
             employeeId: winner.id,
-            companyId: shift.companyId,
+            companyId: slot.companyId,
             origin: 'membership',
             strategyType: this.type,
             fairnessSnapshot: snapshot,
@@ -184,27 +137,22 @@ export class HybridStrategy implements SchedulingStrategy {
         const currentHistory = liveHistory.get(winner.id)!;
         liveHistory.set(
           winner.id,
-          currentHistory.addShift(shift.getDuration(), {
-            isUndesirable: shift.undesirableWeight.isHeavy(),
-            isNight: shift.isNightShift(),
-            isWeekend: shift.isWeekendShift(),
+          currentHistory.addShift(slot.getDuration(), {
+            isUndesirable: slot.undesirableWeight >= 0.5,
+            isNight: slot.isNightShift(),
+            isWeekend: slot.isWeekendShift(),
           }),
         );
-
-        assignedToThisShift++;
+        assignedToThisSlot++;
       }
     }
 
-    return { assignments, unfilledShifts };
+    return { assignments, unfilledSlots };
   }
 
-  /**
-   * TotalScore = (CostWeight × costFactor) + (FairnessWeight × fairnessFactor) + (DemandWeight × demandFactor)
-   * Menor es mejor (candidato más idóneo).
-   */
   private totalScore(
     employee: Employee,
-    shift: Shift,
+    slot: VirtualShiftSlot,
     history: FairnessHistoryVO | undefined,
     maxRawFairness: number,
     constraints: SemanticConstraint[] = [],
@@ -214,22 +162,16 @@ export class HybridStrategy implements SchedulingStrategy {
       (history?.computeRawScore() ?? 0) / maxRawFairness,
       1,
     );
-    const demandFactor = shift.demandScore.normalized();
+    const demandFactor = Math.min(Math.max(slot.demandScore / 5, 0), 1); // normalizado 0..1 sobre 5
+    const preferenceMultiplier = employee.getPreferenceMultiplier(slot.startTime);
 
-    // Soft Constraint: multiply by preference to nudge preferred employees lower in score
-    const preferenceMultiplier = employee.getPreferenceMultiplier(
-      shift.startTime,
-    );
-
-    // Soft Semantic Constraint (weight=1): penalizar score sin bloquear
     const hasSoftBlock = constraints.some(
       (c) =>
         c.weight === 1 &&
         c.employeeId === employee.id &&
-        (!c.shiftId || c.shiftId === shift.id),
+        (!c.shiftId || c.shiftId === slot.slotKey),
     );
-    // TODO(config-per-tenant): factor 1.5 hardcodeado — severidad de penalización
-    // de soft constraints. Algunas empresas querrán 1.1 (más permisivo) o 2.0 (más estricto).
+    // TODO(config-per-tenant): factor 1.5 hardcodeado.
     const semanticPenalty = hasSoftBlock ? 1.5 : 1;
 
     return (
@@ -241,32 +183,11 @@ export class HybridStrategy implements SchedulingStrategy {
     );
   }
 
-  // TODO(config-per-tenant): umbrales 6/24 meses para junior/intermediate/senior están
-  // hardcodeados. Cada empresa tiene su propia escala de seniority.
+  // TODO(config-per-tenant): umbrales 6/24 meses hardcodeados.
   private normalizeCost(experienceMonths: number): number {
-    if (experienceMonths < 6) return 1 / 3; // junior
-    if (experienceMonths < 24) return 2 / 3; // intermediate
-    return 1; // senior
-  }
-
-  private getCandidates(
-    shift: Shift,
-    employees: Employee[],
-    skillIndex: Map<string, Employee[]>,
-    busySlots: Map<string, BusySlot[]>,
-    constraints: SemanticConstraint[] = [],
-    workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
-    multiShiftPermits?: Set<string>,
-  ): Employee[] {
-    return filterCandidatesForShift({
-      shift,
-      employees,
-      skillIndex,
-      busySlots,
-      constraints,
-      workingTimePolicies,
-      multiShiftPermits,
-    });
+    if (experienceMonths < 6) return 1 / 3;
+    if (experienceMonths < 24) return 2 / 3;
+    return 1;
   }
 
   private buildSnapshot(

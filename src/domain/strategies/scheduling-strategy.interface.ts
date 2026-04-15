@@ -1,7 +1,7 @@
 import type { Employee } from '../aggregates/employee.aggregate';
-import type { Shift } from '../aggregates/shift.aggregate';
 import type { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
 import type { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
+import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
 
 export type StrategyType = 'cost' | 'fairness' | 'hybrid';
@@ -45,15 +45,15 @@ export interface SchedulingStrategy {
   /**
    * Genera el conjunto de asignaciones para la semana.
    *
-   * @param employees       Empleados disponibles para la semana
-   * @param shifts          Turnos a cubrir
-   * @param histories       Historial de fairness de la semana actual
-   * @param semanticRules   Reglas semánticas del RAG (vacío hasta Escenario 3)
-   * @returns               Asignaciones generadas + turnos sin cubrir
+   * @param employees       Empleados disponibles
+   * @param slots           Slots virtuales (template × fecha) a cubrir
+   * @param histories       Historial de fairness
+   * @param semanticRules   Constraints resueltos por StructuredRuleResolver
+   * @returns               Asignaciones generadas + slots sin cubrir
    */
   generate(
     employees: Employee[],
-    shifts: Shift[],
+    slots: VirtualShiftSlot[],
     histories: FairnessHistoryVO[],
     semanticRules?: SemanticConstraint[],
     workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
@@ -63,5 +63,5 @@ export interface SchedulingStrategy {
 
 export interface StrategyResult {
   assignments: ShiftAssignment[];
-  unfilledShifts: Shift[];
+  unfilledSlots: VirtualShiftSlot[];
 }

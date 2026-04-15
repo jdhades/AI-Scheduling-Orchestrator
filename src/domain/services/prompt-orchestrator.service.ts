@@ -13,6 +13,7 @@ import type { ILLMService } from './llm.service.interface';
 import { LLM_SERVICE } from './llm.service.interface';
 import { ScheduleValidatorService } from './schedule-validator.service';
 import { HybridStrategy } from '../strategies/hybrid.strategy';
+import { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 
 // ─── Result Types ──────────────────────────────────────────────────────────────
 
@@ -289,9 +290,26 @@ export class PromptOrchestratorService {
       algorithmCorrected = remainingShifts.length;
 
       const strategy = new HybridStrategy();
+      const remainingSlots = remainingShifts.map((s) =>
+        VirtualShiftSlot.create({
+          templateId: s.templateId ?? s.id,
+          companyId: s.companyId,
+          date: s.startTime.toISOString().split('T')[0],
+          startTime: s.startTime,
+          endTime: s.endTime,
+          templateName: (s as unknown as { name?: string }).name ?? '',
+          requiredSkillId: s.requiredSkillId ?? null,
+          requiredEmployees: resolvedCapacities.get(s.id) ?? 1,
+          demandScore: s.demandScore.value,
+          undesirableWeight: (s.undesirableWeight as unknown as { value?: number }).value ?? Number(s.undesirableWeight),
+        }),
+      );
+      const shiftBySlotKey = new Map<string, Shift>(
+        remainingSlots.map((slot, i) => [slot.slotKey, remainingShifts[i]]),
+      );
       const strategyResult = strategy.generate(
         remainingEmployees,
-        remainingShifts,
+        remainingSlots,
         histories,
         resolvedConstraints.length > 0 ? resolvedConstraints : semanticRules,
         workingTimePolicies,
@@ -302,7 +320,7 @@ export class PromptOrchestratorService {
       // (su busySlots arranca vacío). Replicamos acá las hard constraints para que
       // no se cuelen violaciones.
       for (const a of strategyResult.assignments) {
-        const shift = shifts.find((s) => s.id === a.shiftId)!;
+        const shift = shiftBySlotKey.get(a.shiftId) ?? shifts.find((s) => s.id === a.shiftId)!;
         const empBusy = alreadyAssigned.get(a.employeeId)!;
         const shiftDay = shift.startTime.toISOString().split('T')[0];
 
@@ -346,7 +364,10 @@ export class PromptOrchestratorService {
           overlapsWith: (other: Shift) => shift.overlapsWith(other),
         });
       }
-      unfilledShifts.push(...strategyResult.unfilledShifts);
+      for (const unfilled of strategyResult.unfilledSlots) {
+        const shift = shiftBySlotKey.get(unfilled.slotKey);
+        if (shift) unfilledShifts.push(shift);
+      }
     }
 
     const allAssignments = [...llmAssignments, ...algorithmAssignments];

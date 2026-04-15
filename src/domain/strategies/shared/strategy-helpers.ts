@@ -1,24 +1,23 @@
 import type { Employee } from '../../aggregates/employee.aggregate';
-import type { Shift } from '../../aggregates/shift.aggregate';
 import type { SemanticConstraint } from '../scheduling-strategy.interface';
 import { SEMANTIC_BLOCKED_ALL } from '../scheduling-strategy.interface';
+import type { VirtualShiftSlot } from '../../value-objects/virtual-shift-slot.vo';
 import type { WorkingTimePolicyVO } from '../../value-objects/working-time-policy.vo';
 
 /**
  * Slot ocupado de un empleado — estructura mínima para chequear solapamientos
- * y acumular horas. `Shift` lo cumple estructuralmente.
+ * y acumular horas. `VirtualShiftSlot` lo cumple estructuralmente.
  */
 export interface BusySlot {
-  id: string;
+  slotKey: string;
   startTime: Date;
   endTime: Date;
   getDuration(): number;
-  overlapsWith(other: Shift): boolean;
+  overlapsWith(other: { startTime: Date; endTime: Date }): boolean;
 }
 
 /**
  * Indexa empleados por skill para lookup O(1).
- * Compartido por las 3 estrategias para evitar duplicación.
  */
 export function buildSkillIndex(employees: Employee[]): Map<string, Employee[]> {
   const index = new Map<string, Employee[]>();
@@ -32,32 +31,28 @@ export function buildSkillIndex(employees: Employee[]): Map<string, Employee[]> 
 }
 
 /**
- * Filtra los empleados elegibles para un turno aplicando hard constraints.
+ * Filtra los empleados elegibles para un slot aplicando hard constraints.
  *
  * Reglas HARD (bloquean):
- *   1. Bloqueos semánticos (weight≥2): turno completo o por empleado
- *   2. Solapamiento con turnos ya asignados (físicamente imposible)
+ *   1. Bloqueos semánticos (weight≥2): slot completo o por empleado
+ *   2. Solapamiento con slots ya asignados al empleado
  *   3. Disponibilidad estructural del empleado
- *   4. Un turno por empleado por día — EXCEPTO si hay un multi_shift_permit
- *      (ej. regla semántica: "Maria cubre mañana + noche el 15/04")
+ *   4. Un slot por empleado por día — EXCEPTO si hay multiShiftPermit
  *
  * Los caps de horas/día y horas/semana son informativos — no filtran.
- *
  * Compartido por hybrid, cost-optimized y fairness-optimized strategies.
  */
-export function filterCandidatesForShift(params: {
-  shift: Shift;
+export function filterCandidatesForSlot(params: {
+  slot: VirtualShiftSlot;
   employees: Employee[];
   skillIndex: Map<string, Employee[]>;
   busySlots: Map<string, BusySlot[]>;
   constraints?: SemanticConstraint[];
-  /** Policies informativas — no filtran, se reportan como warnings. */
   workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
-  /** Set de `${employeeId}|${YYYY-MM-DD}` autorizados a tener 2+ turnos ese día. */
   multiShiftPermits?: Set<string>;
 }): Employee[] {
   const {
-    shift,
+    slot,
     employees,
     skillIndex,
     busySlots,
@@ -66,18 +61,16 @@ export function filterCandidatesForShift(params: {
   } = params;
   void params.workingTimePolicies;
 
-  const shiftDay = shift.startTime.toISOString().split('T')[0];
-
-  // Hard Semantic: turno completamente bloqueado (feriado, nadie trabaja)
-  const shiftFullyBlocked = constraints.some(
+  // Slot completamente bloqueado (feriado, nadie trabaja)
+  const slotFullyBlocked = constraints.some(
     (c) =>
       c.weight >= 2 &&
       c.employeeId === SEMANTIC_BLOCKED_ALL &&
-      c.shiftId === shift.id,
+      c.shiftId === slot.slotKey,
   );
-  if (shiftFullyBlocked) return [];
+  if (slotFullyBlocked) return [];
 
-  // IDs bloqueados específicamente para este turno (hard constraints)
+  // IDs bloqueados específicamente para este slot
   const hardBlockedIds = new Set(
     constraints
       .filter(
@@ -85,13 +78,13 @@ export function filterCandidatesForShift(params: {
           c.weight >= 2 &&
           c.employeeId &&
           c.employeeId !== SEMANTIC_BLOCKED_ALL &&
-          (!c.shiftId || c.shiftId === shift.id),
+          (!c.shiftId || c.shiftId === slot.slotKey),
       )
       .map((c) => c.employeeId!),
   );
 
-  const pool = shift.requiredSkillId
-    ? (skillIndex.get(shift.requiredSkillId) ?? [])
+  const pool = slot.requiredSkillId
+    ? (skillIndex.get(slot.requiredSkillId) ?? [])
     : employees;
   const uniquePool = Array.from(new Set(pool));
 
@@ -99,16 +92,16 @@ export function filterCandidatesForShift(params: {
     if (hardBlockedIds.has(emp.id)) return false;
 
     const busy = busySlots.get(emp.id) ?? [];
-    if (busy.some((s) => s.overlapsWith(shift))) return false;
+    if (busy.some((s) => s.overlapsWith(slot))) return false;
 
-    if (!emp.isAvailable(shift.startTime, shift.endTime)) return false;
+    if (!emp.isAvailable(slot.startTime, slot.endTime)) return false;
 
-    // Hard: un turno por empleado por día (a menos que haya permit explícito)
+    // Un slot por empleado por día (salvo permit explícito)
     const alreadyWorkingThisDay = busy.some(
-      (s) => s.startTime.toISOString().split('T')[0] === shiftDay,
+      (s) => s.startTime.toISOString().split('T')[0] === slot.date,
     );
     if (alreadyWorkingThisDay) {
-      const permitted = multiShiftPermits?.has(`${emp.id}|${shiftDay}`);
+      const permitted = multiShiftPermits?.has(`${emp.id}|${slot.date}`);
       if (!permitted) return false;
     }
 
