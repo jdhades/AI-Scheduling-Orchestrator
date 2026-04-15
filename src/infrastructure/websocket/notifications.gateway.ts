@@ -38,6 +38,7 @@ export class NotificationsGateway
    * Clients should listen to 'ScheduleGenerated' to invalidate their caches.
    */
   notifyScheduleGenerated(companyId: string, weekStart: string) {
+    if (!this.server) return; // contextos sin WebSocket (scripts, tests)
     this.server.emit('ScheduleGenerated', { companyId, weekStart });
     this.logger.log(
       `Broadcasted ScheduleGenerated for company ${companyId}, week ${weekStart}`,

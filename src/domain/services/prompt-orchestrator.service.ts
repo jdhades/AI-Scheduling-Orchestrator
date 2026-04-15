@@ -322,6 +322,19 @@ export class PromptOrchestratorService {
     const allAssignments = [...llmAssignments, ...algorithmAssignments];
     const totalSlots = slots.length;
 
+    // Recompute unfilled: un slot solo está "sin cubrir" si tiene target > 0 y
+    // nadie le quedó asignado al final (la strategy puede reportar falsos
+    // positivos cuando no conoce los pre-assignments). Los slots elásticos
+    // (null) nunca cuentan como unfilled.
+    const actuallyUnfilled = slots.filter((s) => {
+      const targetRaw = resolvedCapacities.get(s.slotKey);
+      if (targetRaw === 0) return false;
+      if (targetRaw === null || targetRaw === undefined) return false;
+      return (slotFillCount.get(s.slotKey) ?? 0) < targetRaw;
+    });
+    unfilledSlots.length = 0;
+    unfilledSlots.push(...actuallyUnfilled);
+
     const warnings = this.computeWarnings({
       assignments: allAssignments,
       slots,
