@@ -162,3 +162,55 @@ describe('FairnessOptimizedStrategy — Phase 1 Filters', () => {
     expect(result.unfilledSlots[0].slotKey).toBe(slot.slotKey);
   });
 });
+
+// ─── Round-robin sobre slots elásticos (requiredEmployees === null) ─────────
+
+describe('HybridStrategy — Round-robin on elastic slots', () => {
+  const { HybridStrategy } = require('../../../src/domain/strategies/hybrid.strategy');
+  const strategy = new HybridStrategy();
+
+  it('with 5 employees, Diurno(target=2) + Nocturno(elastic): 2 go to Diurno, 3 to Nocturno', () => {
+    const employees = ['e1', 'e2', 'e3', 'e4', 'e5'].map((id) =>
+      makeEmployee(id, { availability: [] }),
+    );
+    const diurno = makeSlot('diurno', '2026-03-09T08:00:00Z', '2026-03-09T16:00:00Z', 2);
+    const nocturno = makeSlot('nocturno', '2026-03-09T20:00:00Z', '2026-03-10T04:00:00Z', null);
+
+    const result = strategy.generate(employees, [diurno, nocturno], []);
+    const byTemplate = new Map<string, number>();
+    for (const a of result.assignments) {
+      byTemplate.set(a.templateId, (byTemplate.get(a.templateId) ?? 0) + 1);
+    }
+    expect(byTemplate.get('diurno')).toBe(2);
+    expect(byTemplate.get('nocturno')).toBe(3);
+    expect(result.assignments).toHaveLength(5);
+  });
+
+  it('elastic-only templates: all employees distribute across them, 1 per employee per day', () => {
+    const employees = ['e1', 'e2', 'e3', 'e4'].map((id) =>
+      makeEmployee(id, { availability: [] }),
+    );
+    const tarde = makeSlot('tarde', '2026-03-09T14:00:00Z', '2026-03-09T22:00:00Z', null);
+    const noche = makeSlot('noche', '2026-03-09T22:00:00Z', '2026-03-10T06:00:00Z', null);
+
+    const result = strategy.generate(employees, [tarde, noche], []);
+    expect(result.assignments).toHaveLength(4);
+    const byTemplate = new Map<string, number>();
+    for (const a of result.assignments) {
+      byTemplate.set(a.templateId, (byTemplate.get(a.templateId) ?? 0) + 1);
+    }
+    // Round-robin splits 4 employees as evenly as possible over 2 slots → 2+2
+    expect(byTemplate.get('tarde')).toBe(2);
+    expect(byTemplate.get('noche')).toBe(2);
+  });
+
+  it('skips slots with requiredEmployees=0 (holiday-style)', () => {
+    const employees = [makeEmployee('e1', { availability: [] })];
+    const holiday = makeSlot('festivo', '2026-03-09T08:00:00Z', '2026-03-09T16:00:00Z', 0);
+    const normal = makeSlot('normal', '2026-03-10T08:00:00Z', '2026-03-10T16:00:00Z', 1);
+
+    const result = strategy.generate(employees, [holiday, normal], []);
+    expect(result.assignments).toHaveLength(1);
+    expect(result.assignments[0].templateId).toBe('normal');
+  });
+});

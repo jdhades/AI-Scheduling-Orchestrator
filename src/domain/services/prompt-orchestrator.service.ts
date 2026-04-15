@@ -52,10 +52,17 @@ export class PromptOrchestratorService {
     preResolvedUnstructuredRules?: { ruleId: string; ruleText: string }[];
     locale?: string;
     /**
-     * Capacidades resueltas por slotKey. En el modelo nuevo, proviene de
-     * `slot.requiredEmployees ?? 0` — null = opcional, no se fuerza cobertura.
+     * Hint de distribución por slotKey, no cuota obligatoria:
+     *  - `N > 0`  → objetivo de ~N empleados en este slot (Phase A)
+     *  - `null`   → slot elástico, recibe leftovers del round-robin (Phase B)
+     *  - `0`      → explícitamente excluido (no se asigna nadie)
      */
-    resolvedCapacities?: Map<string, number>;
+    resolvedCapacities?: Map<string, number | null>;
+    /**
+     * Asignaciones pre-calculadas por reglas hard (ej. memberships resueltas).
+     * Se siembran en `alreadyAssigned` para que el LLM/strategies las respeten.
+     */
+    preAssignments?: ShiftAssignment[];
   }): Promise<OrchestratedResult> {
     const {
       employees,
@@ -70,8 +77,10 @@ export class PromptOrchestratorService {
       preResolvedUnstructuredRules = [],
       locale = 'es',
       resolvedCapacities: passedCapacities,
+      preAssignments = [],
     } = params;
 
+    const slotByKey = new Map(slots.map((s) => [s.slotKey, s]));
     const alreadyAssigned = new Map<string, BusyAssignment[]>(
       employees.map((e) => [e.id, []]),
     );
@@ -80,9 +89,30 @@ export class PromptOrchestratorService {
     let llmAccepted = 0;
     const slotFillCount = new Map<string, number>();
 
-    const resolvedCapacities = passedCapacities ?? new Map<string, number>(
-      slots.map((s) => [s.slotKey, s.requiredEmployees ?? 0]),
-    );
+    // Seed alreadyAssigned + slotFillCount con las asignaciones hard (memberships,
+    // overrides manuales, etc.) que ya trae el handler. Estas son inamovibles.
+    for (const a of preAssignments) {
+      const slot = slotByKey.get(a.slotKey);
+      if (!slot) continue;
+      const busy = alreadyAssigned.get(a.employeeId) ?? [];
+      busy.push({
+        slotKey: slot.slotKey,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        overlapsWith: (other) => slot.overlapsWith(other),
+      });
+      alreadyAssigned.set(a.employeeId, busy);
+      slotFillCount.set(a.slotKey, (slotFillCount.get(a.slotKey) ?? 0) + 1);
+    }
+    if (preAssignments.length > 0) {
+      this.logger.log(
+        `Pre-assignments seeded: ${preAssignments.length} (memberships/overrides)`,
+      );
+    }
+
+    const resolvedCapacities: Map<string, number | null> =
+      passedCapacities ??
+      new Map<string, number | null>(slots.map((s) => [s.slotKey, s.requiredEmployees]));
     this.logger.log(
       `CapacityPlanner resolved: ${[...resolvedCapacities.entries()].map(([k, cap]) => `${k.slice(0, 12)}→${cap}`).join(', ')}`,
     );
@@ -129,9 +159,14 @@ export class PromptOrchestratorService {
       const proposedAssignments = llmProposalMap.get(slot.slotKey);
       if (!proposedAssignments || proposedAssignments.length === 0) continue;
 
-      const targetCapacity = resolvedCapacities.get(slot.slotKey) ?? 1;
+      // Semántica nueva:
+      //   `0`            → slot excluido (ej. feriado) — ignora propuestas del LLM
+      //   `N > 0`        → objetivo de distribución: hasta N del LLM, luego pasa a fallback
+      //   `null/undef`   → elástico: el LLM puede proponer sin tope; el fallback rellena más
+      const targetRaw = resolvedCapacities.get(slot.slotKey);
+      const targetCapacity = targetRaw ?? Infinity;
 
-      if (targetCapacity === 0) {
+      if (targetRaw === 0) {
         this.logger.log(
           `Slot ${slot.slotKey} has resolved capacity=0 (holiday/exclusion). All LLM proposals ignored.`,
         );
@@ -139,13 +174,13 @@ export class PromptOrchestratorService {
         continue;
       }
 
-      let validCount = 0;
+      let validCount = slotFillCount.get(slot.slotKey) ?? 0; // contar pre-assignments ya hechos
       let intentionallySkipped = false;
 
       for (const proposedAssignment of proposedAssignments) {
         if (proposedAssignment.employeeId.toUpperCase() === 'NONE') {
           this.logger.debug(
-            `Slot ${slot.slotKey} intentionally left empty by LLM (capacity=${targetCapacity}). Reason: ${proposedAssignment.reason}`,
+            `Slot ${slot.slotKey} intentionally left empty by LLM (target=${targetRaw ?? 'elastic'}). Reason: ${proposedAssignment.reason}`,
           );
           intentionallySkipped = true;
           break;
@@ -153,7 +188,7 @@ export class PromptOrchestratorService {
 
         if (validCount >= targetCapacity) {
           this.logger.debug(
-            `Slot ${slot.slotKey} reached resolved capacity (${targetCapacity}). Skipping extra LLM proposals.`,
+            `Slot ${slot.slotKey} reached resolved target (${targetCapacity}). Skipping extra LLM proposals.`,
           );
           break;
         }
@@ -204,11 +239,10 @@ export class PromptOrchestratorService {
         }
       }
 
-      if (
-        intentionallySkipped ||
-        targetCapacity === 0 ||
-        validCount >= targetCapacity
-      ) {
+      // Un slot elástico (targetRaw null/undef) nunca se marca "covered": el
+      // fallback round-robin distribuirá los empleados restantes ahí.
+      const isElastic = targetRaw === null || targetRaw === undefined;
+      if (intentionallySkipped || (!isElastic && validCount >= targetCapacity)) {
         coveredByLLM.add(slot.slotKey);
       }
     }
@@ -261,10 +295,12 @@ export class PromptOrchestratorService {
         }
 
         const currentFill = slotFillCount.get(slot.slotKey) ?? 0;
-        const cap = resolvedCapacities.get(slot.slotKey) ?? 1;
-        if (currentFill >= cap) {
+        const capRaw = resolvedCapacities.get(slot.slotKey);
+        // null/undefined → elástico (sin tope); 0 → excluido; N → target blando
+        const cap = capRaw ?? Infinity;
+        if (cap === 0 || currentFill >= cap) {
           this.logger.debug(
-            `Algorithm assignment skipped for slot=${slot.slotKey}: capacity=${cap} already reached (${currentFill})`,
+            `Algorithm assignment skipped for slot=${slot.slotKey}: cap=${capRaw} already reached (${currentFill})`,
           );
           continue;
         }
@@ -352,7 +388,7 @@ export class PromptOrchestratorService {
     semanticRules: SemanticConstraint[];
     weekStart: Date;
     companyId: string;
-    resolvedCapacities: Map<string, number>;
+    resolvedCapacities: Map<string, number | null>;
     workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
   }): Promise<LLMScheduleProposalVO> {
     try {
@@ -379,7 +415,7 @@ export class PromptOrchestratorService {
     semanticRules: SemanticConstraint[];
     weekStart: Date;
     companyId: string;
-    resolvedCapacities: Map<string, number>;
+    resolvedCapacities: Map<string, number | null>;
     workingTimePolicies?: Map<string, WorkingTimePolicyVO>;
   }): string {
     const { employees, slots, semanticRules, weekStart, resolvedCapacities, workingTimePolicies } = params;

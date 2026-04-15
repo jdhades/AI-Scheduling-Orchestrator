@@ -12,13 +12,16 @@ import {
 } from '../../domain/value-objects/working-time-policy.vo';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
+import { MembershipAssignmentService } from '../../domain/services/membership-assignment.service';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import type { IShiftMembershipRepository } from '../../domain/repositories/shift-membership.repository';
 import type { IFairnessHistoryRepository } from '../../domain/repositories/fairness-history.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
 import { FAIRNESS_HISTORY_REPOSITORY } from '../../domain/repositories/fairness-history.repository';
 import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.vo';
@@ -63,8 +66,11 @@ export class GenerateHybridScheduleHandler
     private readonly notificationsGateway: NotificationsGateway,
     private readonly structuredRuleResolver: StructuredRuleResolver,
     private readonly shiftSlotGenerator: ShiftSlotGeneratorService,
+    private readonly membershipAssignmentService: MembershipAssignmentService,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly shiftTemplateRepository: IShiftTemplateRepository,
+    @Inject(SHIFT_MEMBERSHIP_REPOSITORY)
+    private readonly membershipRepository: IShiftMembershipRepository,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
   ) {
@@ -175,12 +181,20 @@ export class GenerateHybridScheduleHandler
 
     const slots: VirtualShiftSlot[] = this.shiftSlotGenerator.generateSlotsForWeek(templates, weekStart);
 
-    const resolvedCapacities = new Map<string, number>(
-      slots.map((s) => [s.slotKey, s.requiredEmployees ?? 0]),
+    // Capacidades pasan como HINT al orchestrator/strategies (target de distribución,
+    // NO cuota obligatoria). `null` = slot elástico (recibe leftovers del round-robin).
+    const resolvedCapacities = new Map<string, number | null>(
+      slots.map((s) => [s.slotKey, s.requiredEmployees]),
+    );
+
+    const memberships = await this.membershipRepository.findActiveInRange(
+      command.companyId,
+      weekStartStr,
+      weekEndStr,
     );
 
     this.logger.log(
-      `Loaded — employees=${employees.length} slots=${slots.length}`,
+      `Loaded — employees=${employees.length} slots=${slots.length} memberships=${memberships.length}`,
     );
 
     const ruleAggregates = await this.semanticRetrievalService
@@ -216,6 +230,17 @@ export class GenerateHybridScheduleHandler
       employees,
     );
 
+    // Memberships = reglas hard inamovibles. Se materializan como assignments
+    // ANTES de consultar al LLM: el LLM solo decide huecos no cubiertos por
+    // memberships.
+    const preAssignments = this.membershipAssignmentService.generateBaseAssignments({
+      slots,
+      memberships,
+      employees,
+      semanticRules,
+      multiShiftPermits: resolved.multiShiftPermits,
+    });
+
     const result = await this.promptOrchestrator.orchestrate({
       employees,
       slots,
@@ -229,7 +254,12 @@ export class GenerateHybridScheduleHandler
       preResolvedUnstructuredRules: resolved.unstructuredRules,
       locale: command.locale ?? 'es',
       resolvedCapacities,
+      preAssignments,
     });
+
+    // Las membership-assignments son parte del resultado final; el orchestrator
+    // solo devuelve lo que el LLM+algoritmo añadieron encima.
+    const allAssignments = [...preAssignments, ...result.assignments];
 
     // Limpiar asignaciones previas del rango semanal antes de persistir
     const deletedCount = await this.assignmentRepository.deleteByDateRange(
@@ -242,11 +272,11 @@ export class GenerateHybridScheduleHandler
     );
 
     await Promise.all(
-      result.assignments.map((a) => this.assignmentRepository.save(a)),
+      allAssignments.map((a) => this.assignmentRepository.save(a)),
     );
 
     const updatedHistories = this.buildUpdatedHistories(
-      result.assignments,
+      allAssignments,
       slots,
       histories,
       weekStart,
@@ -260,13 +290,13 @@ export class GenerateHybridScheduleHandler
     );
 
     this.logger.log(
-      `Hybrid schedule complete — assignments=${result.assignments.length} ` +
-        `llmAccepted=${result.llmAccepted} algorithmCorrected=${result.algorithmCorrected} ` +
+      `Hybrid schedule complete — total=${allAssignments.length} ` +
+        `(memberships=${preAssignments.length} llmAccepted=${result.llmAccepted} algorithmCorrected=${result.algorithmCorrected}) ` +
         `unfilled=${result.unfilledSlots.length}`,
     );
 
     return {
-      assignmentsCount: result.assignments.length,
+      assignmentsCount: allAssignments.length,
       unfilledShiftsCount: result.unfilledSlots.length,
       llmAccepted: result.llmAccepted,
       algorithmCorrected: result.algorithmCorrected,

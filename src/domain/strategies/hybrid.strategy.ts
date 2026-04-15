@@ -83,10 +83,14 @@ export class HybridStrategy implements SchedulingStrategy {
     );
 
     for (const slot of sortedSlots) {
-      // Capacidad del slot: si el template no lo especifica (NULL), no se fuerza cobertura.
-      // Nuevo modelo: no se inventan cuotas. Si requiredEmployees es null, saltar (opcional).
-      const targetCapacity = slot.requiredEmployees ?? 0;
-      if (targetCapacity <= 0) continue;
+      // Semántica nueva de `requiredEmployees`:
+      //   0           → slot excluido (ej. feriado), no se asigna nadie.
+      //   N > 0       → target blando: Phase A intenta poner hasta N.
+      //   null/undef  → elástico: Phase A no lo toca; Phase B distribuye leftovers.
+      const targetRaw = slot.requiredEmployees;
+      if (targetRaw === 0) continue;
+      if (targetRaw === null || targetRaw === undefined) continue; // elástico → Phase B abajo
+      const targetCapacity = targetRaw;
 
       let assignedToThisSlot = 0;
       while (assignedToThisSlot < targetCapacity) {
@@ -144,6 +148,95 @@ export class HybridStrategy implements SchedulingStrategy {
           }),
         );
         assignedToThisSlot++;
+      }
+    }
+
+    // ── Phase B: round-robin sobre slots elásticos (requiredEmployees === null)
+    // Para cada día, cualquier empleado que todavía no tenga un turno hoy se
+    // empuja al slot elástico con menor fill actual. No hay "target" — reciben
+    // todo el sobrante. Respeta siempre one-shift-per-day (salvo permit).
+    const elasticSlots = slots.filter((s) => s.requiredEmployees === null || s.requiredEmployees === undefined);
+    if (elasticSlots.length > 0) {
+      // Fill count por slotKey (inicializado con lo que ya se asignó en Phase A)
+      const fillBySlot = new Map<string, number>();
+      for (const a of assignments) {
+        fillBySlot.set(a.slotKey, (fillBySlot.get(a.slotKey) ?? 0) + 1);
+      }
+
+      // Agrupar slots elásticos por fecha
+      const elasticByDate = new Map<string, VirtualShiftSlot[]>();
+      for (const s of elasticSlots) {
+        if (!elasticByDate.has(s.date)) elasticByDate.set(s.date, []);
+        elasticByDate.get(s.date)!.push(s);
+      }
+
+      for (const [date, dateSlots] of elasticByDate) {
+        // Empleados que todavía no están asignados hoy (o que tienen permit)
+        const candidatesToday = employees.filter((emp) => {
+          const busy = busySlots.get(emp.id) ?? [];
+          const worksToday = busy.some((b) => b.startTime.toISOString().split('T')[0] === date);
+          if (!worksToday) return true;
+          return multiShiftPermits?.has(`${emp.id}|${date}`) ?? false;
+        });
+
+        for (const emp of candidatesToday) {
+          // Entre slots elásticos del día, elegir el de menor fill
+          const ranked = [...dateSlots]
+            .map((s) => ({ slot: s, fill: fillBySlot.get(s.slotKey) ?? 0 }))
+            .sort((a, b) => a.fill - b.fill);
+
+          let placed = false;
+          for (const { slot } of ranked) {
+            // Verificar elegibilidad del empleado para este slot
+            const eligible = filterCandidatesForSlot({
+              slot,
+              employees: [emp],
+              skillIndex,
+              busySlots,
+              constraints: activeConstraints,
+              workingTimePolicies,
+              multiShiftPermits,
+            });
+            if (eligible.length === 0) continue;
+
+            busySlots.get(emp.id)!.push({
+              slotKey: slot.slotKey,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              getDuration: () => slot.getDuration(),
+              overlapsWith: (other) => slot.overlapsWith(other),
+            });
+
+            const snapshot = this.buildSnapshot(liveHistory);
+            assignments.push(
+              ShiftAssignment.create({
+                id: randomUUID(),
+                templateId: slot.templateId,
+                date: slot.date,
+                employeeId: emp.id,
+                companyId: slot.companyId,
+                origin: 'membership',
+                strategyType: this.type,
+                fairnessSnapshot: snapshot,
+              }),
+            );
+            fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);
+
+            const currentHistory = liveHistory.get(emp.id)!;
+            liveHistory.set(
+              emp.id,
+              currentHistory.addShift(slot.getDuration(), {
+                isUndesirable: slot.undesirableWeight >= 0.5,
+                isNight: slot.isNightShift(),
+                isWeekend: slot.isWeekendShift(),
+              }),
+            );
+            placed = true;
+            break;
+          }
+          // Si no se pudo colocar (ningún slot acepta al empleado), sigue.
+          void placed;
+        }
       }
     }
 

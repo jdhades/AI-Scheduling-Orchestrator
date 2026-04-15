@@ -53,10 +53,7 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
       (a, b) => b.undesirableWeight - a.undesirableWeight,
     );
 
-    for (const slot of sortedSlots) {
-      // No se fuerza cobertura de slots opcionales
-      if ((slot.requiredEmployees ?? 0) <= 0) continue;
-
+    const pickFor = (slot: VirtualShiftSlot): Employee | null => {
       const candidates = filterCandidatesForSlot({
         slot,
         employees,
@@ -66,12 +63,7 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
         workingTimePolicies,
         multiShiftPermits,
       });
-
-      if (candidates.length === 0) {
-        unfilledSlots.push(slot);
-        continue;
-      }
-
+      if (candidates.length === 0) return null;
       const ranked = candidates.sort((a, b) => {
         const scoreA =
           (liveHistory.get(a.id)?.computeRawScore() ?? 0) *
@@ -81,8 +73,10 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
           b.getPreferenceMultiplier(slot.startTime);
         return scoreA - scoreB;
       });
+      return ranked[0];
+    };
 
-      const winner = ranked[0];
+    const assignWinner = (slot: VirtualShiftSlot, winner: Employee): void => {
       busySlots.get(winner.id)!.push({
         slotKey: slot.slotKey,
         startTime: slot.startTime,
@@ -90,7 +84,6 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
         getDuration: () => slot.getDuration(),
         overlapsWith: (other) => slot.overlapsWith(other),
       });
-
       const snapshot = this.buildSnapshot(liveHistory);
       assignments.push(
         ShiftAssignment.create({
@@ -104,7 +97,6 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
           fairnessSnapshot: snapshot,
         }),
       );
-
       const currentHistory = liveHistory.get(winner.id)!;
       liveHistory.set(
         winner.id,
@@ -114,6 +106,71 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
           isWeekend: slot.isWeekendShift(),
         }),
       );
+    };
+
+    // Phase A: slots con target explícito
+    for (const slot of sortedSlots) {
+      const targetRaw = slot.requiredEmployees;
+      if (targetRaw === 0) continue;
+      if (targetRaw === null || targetRaw === undefined) continue;
+      const target = targetRaw;
+
+      let filled = 0;
+      while (filled < target) {
+        const winner = pickFor(slot);
+        if (!winner) {
+          if (filled === 0) unfilledSlots.push(slot);
+          break;
+        }
+        assignWinner(slot, winner);
+        filled++;
+      }
+    }
+
+    // Phase B: round-robin sobre slots elásticos
+    const elasticSlots = slots.filter(
+      (s) => s.requiredEmployees === null || s.requiredEmployees === undefined,
+    );
+    if (elasticSlots.length > 0) {
+      const fillBySlot = new Map<string, number>();
+      for (const a of assignments) {
+        fillBySlot.set(a.slotKey, (fillBySlot.get(a.slotKey) ?? 0) + 1);
+      }
+      const elasticByDate = new Map<string, VirtualShiftSlot[]>();
+      for (const s of elasticSlots) {
+        if (!elasticByDate.has(s.date)) elasticByDate.set(s.date, []);
+        elasticByDate.get(s.date)!.push(s);
+      }
+
+      for (const [date, dateSlots] of elasticByDate) {
+        const candidatesToday = employees.filter((emp) => {
+          const busy = busySlots.get(emp.id) ?? [];
+          const worksToday = busy.some((b) => b.startTime.toISOString().split('T')[0] === date);
+          if (!worksToday) return true;
+          return multiShiftPermits?.has(`${emp.id}|${date}`) ?? false;
+        });
+
+        for (const emp of candidatesToday) {
+          const ranked = [...dateSlots]
+            .map((s) => ({ slot: s, fill: fillBySlot.get(s.slotKey) ?? 0 }))
+            .sort((a, b) => a.fill - b.fill);
+          for (const { slot } of ranked) {
+            const eligible = filterCandidatesForSlot({
+              slot,
+              employees: [emp],
+              skillIndex,
+              busySlots,
+              constraints: activeConstraints,
+              workingTimePolicies,
+              multiShiftPermits,
+            });
+            if (eligible.length === 0) continue;
+            assignWinner(slot, emp);
+            fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);
+            break;
+          }
+        }
+      }
     }
 
     return { assignments, unfilledSlots };

@@ -60,51 +60,122 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
       (a, b) => b.demandScore - a.demandScore,
     );
 
+    // Phase A: slots con target explícito (N > 0) se cubren hasta N.
     for (const slot of sortedSlots) {
-      if ((slot.requiredEmployees ?? 0) <= 0) continue;
+      const targetRaw = slot.requiredEmployees;
+      if (targetRaw === 0) continue;
+      if (targetRaw === null || targetRaw === undefined) continue;
+      const target = targetRaw;
 
-      const candidates = filterCandidatesForSlot({
-        slot,
-        employees,
-        skillIndex,
-        busySlots,
-        constraints: activeConstraints,
-        workingTimePolicies,
-        multiShiftPermits,
-      });
+      let filled = 0;
+      while (filled < target) {
+        const candidates = filterCandidatesForSlot({
+          slot,
+          employees,
+          skillIndex,
+          busySlots,
+          constraints: activeConstraints,
+          workingTimePolicies,
+          multiShiftPermits,
+        });
+        if (candidates.length === 0) {
+          if (filled === 0) unfilledSlots.push(slot);
+          break;
+        }
+        const ranked = candidates.sort((a, b) => {
+          const costA = this.effectiveCost(a, slot, historyIndex.get(a.id), activeConstraints);
+          const costB = this.effectiveCost(b, slot, historyIndex.get(b.id), activeConstraints);
+          return costA - costB;
+        });
+        const winner = ranked[0];
+        busySlots.get(winner.id)!.push({
+          slotKey: slot.slotKey,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          getDuration: () => slot.getDuration(),
+          overlapsWith: (other) => slot.overlapsWith(other),
+        });
+        assignments.push(
+          ShiftAssignment.create({
+            id: randomUUID(),
+            templateId: slot.templateId,
+            date: slot.date,
+            employeeId: winner.id,
+            companyId: slot.companyId,
+            origin: 'membership',
+            strategyType: this.type,
+            fairnessSnapshot: { ...snapshot },
+          }),
+        );
+        filled++;
+      }
+    }
 
-      if (candidates.length === 0) {
-        unfilledSlots.push(slot);
-        continue;
+    // Phase B: round-robin sobre slots elásticos (requiredEmployees === null)
+    const elasticSlots = slots.filter(
+      (s) => s.requiredEmployees === null || s.requiredEmployees === undefined,
+    );
+    if (elasticSlots.length > 0) {
+      const fillBySlot = new Map<string, number>();
+      for (const a of assignments) {
+        fillBySlot.set(a.slotKey, (fillBySlot.get(a.slotKey) ?? 0) + 1);
       }
 
-      const ranked = candidates.sort((a, b) => {
-        const costA = this.effectiveCost(a, slot, historyIndex.get(a.id), activeConstraints);
-        const costB = this.effectiveCost(b, slot, historyIndex.get(b.id), activeConstraints);
-        return costA - costB;
-      });
+      const elasticByDate = new Map<string, VirtualShiftSlot[]>();
+      for (const s of elasticSlots) {
+        if (!elasticByDate.has(s.date)) elasticByDate.set(s.date, []);
+        elasticByDate.get(s.date)!.push(s);
+      }
 
-      const winner = ranked[0];
-      busySlots.get(winner.id)!.push({
-        slotKey: slot.slotKey,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        getDuration: () => slot.getDuration(),
-        overlapsWith: (other) => slot.overlapsWith(other),
-      });
+      for (const [date, dateSlots] of elasticByDate) {
+        const candidatesToday = employees.filter((emp) => {
+          const busy = busySlots.get(emp.id) ?? [];
+          const worksToday = busy.some((b) => b.startTime.toISOString().split('T')[0] === date);
+          if (!worksToday) return true;
+          return multiShiftPermits?.has(`${emp.id}|${date}`) ?? false;
+        });
 
-      assignments.push(
-        ShiftAssignment.create({
-          id: randomUUID(),
-          templateId: slot.templateId,
-          date: slot.date,
-          employeeId: winner.id,
-          companyId: slot.companyId,
-          origin: 'membership',
-          strategyType: this.type,
-          fairnessSnapshot: { ...snapshot },
-        }),
-      );
+        for (const emp of candidatesToday) {
+          const ranked = [...dateSlots]
+            .map((s) => ({ slot: s, fill: fillBySlot.get(s.slotKey) ?? 0 }))
+            .sort((a, b) => a.fill - b.fill);
+
+          for (const { slot } of ranked) {
+            const eligible = filterCandidatesForSlot({
+              slot,
+              employees: [emp],
+              skillIndex,
+              busySlots,
+              constraints: activeConstraints,
+              workingTimePolicies,
+              multiShiftPermits,
+            });
+            if (eligible.length === 0) continue;
+
+            busySlots.get(emp.id)!.push({
+              slotKey: slot.slotKey,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              getDuration: () => slot.getDuration(),
+              overlapsWith: (other) => slot.overlapsWith(other),
+            });
+            assignments.push(
+              ShiftAssignment.create({
+                id: randomUUID(),
+                templateId: slot.templateId,
+                date: slot.date,
+                employeeId: emp.id,
+                companyId: slot.companyId,
+                origin: 'membership',
+                strategyType: this.type,
+                fairnessSnapshot: { ...snapshot },
+              }),
+            );
+            fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);
+            break;
+          }
+        }
+      }
     }
 
     return { assignments, unfilledSlots };
