@@ -2,7 +2,6 @@ import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
 import { Inject, Logger } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
-import { PromptOrchestratorService } from '../../domain/services/prompt-orchestrator.service';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
 import { StructuredRuleResolver } from '../../domain/services/structured-rule-resolver.service';
 import { WorkingTimePolicyResolver } from '../../domain/services/working-time-policy.resolver';
@@ -13,6 +12,7 @@ import {
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../../domain/services/week-schedule-builder.service';
+import { LLMLineProposerService } from '../../domain/services/llm-line-proposer.service';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -62,11 +62,11 @@ export class GenerateHybridScheduleHandler
     private readonly fairnessRepository: IFairnessHistoryRepository,
     private readonly eventBus: EventBus,
     private readonly semanticRetrievalService: SemanticRetrievalService,
-    private readonly promptOrchestrator: PromptOrchestratorService,
     private readonly notificationsGateway: NotificationsGateway,
     private readonly structuredRuleResolver: StructuredRuleResolver,
     private readonly shiftSlotGenerator: ShiftSlotGeneratorService,
     private readonly weekScheduleBuilder: WeekScheduleBuilder,
+    private readonly llmLineProposer: LLMLineProposerService,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly shiftTemplateRepository: IShiftTemplateRepository,
     @Inject(SHIFT_MEMBERSHIP_REPOSITORY)
@@ -233,9 +233,19 @@ export class GenerateHybridScheduleHandler
     void workingTimePolicies; // policies son informativas en este motor, no aplican caps hard
     void resolvedCapacities; // el builder lee slot.requiredEmployees directo
 
+    // LLM como proveedor de PREFERENCIAS (líneas semanales por empleado).
+    // Si el LLM no responde o su propuesta no es elegible, el builder usa su
+    // lógica determinística (pasos 2–5). El LLM nunca puede forzar reglas
+    // hard ni cerrar slots elásticos.
+    const llmLines = await this.llmLineProposer.proposeLines({
+      employees,
+      slots,
+      semanticRules,
+      weekStart,
+    });
+
     // Motor employee-first: una línea por empleado resuelve las 7 celdas
-    // siguiendo los 5 pasos del diseño. Sin LLM por ahora (se integrará en
-    // una fase posterior como proveedor de líneas preliminares).
+    // siguiendo los 5 pasos del diseño.
     const buildResult = this.weekScheduleBuilder.build({
       employees,
       slots,
@@ -245,6 +255,7 @@ export class GenerateHybridScheduleHandler
       multiShiftPermits: resolved.multiShiftPermits,
       weekStart,
       companyId: command.companyId,
+      llmLines,
     });
 
     const allAssignments = buildResult.assignments;

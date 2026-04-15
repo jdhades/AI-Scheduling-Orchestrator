@@ -38,6 +38,7 @@ import { StructuredRuleResolver } from '../domain/services/structured-rule-resol
 import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
 import { MembershipAssignmentService } from '../domain/services/membership-assignment.service';
 import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
+import { LLMLineProposerService } from '../domain/services/llm-line-proposer.service';
 
 /**
  * ApplicationModule
@@ -90,6 +91,7 @@ const DomainServices = [
   ShiftSlotGeneratorService,
   MembershipAssignmentService,
   WeekScheduleBuilder,
+  LLMLineProposerService,
 ];
 
 @Module({

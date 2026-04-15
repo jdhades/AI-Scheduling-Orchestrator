@@ -282,13 +282,23 @@ export class WeekScheduleBuilder {
     }
 
     // Paso 3a — Propuesta del LLM (si la hay) para este empleado/día.
+    // Solo aceptamos la sugerencia cuando apunta a un slot elegible y no
+    // satura un target. `rest` se IGNORA: el LLM no puede forzar descansos
+    // sin respaldo de reglas hard (feriado / bloqueos explícitos ya
+    // capturados en los pasos 1–2). Si la sugerencia no sirve, seguimos al
+    // paso 3b / 4 y que la distribución determinística decida.
     const llmPick = llmLines?.get(emp.id)?.[date];
-    if (llmPick === 'rest') {
-      return { type: 'rest', reason: 'llm-rest' };
-    }
-    if (llmPick) {
+    if (llmPick && llmPick !== 'rest') {
       const suggested = eligible.find((s) => s.templateId === llmPick);
-      if (suggested) return { type: 'assign', slot: suggested, origin: 'membership' };
+      if (suggested) {
+        const fill = fillBySlot.get(suggested.slotKey) ?? 0;
+        const target = suggested.requiredEmployees;
+        const underOrElastic =
+          target === null || target === undefined || fill < target;
+        if (underOrElastic) {
+          return { type: 'assign', slot: suggested, origin: 'membership' };
+        }
+      }
     }
 
     // Paso 3b — Membership activa ese día que caiga en un slot elegible.
