@@ -281,12 +281,26 @@ export class WeekScheduleBuilder {
       return { type: 'rest', reason: 'no-eligible-template' };
     }
 
-    // Paso 3a — Propuesta del LLM (si la hay) para este empleado/día.
+    // Paso 3a — Membership activa ese día: es regla hard (el manager la
+    // configuró explícitamente). Gana sobre sugerencias del LLM.
+    const memberOptions = eligible.filter((slot) =>
+      memberships.some(
+        (m) => m.templateId === slot.templateId && m.isActiveOn(date),
+      ),
+    );
+    if (memberOptions.length > 0) {
+      const ranked = memberOptions
+        .map((s) => ({ slot: s, fill: fillBySlot.get(s.slotKey) ?? 0 }))
+        .sort((a, b) => a.fill - b.fill);
+      return { type: 'assign', slot: ranked[0].slot, origin: 'membership' };
+    }
+
+    // Paso 3b — Propuesta del LLM (si la hay) para este empleado/día.
     // Solo aceptamos la sugerencia cuando apunta a un slot elegible y no
     // satura un target. `rest` se IGNORA: el LLM no puede forzar descansos
     // sin respaldo de reglas hard (feriado / bloqueos explícitos ya
     // capturados en los pasos 1–2). Si la sugerencia no sirve, seguimos al
-    // paso 3b / 4 y que la distribución determinística decida.
+    // paso 4 y que la distribución determinística decida.
     const llmPick = llmLines?.get(emp.id)?.[date];
     if (llmPick && llmPick !== 'rest') {
       const suggested = eligible.find((s) => s.templateId === llmPick);
@@ -299,21 +313,6 @@ export class WeekScheduleBuilder {
           return { type: 'assign', slot: suggested, origin: 'membership' };
         }
       }
-    }
-
-    // Paso 3b — Membership activa ese día que caiga en un slot elegible.
-    const memberOptions = eligible.filter((slot) =>
-      memberships.some(
-        (m) => m.templateId === slot.templateId && m.isActiveOn(date),
-      ),
-    );
-    if (memberOptions.length > 0) {
-      // Entre varias memberships del mismo empleado ese día, preferir la
-      // menos saturada para ayudar con la distribución.
-      const ranked = memberOptions
-        .map((s) => ({ slot: s, fill: fillBySlot.get(s.slotKey) ?? 0 }))
-        .sort((a, b) => a.fill - b.fill);
-      return { type: 'assign', slot: ranked[0].slot, origin: 'membership' };
     }
 
     // Paso 4 — Distribución libre con tres prioridades:
