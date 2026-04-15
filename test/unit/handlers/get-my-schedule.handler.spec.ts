@@ -3,31 +3,61 @@ import { I18nService } from 'nestjs-i18n';
 import { GetMyScheduleHandler } from '../../../src/application/handlers/get-my-schedule.handler';
 import { GetMyScheduleQuery } from '../../../src/application/queries/get-my-schedule.query';
 import {
-  SHIFT_REPOSITORY,
-  IShiftRepository,
-} from '../../../src/domain/repositories/shift.repository';
-import { Shift } from '../../../src/domain/aggregates/shift.aggregate';
+  SHIFT_ASSIGNMENT_REPOSITORY,
+  IShiftAssignmentRepository,
+} from '../../../src/domain/repositories/shift-assignment.repository';
 import { ShiftAssignment } from '../../../src/domain/aggregates/shift-assignment.aggregate';
+import type { ShiftTemplate } from '../../../src/domain/aggregates/shift-template.aggregate';
+
+function makeAssignment(
+  id: string,
+  templateId: string,
+  date: string,
+): ShiftAssignment {
+  return ShiftAssignment.create({
+    id,
+    templateId,
+    date,
+    employeeId: 'emp-1',
+    companyId: 'comp-1',
+    origin: 'membership',
+    strategyType: 'hybrid',
+    fairnessSnapshot: {},
+  });
+}
+
+function makeTemplate(
+  id: string,
+  startTime: string,
+  endTime: string,
+): ShiftTemplate {
+  return { id, startTime, endTime } as unknown as ShiftTemplate;
+}
 
 describe('GetMyScheduleHandler', () => {
   let handler: GetMyScheduleHandler;
-  let mockShiftRepo: jest.Mocked<IShiftRepository>;
+  let mockRepo: jest.Mocked<IShiftAssignmentRepository>;
+  let mockTemplateRepo: { findById: jest.Mock };
 
   beforeEach(async () => {
-    mockShiftRepo = {
-      findById: jest.fn(),
-      findByCompanyAndWeek: jest.fn(),
-      findAssignmentsByEmployee: jest.fn(),
+    mockRepo = {
       save: jest.fn(),
-      assignEmployee: jest.fn(),
-      removeAssignment: jest.fn(),
+      deleteById: jest.fn(),
+      deleteByDateRange: jest.fn(),
+      findById: jest.fn(),
+      findByEmployeeAndDateRange: jest.fn().mockResolvedValue([]),
+      findByCompanyAndDateRange: jest.fn(),
+      findBySlot: jest.fn(),
       resolveShortId: jest.fn(),
     } as any;
+    mockTemplateRepo = { findById: jest.fn() };
 
     const mockI18nService = {
       t: jest.fn().mockImplementation((key) => {
-        if (key === 'bot.schedule.none_this_week') return '📅 No tienes turnos asignados esta semana.';
-        if (key === 'bot.schedule.title_that_week') return '📅 *Tu horario para la semana del';
+        if (key === 'bot.schedule.none_this_week')
+          return '📅 No tienes turnos asignados esta semana.';
+        if (key === 'bot.schedule.title_that_week')
+          return '📅 *Tu horario para la semana del';
         if (key === 'bot.schedule.anything_else') return '¿Necesitas algo más?';
         return key;
       }),
@@ -36,96 +66,69 @@ describe('GetMyScheduleHandler', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GetMyScheduleHandler,
-        { provide: SHIFT_REPOSITORY, useValue: mockShiftRepo },
+        { provide: SHIFT_ASSIGNMENT_REPOSITORY, useValue: mockRepo },
+        { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockTemplateRepo },
         { provide: I18nService, useValue: mockI18nService },
       ],
     }).compile();
 
-    handler = module.get<GetMyScheduleHandler>(GetMyScheduleHandler);
+    handler = module.get(GetMyScheduleHandler);
 
     jest.useFakeTimers();
-    const now = new Date('2026-03-02T12:00:00Z'); // 2026-03-02 is Monday
-    jest.setSystemTime(now);
+    jest.setSystemTime(new Date('2026-03-02T12:00:00Z'));
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  it('should return a message if the employee has no shifts', async () => {
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([]);
+  it('returns a fallback message when employee has no assignments', async () => {
+    mockRepo.findByEmployeeAndDateRange.mockResolvedValue([]);
 
     const result = await handler.execute(
       new GetMyScheduleQuery('emp-1', 'comp-1'),
     );
 
     expect(result).toBe('📅 No tienes turnos asignados esta semana.');
-    expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
+    expect(mockRepo.findByEmployeeAndDateRange).toHaveBeenCalledWith(
       'emp-1',
       'comp-1',
-      expect.any(Date),
-      expect.any(Date),
+      expect.any(String),
+      expect.any(String),
     );
   });
 
-  it('should format and return the employee schedule', async () => {
-    const monday = new Date('2026-03-02T08:00:00Z');
+  it('formats the schedule combining template times with the assignment date', async () => {
+    const a1 = makeAssignment('a1', 'tpl-day', '2026-03-02');
+    const a2 = makeAssignment('a2', 'tpl-late', '2026-03-03');
 
-    const shift1 = {
-      id: 'shift-1',
-      startTime: new Date('2026-03-02T08:00:00Z'),
-      endTime: new Date('2026-03-02T16:00:00Z'),
-    } as unknown as Shift;
-
-    const shift2 = {
-      id: 'shift-2',
-      startTime: new Date('2026-03-03T10:00:00Z'),
-      endTime: new Date('2026-03-03T18:00:00Z'),
-    } as unknown as Shift;
-
-    // Create assignments first so we can attach Supabase-joined shift data
-    const assignment1 = ShiftAssignment.create({
-      id: 'a1',
-      shiftId: 'shift-1',
-      employeeId: 'emp-1',
-      companyId: 'comp-1',
-      strategyType: 'HYBRID' as any,
-      fairnessSnapshot: {},
+    mockRepo.findByEmployeeAndDateRange.mockResolvedValue([a1, a2]);
+    mockTemplateRepo.findById.mockImplementation(async (id: string) => {
+      if (id === 'tpl-day') return makeTemplate('tpl-day', '08:00', '16:00');
+      if (id === 'tpl-late') return makeTemplate('tpl-late', '10:00', '18:00');
+      return null;
     });
-    // Attach Supabase-joined shift data (mimics what findAssignmentsByEmployee returns from DB)
-    (assignment1 as any).shifts = { startTime: shift1.startTime, endTime: shift1.endTime };
-
-    const assignment2 = ShiftAssignment.create({
-      id: 'a2',
-      shiftId: 'shift-2',
-      employeeId: 'emp-1',
-      companyId: 'comp-1',
-      strategyType: 'HYBRID' as any,
-      fairnessSnapshot: {},
-    });
-    (assignment2 as any).shifts = { startTime: shift2.startTime, endTime: shift2.endTime };
-
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([assignment1, assignment2]);
-    mockShiftRepo.findByCompanyAndWeek.mockResolvedValue([shift1, shift2]);
 
     const result = await handler.execute(
       new GetMyScheduleQuery('emp-1', 'comp-1', '2026-03-02'),
     );
 
     expect(result).toContain('📅 *Tu horario para la semana del');
-    expect(result).toContain('(ID: shift-');
+    expect(result).toContain('(ID: a1');
+    expect(result).toContain('(ID: a2');
     expect(result).toContain('¿Necesitas algo más?');
   });
 
-  it('should calculate current monday properly when weekStart is not provided', async () => {
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([]);
+  it('queries for the current ISO week when weekStart is omitted', async () => {
+    mockRepo.findByEmployeeAndDateRange.mockResolvedValue([]);
 
     await handler.execute(new GetMyScheduleQuery('emp-1', 'comp-1'));
 
-    const callArgs = mockShiftRepo.findAssignmentsByEmployee.mock.calls[0];
-    const monday = callArgs[2] as Date;
-    expect(monday.getDay()).toBe(1); // 1 = Monday
-    expect(monday.getHours()).toBe(0);
-    expect(monday.getMinutes()).toBe(0);
+    const [empId, companyId, from, to] =
+      mockRepo.findByEmployeeAndDateRange.mock.calls[0];
+    expect(empId).toBe('emp-1');
+    expect(companyId).toBe('comp-1');
+    expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

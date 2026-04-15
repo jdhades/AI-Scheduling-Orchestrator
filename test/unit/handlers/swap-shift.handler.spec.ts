@@ -4,77 +4,65 @@ import { SwapShiftHandler } from '../../../src/application/handlers/swap-shift.h
 import { SwapShiftCommand } from '../../../src/application/commands/swap-shift.command';
 import { ShiftSwapRequestedEvent } from '../../../src/domain/events/shift-swap-requested.event';
 import {
-  SHIFT_REPOSITORY,
-  IShiftRepository,
-} from '../../../src/domain/repositories/shift.repository';
+  SHIFT_ASSIGNMENT_REPOSITORY,
+  IShiftAssignmentRepository,
+} from '../../../src/domain/repositories/shift-assignment.repository';
 import { ShiftAssignment } from '../../../src/domain/aggregates/shift-assignment.aggregate';
+
+function makeAssignment(id: string, employeeId: string): ShiftAssignment {
+  return ShiftAssignment.create({
+    id,
+    templateId: 'tpl-1',
+    date: '2026-03-05',
+    employeeId,
+    companyId: 'c1',
+    origin: 'membership',
+    strategyType: 'hybrid',
+    fairnessSnapshot: {},
+  });
+}
 
 describe('SwapShiftHandler', () => {
   let handler: SwapShiftHandler;
-  let mockShiftRepo: jest.Mocked<IShiftRepository>;
+  let mockRepo: jest.Mocked<IShiftAssignmentRepository>;
   let mockEventBus: jest.Mocked<EventBus>;
 
   beforeEach(async () => {
-    mockShiftRepo = {
-      findById: jest.fn(),
-      findByCompanyAndWeek: jest.fn(),
-      findAssignmentsByEmployee: jest.fn(),
-      findAssignmentsByCompanyAndWeek: jest.fn(),
+    mockRepo = {
       save: jest.fn(),
-      saveAssignment: jest.fn(),
-      deleteAssignment: jest.fn(),
+      deleteById: jest.fn(),
+      deleteByDateRange: jest.fn(),
+      findById: jest.fn(),
+      findByEmployeeAndDateRange: jest.fn(),
+      findByCompanyAndDateRange: jest.fn(),
+      findBySlot: jest.fn(),
       resolveShortId: jest.fn(),
     } as any;
 
-    mockEventBus = {
-      publish: jest.fn(),
-    } as any;
+    mockEventBus = { publish: jest.fn() } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SwapShiftHandler,
-        { provide: SHIFT_REPOSITORY, useValue: mockShiftRepo },
+        { provide: SHIFT_ASSIGNMENT_REPOSITORY, useValue: mockRepo },
         { provide: EventBus, useValue: mockEventBus },
       ],
     }).compile();
 
-    handler = module.get<SwapShiftHandler>(SwapShiftHandler);
+    handler = module.get(SwapShiftHandler);
     jest.clearAllMocks();
   });
 
-  it('should successfully emit a shift swap requested event', async () => {
-    mockShiftRepo.findAssignmentsByEmployee.mockImplementation(
-      async (empId) => {
-        if (empId === 'req-1') {
-          return [
-            ShiftAssignment.create({
-              id: 'a1',
-              shiftId: 'shift-1',
-              employeeId: 'req-1',
-              companyId: 'c1',
-              strategyType: 'HYBRID' as any,
-              fairnessSnapshot: {},
-            }),
-          ];
-        }
-        if (empId === 'tgt-1') {
-          return [
-            ShiftAssignment.create({
-              id: 'a2',
-              shiftId: 'shift-2',
-              employeeId: 'tgt-1',
-              companyId: 'c1',
-              strategyType: 'HYBRID' as any,
-              fairnessSnapshot: {},
-            }),
-          ];
-        }
-        return [];
-      },
-    );
+  it('emits ShiftSwapRequestedEvent on valid swap', async () => {
+    mockRepo.findById.mockImplementation(async (id) => {
+      if (id === 'a1') return makeAssignment('a1', 'req-1');
+      if (id === 'a2') return makeAssignment('a2', 'tgt-1');
+      return null;
+    });
 
-    const command = new SwapShiftCommand('req-1', 'shift-1', 'tgt-1', 'shift-2', 'comp-1');
-    const result = await handler.execute(command);
+    const result = await handler.execute(
+      new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1'),
+    );
 
     expect(result.swapRequestId).toMatch(/^swap-\d+$/);
     expect(mockEventBus.publish).toHaveBeenCalledWith(
@@ -82,37 +70,24 @@ describe('SwapShiftHandler', () => {
     );
   });
 
-  it('should throw if requester is not assigned to the shift', async () => {
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([]);
-
-    const command = new SwapShiftCommand('req-1', 'shift-1', 'tgt-1', 'shift-2', 'comp-1');
-    await expect(handler.execute(command)).rejects.toThrow(
-      'Shift shift-1 is not assigned to the requesting employee',
-    );
+  it('throws if the requester assignment does not belong to requester', async () => {
+    mockRepo.findById.mockResolvedValue(null);
+    await expect(
+      handler.execute(
+        new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1'),
+      ),
+    ).rejects.toThrow('Assignment a1 is not assigned to the requesting employee');
   });
 
-  it('should throw if target is not assigned to the target shift', async () => {
-    mockShiftRepo.findAssignmentsByEmployee.mockImplementation(
-      async (empId) => {
-        if (empId === 'req-1') {
-          return [
-            ShiftAssignment.create({
-              id: 'a1',
-              shiftId: 'shift-1',
-              employeeId: 'req-1',
-              companyId: 'c1',
-              strategyType: 'HYBRID' as any,
-              fairnessSnapshot: {},
-            }),
-          ];
-        }
-        return []; // target has no assignments
-      },
-    );
-
-    const command = new SwapShiftCommand('req-1', 'shift-1', 'tgt-1', 'shift-2', 'comp-1');
-    await expect(handler.execute(command)).rejects.toThrow(
-      'Shift shift-2 is not assigned to the target employee',
-    );
+  it('throws if the target assignment does not belong to target', async () => {
+    mockRepo.findById.mockImplementation(async (id) => {
+      if (id === 'a1') return makeAssignment('a1', 'req-1');
+      return null;
+    });
+    await expect(
+      handler.execute(
+        new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1'),
+      ),
+    ).rejects.toThrow('Assignment a2 is not assigned to the target employee');
   });
 });

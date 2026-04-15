@@ -14,13 +14,14 @@ import {
   INotificationService,
 } from '../../../src/domain/services/notification.service';
 import {
-  SHIFT_REPOSITORY,
-  IShiftRepository,
-} from '../../../src/domain/repositories/shift.repository';
+  SHIFT_ASSIGNMENT_REPOSITORY,
+  IShiftAssignmentRepository,
+} from '../../../src/domain/repositories/shift-assignment.repository';
 import {
   EMPLOYEE_REPOSITORY,
   IEmployeeRepository,
 } from '../../../src/domain/repositories/employee.repository';
+import { ShiftSlotGeneratorService } from '../../../src/domain/services/shift-slot-generator.service';
 import { ConversationSessionRepository } from '../../../src/infrastructure/conversational/conversation-session.repository';
 import { CommandMapperService } from '../../../src/application/conversational/command-mapper.service';
 import { ConversationIntentVO } from '../../../src/domain/value-objects/conversation-intent.vo';
@@ -36,9 +37,10 @@ describe('MessageRouterService', () => {
   let mockCommandMapper: jest.Mocked<CommandMapperService>;
   let mockCommandBus: jest.Mocked<CommandBus>;
   let mockQueryBus: jest.Mocked<QueryBus>;
-  let mockShiftRepo: jest.Mocked<IShiftRepository>;
+  let mockAssignmentRepo: jest.Mocked<IShiftAssignmentRepository>;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
   let mockShiftTemplateRepo: any;
+  let mockSlotGenerator: jest.Mocked<ShiftSlotGeneratorService>;
 
   beforeEach(async () => {
     mockConversationalService = {
@@ -68,14 +70,19 @@ describe('MessageRouterService', () => {
       execute: jest.fn(),
     } as any;
 
-    mockShiftRepo = {
-      findByCompanyAndWeek: jest.fn(),
-      findAssignmentsByEmployee: jest.fn(),
-      findAssignmentsByCompanyAndWeek: jest.fn(),
+    mockAssignmentRepo = {
       save: jest.fn(),
-      saveAssignment: jest.fn(),
-      deleteAssignment: jest.fn(),
+      deleteById: jest.fn(),
+      deleteByDateRange: jest.fn(),
+      findById: jest.fn(),
+      findByEmployeeAndDateRange: jest.fn(),
+      findByCompanyAndDateRange: jest.fn().mockResolvedValue([]),
+      findBySlot: jest.fn(),
       resolveShortId: jest.fn(),
+    } as any;
+
+    mockSlotGenerator = {
+      generateSlotsForWeek: jest.fn().mockReturnValue([]),
     } as any;
 
     mockEmployeeRepo = {
@@ -107,8 +114,9 @@ describe('MessageRouterService', () => {
           useValue: mockConversationalService,
         },
         { provide: NOTIFICATION_SERVICE, useValue: mockNotificationService },
-        { provide: SHIFT_REPOSITORY, useValue: mockShiftRepo },
+        { provide: SHIFT_ASSIGNMENT_REPOSITORY, useValue: mockAssignmentRepo },
         { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepo },
+        { provide: ShiftSlotGeneratorService, useValue: mockSlotGenerator },
         {
           provide: ConversationSessionRepository,
           useValue: mockSessionRepository,
@@ -158,7 +166,7 @@ describe('MessageRouterService', () => {
         clarificationMessage: null,
       });
 
-      mockShiftRepo.resolveShortId.mockResolvedValueOnce('550e8400-e29b-41d4-a716-446655440000');
+      mockAssignmentRepo.resolveShortId.mockResolvedValueOnce('550e8400-e29b-41d4-a716-446655440000');
       const expectedCommandToExecute = new ReportAbsenceCommand('emp', '550e8400-e29b-41d4-a716-446655440000', 'enfermo', 'comp');
 
       await service.route(msg);

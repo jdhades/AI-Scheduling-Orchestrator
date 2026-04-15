@@ -1,13 +1,12 @@
-import { ScheduleValidatorService } from '../../../src/domain/services/schedule-validator.service';
+import {
+  ScheduleValidatorService,
+  type BusyAssignment,
+} from '../../../src/domain/services/schedule-validator.service';
 import { Employee } from '../../../src/domain/aggregates/employee.aggregate';
-import { Shift } from '../../../src/domain/aggregates/shift.aggregate';
+import { VirtualShiftSlot } from '../../../src/domain/value-objects/virtual-shift-slot.vo';
 import { PhoneNumber } from '../../../src/domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../../src/domain/value-objects/experience-level.vo';
-import { DemandWeight } from '../../../src/domain/value-objects/demand-weight.vo';
-import { UndesirableWeight } from '../../../src/domain/value-objects/undesirable-weight.vo';
 import { EmployeeAvailability } from '../../../src/domain/value-objects/employee-availability.vo';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const RANGES = { junior: 6, intermediate: 24, senior: 999 };
 const NO_RULES: any[] = [];
@@ -27,21 +26,28 @@ function makeEmployee(
   });
 }
 
-function makeShift(id: string, startIso: string, endIso: string): Shift {
-  return Shift.create({
-    id,
+function makeSlot(templateId: string, startIso: string, endIso: string): VirtualShiftSlot {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const date = start.toISOString().split('T')[0];
+  return VirtualShiftSlot.create({
+    templateId,
     companyId: 'company-1',
-    startTime: new Date(startIso),
-    endTime: new Date(endIso),
-    requiredSkillId: null,
-    requiredSkillLevel: 'junior',
-    requiredExperienceMonths: 0,
-    demandScore: DemandWeight.create(5),
-    undesirableWeight: UndesirableWeight.create(1),
+    date,
+    startTime: start,
+    endTime: end,
+    templateName: templateId,
   });
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+function busyFromSlot(slot: VirtualShiftSlot): BusyAssignment {
+  return {
+    slotKey: slot.slotKey,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    overlapsWith: (other) => slot.overlapsWith(other),
+  };
+}
 
 describe('ScheduleValidatorService — Phase 1 Constraints', () => {
   let validator: ScheduleValidatorService;
@@ -50,23 +56,17 @@ describe('ScheduleValidatorService — Phase 1 Constraints', () => {
     validator = new ScheduleValidatorService();
   });
 
-  // ─── Structural Availability ──────────────────────────────────────────────
-
   describe('Structural Availability (Hard Constraint)', () => {
     it('passes when employee has no availability windows (always available)', () => {
-      const emp = makeEmployee('e1', []); // empty = no restriction
-      const shift = makeShift(
-        's1',
-        '2026-03-09T09:00:00Z',
-        '2026-03-09T17:00:00Z',
-      ); // Monday
-      const assigned = new Map([['e1', []]]);
+      const emp = makeEmployee('e1', []);
+      const slot = makeSlot('s1', '2026-03-09T09:00:00Z', '2026-03-09T17:00:00Z');
+      const assigned = new Map<string, BusyAssignment[]>([['e1', []]]);
 
       const result = validator.validate(
-        's1',
+        slot.slotKey,
         'e1',
         [emp],
-        [shift],
+        [slot],
         assigned,
         NO_RULES,
       );
@@ -74,43 +74,33 @@ describe('ScheduleValidatorService — Phase 1 Constraints', () => {
     });
 
     it('passes when employee has a matching availability window', () => {
-      // Monday (dayOfWeek=1) 09:00–17:00
       const mondayWindow = new EmployeeAvailability('a1', 1, '09:00', '17:00');
       const emp = makeEmployee('e1', [mondayWindow]);
-      const shift = makeShift(
-        's1',
-        '2026-03-09T09:00:00Z',
-        '2026-03-09T17:00:00Z',
-      ); // Monday
-      const assigned = new Map([['e1', []]]);
+      const slot = makeSlot('s1', '2026-03-09T09:00:00Z', '2026-03-09T17:00:00Z');
+      const assigned = new Map<string, BusyAssignment[]>([['e1', []]]);
 
       const result = validator.validate(
-        's1',
+        slot.slotKey,
         'e1',
         [emp],
-        [shift],
+        [slot],
         assigned,
         NO_RULES,
       );
       expect(result.valid).toBe(true);
     });
 
-    it('fails when shift falls outside all availability windows', () => {
-      // Only Monday window, but shift is on Tuesday
+    it('fails when slot falls outside all availability windows', () => {
       const mondayWindow = new EmployeeAvailability('a1', 1, '09:00', '17:00');
       const emp = makeEmployee('e1', [mondayWindow]);
-      const shift = makeShift(
-        's1',
-        '2026-03-10T09:00:00Z',
-        '2026-03-10T17:00:00Z',
-      ); // Tuesday
-      const assigned = new Map([['e1', []]]);
+      const slot = makeSlot('s1', '2026-03-10T09:00:00Z', '2026-03-10T17:00:00Z'); // Tuesday
+      const assigned = new Map<string, BusyAssignment[]>([['e1', []]]);
 
       const result = validator.validate(
-        's1',
+        slot.slotKey,
         'e1',
         [emp],
-        [shift],
+        [slot],
         assigned,
         NO_RULES,
       );
@@ -121,30 +111,18 @@ describe('ScheduleValidatorService — Phase 1 Constraints', () => {
     });
   });
 
-  // ─── Minimum Shift Gap (Anti-Clopening) ───────────────────────────────────
-
   describe('Minimum Shift Gap — removed (manager decides on residual rest)', () => {
-    it('does NOT block when shifts are back-to-back (gap=0)', () => {
-      // Anti-"clopening" ya no es hard constraint: el manager revisa el horario
-      // y ajusta si hace falta. Solo sigue siendo hard el solapamiento directo.
+    it('does NOT block when shifts are back-to-back on different days', () => {
       const emp = makeEmployee('e1', []);
-      const prevShift = makeShift(
-        's-prev',
-        '2026-03-09T14:00:00Z',
-        '2026-03-09T22:00:00Z',
-      );
-      const nextShift = makeShift(
-        's-next',
-        '2026-03-10T06:00:00Z',
-        '2026-03-10T14:00:00Z',
-      );
-      const assigned = new Map([['e1', [prevShift]]]);
+      const prev = makeSlot('s-prev', '2026-03-09T14:00:00Z', '2026-03-09T22:00:00Z');
+      const next = makeSlot('s-next', '2026-03-10T06:00:00Z', '2026-03-10T14:00:00Z');
+      const assigned = new Map<string, BusyAssignment[]>([['e1', [busyFromSlot(prev)]]]);
 
       const result = validator.validate(
-        's-next',
+        next.slotKey,
         'e1',
         [emp],
-        [prevShift, nextShift],
+        [prev, next],
         assigned,
         NO_RULES,
       );

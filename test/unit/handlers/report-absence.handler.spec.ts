@@ -8,17 +8,45 @@ import {
   IEmployeeRepository,
 } from '../../../src/domain/repositories/employee.repository';
 import {
-  SHIFT_REPOSITORY,
-  IShiftRepository,
-} from '../../../src/domain/repositories/shift.repository';
+  SHIFT_ASSIGNMENT_REPOSITORY,
+  IShiftAssignmentRepository,
+} from '../../../src/domain/repositories/shift-assignment.repository';
 import { Employee } from '../../../src/domain/aggregates/employee.aggregate';
-import { Shift } from '../../../src/domain/aggregates/shift.aggregate';
 import { ShiftAssignment } from '../../../src/domain/aggregates/shift-assignment.aggregate';
+import { ShiftTemplate } from '../../../src/domain/aggregates/shift-template.aggregate';
+
+function makeTemplate(id: string, startTime: string): ShiftTemplate {
+  return {
+    id,
+    startTime,
+    endTime: '23:00',
+    companyId: 'comp-1',
+  } as unknown as ShiftTemplate;
+}
+
+function makeAssignment(
+  id: string,
+  templateId: string,
+  date: string,
+  employeeId: string,
+): ShiftAssignment {
+  return ShiftAssignment.create({
+    id,
+    templateId,
+    date,
+    employeeId,
+    companyId: 'comp-1',
+    origin: 'membership',
+    strategyType: 'hybrid',
+    fairnessSnapshot: {},
+  });
+}
 
 describe('ReportAbsenceHandler', () => {
   let handler: ReportAbsenceHandler;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
-  let mockShiftRepo: jest.Mocked<IShiftRepository>;
+  let mockAssignmentRepo: jest.Mocked<IShiftAssignmentRepository>;
+  let mockTemplateRepo: { findById: jest.Mock };
   let mockEventBus: jest.Mocked<EventBus>;
 
   beforeEach(async () => {
@@ -30,24 +58,27 @@ describe('ReportAbsenceHandler', () => {
       update: jest.fn(),
     } as any;
 
-    mockShiftRepo = {
-      findById: jest.fn(),
-      findByCompanyAndWeek: jest.fn(),
-      findAssignmentsByEmployee: jest.fn(),
+    mockAssignmentRepo = {
       save: jest.fn(),
-      assignEmployee: jest.fn(),
-      deleteAssignment: jest.fn(),
+      deleteById: jest.fn(),
+      deleteByDateRange: jest.fn(),
+      findById: jest.fn(),
+      findByEmployeeAndDateRange: jest.fn(),
+      findByCompanyAndDateRange: jest.fn(),
+      findBySlot: jest.fn(),
+      resolveShortId: jest.fn(),
     } as any;
 
-    mockEventBus = {
-      publish: jest.fn(),
-    } as any;
+    mockTemplateRepo = { findById: jest.fn() };
+
+    mockEventBus = { publish: jest.fn() } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReportAbsenceHandler,
         { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepo },
-        { provide: SHIFT_REPOSITORY, useValue: mockShiftRepo },
+        { provide: SHIFT_ASSIGNMENT_REPOSITORY, useValue: mockAssignmentRepo },
+        { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockTemplateRepo },
         { provide: EventBus, useValue: mockEventBus },
       ],
     }).compile();
@@ -61,110 +92,63 @@ describe('ReportAbsenceHandler', () => {
     jest.clearAllMocks();
   });
 
-  it('should successfully emit absence reported event (not urgent)', async () => {
-    const now = new Date('2026-03-05T12:00:00Z');
-    jest.setSystemTime(now);
+  it('emits AbsenceReportedEvent (not urgent) when shift starts >2h away', async () => {
+    jest.setSystemTime(new Date('2026-03-05T12:00:00Z'));
 
     const requester = { id: 'req-1' } as Employee;
-    const shift = {
-      id: 'shift-1',
-      startTime: new Date('2026-03-05T16:00:00Z'), // 4 hours away -> not urgent
-    } as unknown as Shift;
+    const assignment = makeAssignment('a1', 'tpl-1', '2026-03-05', 'req-1');
 
     mockEmployeeRepo.findById.mockResolvedValue(requester);
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([
-      ShiftAssignment.create({
-        id: 'a1',
-        shiftId: 'shift-1',
-        employeeId: 'req-1',
-        companyId: 'comp-1',
-        strategyType: 'HYBRID' as any,
-        fairnessSnapshot: {},
-      }),
-    ]);
-    mockShiftRepo.findByCompanyAndWeek.mockResolvedValue([shift]);
+    mockAssignmentRepo.findById.mockResolvedValue(assignment);
+    mockTemplateRepo.findById.mockResolvedValue(makeTemplate('tpl-1', '16:00'));
 
-    const command = new ReportAbsenceCommand(
-      'req-1',
-      'shift-1',
-      'Sick',
-      'comp-1',
+    await handler.execute(
+      new ReportAbsenceCommand('req-1', 'a1', 'Sick', 'comp-1'),
     );
-    await handler.execute(command);
 
+    expect(mockAssignmentRepo.deleteById).toHaveBeenCalledWith('a1', 'comp-1');
     expect(mockEventBus.publish).toHaveBeenCalledWith(
       expect.any(AbsenceReportedEvent),
     );
-    const eventArgs = mockEventBus.publish.mock
-      .calls[0][0] as AbsenceReportedEvent;
-    expect(eventArgs.employeeId).toBe('req-1');
-    expect(eventArgs.shiftId).toBe('shift-1');
-    expect(eventArgs.reason).toBe('Sick');
-    expect(eventArgs.isUrgent).toBe(false);
+    const event = mockEventBus.publish.mock.calls[0][0] as AbsenceReportedEvent;
+    expect(event.employeeId).toBe('req-1');
+    expect(event.shiftId).toBe('a1');
+    expect(event.reason).toBe('Sick');
+    expect(event.isUrgent).toBe(false);
   });
 
-  it('should flag the absence as urgent if shift starts in less than 2 hours', async () => {
-    const now = new Date('2026-03-05T12:00:00Z');
-    jest.setSystemTime(now);
+  it('flags as urgent when the shift starts <2h away', async () => {
+    jest.setSystemTime(new Date('2026-03-05T12:00:00Z'));
 
     const requester = { id: 'req-1' } as Employee;
-    const shift = {
-      id: 'shift-1',
-      startTime: new Date('2026-03-05T13:00:00Z'), // 1 hour away -> urgent
-    } as unknown as Shift;
+    const assignment = makeAssignment('a2', 'tpl-1', '2026-03-05', 'req-1');
 
     mockEmployeeRepo.findById.mockResolvedValue(requester);
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([
-      ShiftAssignment.create({
-        id: 'a2',
-        shiftId: 'shift-1',
-        employeeId: 'req-1',
-        companyId: 'comp-1',
-        strategyType: 'HYBRID' as any,
-        fairnessSnapshot: {},
-      }),
-    ]);
-    mockShiftRepo.findByCompanyAndWeek.mockResolvedValue([shift]);
+    mockAssignmentRepo.findById.mockResolvedValue(assignment);
+    mockTemplateRepo.findById.mockResolvedValue(makeTemplate('tpl-1', '13:00'));
 
-    const command = new ReportAbsenceCommand(
-      'req-1',
-      'shift-1',
-      'Car breakdown',
-      'comp-1',
+    await handler.execute(
+      new ReportAbsenceCommand('req-1', 'a2', 'Car breakdown', 'comp-1'),
     );
-    await handler.execute(command);
 
-    const eventArgs = mockEventBus.publish.mock
-      .calls[0][0] as AbsenceReportedEvent;
-    expect(eventArgs.isUrgent).toBe(true);
+    const event = mockEventBus.publish.mock.calls[0][0] as AbsenceReportedEvent;
+    expect(event.isUrgent).toBe(true);
   });
 
-  it('should throw an error if the employee is not found', async () => {
+  it('throws when the employee is not found', async () => {
     mockEmployeeRepo.findById.mockResolvedValue(null);
-    const command = new ReportAbsenceCommand(
-      'bad-id',
-      'shift-id',
-      'Sick',
-      'comp-1',
-    );
-    await expect(handler.execute(command)).rejects.toThrow(
-      'Employee not found',
-    );
+    await expect(
+      handler.execute(new ReportAbsenceCommand('bad', 'a1', 'Sick', 'comp-1')),
+    ).rejects.toThrow('Employee not found');
   });
 
-  it('should throw an error if the shift is not assigned to the employee', async () => {
-    const requester = { id: 'req-1' } as Employee;
-    mockEmployeeRepo.findById.mockResolvedValue(requester);
-    mockShiftRepo.findAssignmentsByEmployee.mockResolvedValue([]); // Unassigned
-
-    const command = new ReportAbsenceCommand(
-      'req-1',
-      'shift-id',
-      'Sick',
-      'comp-1',
+  it('throws when assignment does not belong to employee', async () => {
+    mockEmployeeRepo.findById.mockResolvedValue({ id: 'req-1' } as Employee);
+    mockAssignmentRepo.findById.mockResolvedValue(
+      makeAssignment('a3', 'tpl-1', '2026-03-05', 'other-emp'),
     );
-    await expect(handler.execute(command)).rejects.toThrow(
-      'Shift shift-id is not assigned to employee',
-    );
+    await expect(
+      handler.execute(new ReportAbsenceCommand('req-1', 'a3', 'Sick', 'comp-1')),
+    ).rejects.toThrow('Assignment a3 is not assigned to employee req-1');
   });
 });

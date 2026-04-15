@@ -87,7 +87,7 @@ describe('CommandMapperService', () => {
       expect(result.command).toBeInstanceOf(ReportAbsenceCommand);
       const cmd = result.command as ReportAbsenceCommand;
       expect(cmd.employeeId).toBe('empId');
-      expect(cmd.shiftId).toBe('shift-abc');
+      expect(cmd.assignmentId).toBe('shift-abc');
       expect(cmd.reason).toBe('enfermo');
       expect(cmd.companyId).toBe('compId');
       expect(result.missingFields).toEqual([]);
