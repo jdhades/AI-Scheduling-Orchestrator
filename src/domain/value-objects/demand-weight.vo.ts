@@ -4,7 +4,7 @@
  * Representa la urgencia de cubrir un turno específico.
  * 0 = turno opcional, 10 = turno crítico (no puede quedar sin cubrir)
  *
- * Usado por HybridStrategy para priorizar la cobertura de turnos urgentes.
+ * Usado por `WeekScheduleBuilder` para priorizar la cobertura de turnos urgentes.
  */
 export class DemandWeight {
   static readonly MIN = 0;

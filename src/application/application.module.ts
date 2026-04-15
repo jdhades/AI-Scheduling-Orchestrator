@@ -7,7 +7,6 @@ import { InitiateHandshakeHandler } from './handlers/initiate-handshake.handler'
 import { VerifyHandshakeHandler } from './handlers/verify-handshake.handler';
 import { HandshakeInitiatedHandler } from './handlers/handshake-initiated.handler';
 import { HandshakeVerifiedHandler } from './handlers/handshake-verified.handler';
-import { GenerateScheduleHandler } from './handlers/generate-schedule.handler';
 import { GenerateHybridScheduleHandler } from './handlers/generate-hybrid-schedule.handler';
 import { GetCompanyScheduleHandler } from './handlers/get-company-schedule.handler';
 import { CreateSemanticRuleHandler } from './handlers/create-semantic-rule.handler';
@@ -31,12 +30,9 @@ import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.service';
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
-import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
-import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
 import { RuleStructureExtractor } from '../domain/services/rule-structure-extractor.service';
 import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
 import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
-import { MembershipAssignmentService } from '../domain/services/membership-assignment.service';
 import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
 import { LLMLineProposerService } from '../domain/services/llm-line-proposer.service';
 
@@ -52,7 +48,6 @@ const CommandHandlers = [
   RegisterEmployeeHandler,
   InitiateHandshakeHandler,
   VerifyHandshakeHandler,
-  GenerateScheduleHandler,
   GenerateHybridScheduleHandler,
   CreateSemanticRuleHandler,
   DeleteSemanticRuleHandler,
@@ -84,12 +79,9 @@ const ConversationalServices = [MessageRouterService, CommandMapperService];
 const DomainServices = [
   SemanticRetrievalService,
   ConflictResolutionEngine,
-  PromptOrchestratorService,
-  ScheduleValidatorService,
   RuleStructureExtractor,
   StructuredRuleResolver,
   ShiftSlotGeneratorService,
-  MembershipAssignmentService,
   WeekScheduleBuilder,
   LLMLineProposerService,
 ];
