@@ -1,84 +1,77 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
 import { GetUpcomingShiftsQuery } from '../queries/get-upcoming-shifts.query';
-import type { IShiftRepository } from '../../domain/repositories/shift.repository';
-import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
-import type { Shift } from '../../domain/aggregates/shift.aggregate';
+import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import type { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 
 export interface UpcomingShiftDto {
+  /** UUID PK de la assignment — el identificador canónico para swap/absence. */
+  assignmentId: string;
+  /** Alias deprecated; mismo valor que `assignmentId`. */
   shiftId: string;
   startTime: Date;
   endTime: Date;
 }
 
 @QueryHandler(GetUpcomingShiftsQuery)
-export class GetUpcomingShiftsHandler implements IQueryHandler<
-  GetUpcomingShiftsQuery,
-  UpcomingShiftDto[]
-> {
+export class GetUpcomingShiftsHandler
+  implements IQueryHandler<GetUpcomingShiftsQuery, UpcomingShiftDto[]>
+{
   constructor(
-    @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
+    @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
+    private readonly assignmentRepo: IShiftAssignmentRepository,
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly templateRepo: IShiftTemplateRepository,
   ) {}
 
   async execute(query: GetUpcomingShiftsQuery): Promise<UpcomingShiftDto[]> {
     const { employeeId, companyId, limit } = query;
 
     const now = new Date();
-    const twoWeeksFromNow = new Date(now);
-    twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+    const in14Days = new Date(now);
+    in14Days.setDate(in14Days.getDate() + 14);
 
-    const assignments = await this.shiftRepo.findAssignmentsByEmployee(
+    const fromISO = now.toISOString().split('T')[0];
+    const toISO = in14Days.toISOString().split('T')[0];
+
+    const assignments = await this.assignmentRepo.findByEmployeeAndDateRange(
       employeeId,
       companyId,
-      now,
-      twoWeeksFromNow,
+      fromISO,
+      toISO,
     );
+    if (assignments.length === 0) return [];
 
-    if (assignments.length === 0) {
-      return [];
-    }
-
-    const monday1 = this._getMonday(now);
-    const nextWeek = new Date(monday1);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const monday2 = this._getMonday(nextWeek);
-
-    const shiftsWeek1 = await this.shiftRepo.findByCompanyAndWeek(
-      companyId,
-      monday1,
+    const templateIds = Array.from(new Set(assignments.map((a) => a.templateId)));
+    const templates = new Map<string, ShiftTemplate>();
+    await Promise.all(
+      templateIds.map(async (id) => {
+        const t = await this.templateRepo.findById(id, companyId);
+        if (t) templates.set(id, t);
+      }),
     );
-    const shiftsWeek2 = await this.shiftRepo.findByCompanyAndWeek(
-      companyId,
-      monday2,
-    );
-    const allShifts = [...shiftsWeek1, ...shiftsWeek2];
 
     const upcoming: UpcomingShiftDto[] = [];
-    for (const assignment of assignments) {
-      const shift = allShifts.find((s) => s.id === assignment.shiftId);
-      if (!shift) continue;
-      // Only upcoming shifts
-      if (shift.endTime > now) {
-        upcoming.push({
-          shiftId: shift.id,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-        });
-      }
+    for (const a of assignments) {
+      const tpl = templates.get(a.templateId);
+      if (!tpl) continue;
+      const start = this._combine(a.date, tpl.startTime);
+      let end = this._combine(a.date, tpl.endTime);
+      if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+      if (end <= now) continue;
+      upcoming.push({ assignmentId: a.id, shiftId: a.id, startTime: start, endTime: end });
     }
 
-    // Sort by start time ascending
-    upcoming.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-
+    upcoming.sort((x, y) => x.startTime.getTime() - y.startTime.getTime());
     return upcoming.slice(0, limit);
   }
 
-  private _getMonday(date: Date): Date {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
+  private _combine(dateISO: string, hhmm: string): Date {
+    const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
+    const d = new Date(`${dateISO}T00:00:00Z`);
+    d.setUTCHours(h, m, 0, 0);
     return d;
   }
 }

@@ -134,6 +134,27 @@ export class SupabaseShiftAssignmentRepository
     return (data ?? []).map((r) => this.toDomain(r));
   }
 
+  async resolveShortId(
+    shortId: string,
+    companyId: string,
+  ): Promise<string | null> {
+    const trimmed = shortId.trim();
+    if (!trimmed) return null;
+    const { data, error } = await this.supabase
+      .from('shift_assignments')
+      .select('id')
+      .eq('company_id', companyId)
+      .ilike('id', `${trimmed}%`)
+      .limit(2);
+    if (error) {
+      throw new Error(
+        `ShiftAssignmentRepository.resolveShortId: ${error.message}`,
+      );
+    }
+    if (!data || data.length !== 1) return null;
+    return data[0].id as string;
+  }
+
   private toDomain(row: Record<string, any>): ShiftAssignment {
     return ShiftAssignment.fromPersistence({
       id: row.id,

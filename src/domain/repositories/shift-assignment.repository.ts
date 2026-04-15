@@ -52,4 +52,11 @@ export interface IShiftAssignmentRepository {
     dateISO: string,
     companyId: string,
   ): Promise<ShiftAssignment[]>;
+
+  /**
+   * Resuelve un ID corto (prefijo de los primeros caracteres del UUID) al
+   * UUID completo de la assignment. Usado por la UX de WhatsApp, donde el
+   * empleado ve IDs abreviados. Retorna null si no hay match único.
+   */
+  resolveShortId(shortId: string, companyId: string): Promise<string | null>;
 }

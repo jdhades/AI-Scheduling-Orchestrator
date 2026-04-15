@@ -2,18 +2,21 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { GetMyScheduleQuery } from '../queries/get-my-schedule.query';
-import type { IShiftRepository } from '../../domain/repositories/shift.repository';
-import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
-import type { Shift } from '../../domain/aggregates/shift.aggregate';
+import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
+import type { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 
 @QueryHandler(GetMyScheduleQuery)
-export class GetMyScheduleHandler implements IQueryHandler<
-  GetMyScheduleQuery,
-  string
-> {
+export class GetMyScheduleHandler
+  implements IQueryHandler<GetMyScheduleQuery, string>
+{
   constructor(
-    @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
+    @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
+    private readonly assignmentRepo: IShiftAssignmentRepository,
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly templateRepo: IShiftTemplateRepository,
     private readonly i18n: I18nService,
   ) {}
 
@@ -22,7 +25,6 @@ export class GetMyScheduleHandler implements IQueryHandler<
 
     let monday = this._getCurrentMonday();
     if (weekStart) {
-      // Force noon to avoid UTC midnight dropping into the previous day locally
       monday = new Date(weekStart + 'T12:00:00');
       const day = monday.getDay();
       const diff = monday.getDate() - day + (day === 0 ? -6 : 1);
@@ -33,33 +35,61 @@ export class GetMyScheduleHandler implements IQueryHandler<
     sunday.setDate(sunday.getDate() + 6);
     sunday.setHours(23, 59, 59, 999);
 
-    const assignments = await this.shiftRepo.findAssignmentsByEmployee(
+    const fromISO = monday.toISOString().split('T')[0];
+    const toISO = sunday.toISOString().split('T')[0];
+
+    const assignments = await this.assignmentRepo.findByEmployeeAndDateRange(
       employeeId,
       companyId,
-      monday,
-      sunday,
+      fromISO,
+      toISO,
     );
 
     if (assignments.length === 0) {
       if (weekStart) {
-        const dateStr = monday.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { day: 'numeric', month: 'short' });
-        return this.i18n.t('bot.schedule.none_that_week', { lang: locale, args: { date: dateStr } });
+        const dateStr = monday.toLocaleDateString(
+          locale === 'en' ? 'en-US' : 'es-ES',
+          { day: 'numeric', month: 'short' },
+        );
+        return this.i18n.t('bot.schedule.none_that_week', {
+          lang: locale,
+          args: { date: dateStr },
+        });
       }
       return this.i18n.t('bot.schedule.none_this_week', { lang: locale });
     }
 
-    return this._formatSchedule(assignments, locale, weekStart, monday);
+    const templateIds = Array.from(new Set(assignments.map((a) => a.templateId)));
+    const templates = new Map<string, ShiftTemplate>();
+    await Promise.all(
+      templateIds.map(async (id) => {
+        const t = await this.templateRepo.findById(id, companyId);
+        if (t) templates.set(id, t);
+      }),
+    );
+
+    return this._formatSchedule(assignments, templates, locale, weekStart, monday);
   }
 
   private _formatSchedule(
     assignments: ShiftAssignment[],
+    templates: Map<string, ShiftTemplate>,
     locale: string,
     hasWeekStart?: string,
     monday?: Date,
   ): string {
-    const title = hasWeekStart && monday
-      ? this.i18n.t('bot.schedule.title_that_week', { lang: locale, args: { date: monday.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { day: 'numeric', month: 'short' }) } })
-      : this.i18n.t('bot.schedule.title_this_week', { lang: locale });
+    const title =
+      hasWeekStart && monday
+        ? this.i18n.t('bot.schedule.title_that_week', {
+            lang: locale,
+            args: {
+              date: monday.toLocaleDateString(
+                locale === 'en' ? 'en-US' : 'es-ES',
+                { day: 'numeric', month: 'short' },
+              ),
+            },
+          })
+        : this.i18n.t('bot.schedule.title_this_week', { lang: locale });
     const lines: string[] = [title, ''];
     const dayEmoji: Record<number, string> = {
       0: '🌞',
@@ -71,23 +101,26 @@ export class GetMyScheduleHandler implements IQueryHandler<
       6: '🌞',
     };
 
-    const assignmentsByDay = new Map<number, any[]>();
-    for (const assignment of assignments) {
-      const shiftData = (assignment as any).shifts;
-      if (!shiftData || !shiftData.startTime) continue;
-      const start = new Date(shiftData.startTime);
-      const day = start.getDay(); // 0 is Sunday, 1 is Monday...
-      if (!assignmentsByDay.has(day)) assignmentsByDay.set(day, []);
-      assignmentsByDay.get(day)!.push({ assignment, start, end: new Date(shiftData.endTime) });
+    type Row = {
+      assignment: ShiftAssignment;
+      start: Date;
+      end: Date;
+    };
+    const byDay = new Map<number, Row[]>();
+    for (const a of assignments) {
+      const tpl = templates.get(a.templateId);
+      if (!tpl) continue;
+      const start = this._combine(a.date, tpl.startTime);
+      let end = this._combine(a.date, tpl.endTime);
+      if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+      const day = start.getDay();
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day)!.push({ assignment: a, start, end });
     }
 
     const code = locale === 'en' ? 'en-US' : 'es-ES';
-    
-    // We want to iterate Monday (1) through Sunday (0).
     const daysOrder = [1, 2, 3, 4, 5, 6, 0];
-    
-    // Let's use the provided monday to get exactly the dates.
-    let currentDayDate = monday ? new Date(monday) : this._getCurrentMonday();
+    const currentDayDate = monday ? new Date(monday) : this._getCurrentMonday();
 
     for (const dayIndex of daysOrder) {
       const dayName = currentDayDate.toLocaleDateString(code, {
@@ -97,14 +130,12 @@ export class GetMyScheduleHandler implements IQueryHandler<
       });
       const emoji = dayEmoji[dayIndex];
 
-      if (!assignmentsByDay.has(dayIndex)) {
+      if (!byDay.has(dayIndex)) {
         lines.push(`${emoji} ${dayName} — Día Libre 🌴`);
       } else {
-        const dayAssignments = assignmentsByDay.get(dayIndex)!;
-        // Sort explicitly by time just in case
-         dayAssignments.sort((a, b) => a.start.getTime() - b.start.getTime());
-        
-        for (const item of dayAssignments) {
+        const rows = byDay.get(dayIndex)!;
+        rows.sort((a, b) => a.start.getTime() - b.start.getTime());
+        for (const item of rows) {
           const startTime = item.start.toLocaleTimeString(code, {
             hour: '2-digit',
             minute: '2-digit',
@@ -114,16 +145,22 @@ export class GetMyScheduleHandler implements IQueryHandler<
             minute: '2-digit',
           });
           lines.push(
-            `${emoji} ${dayName} — ${startTime} a ${endTime} (ID: ${item.assignment.shiftId.substring(0, 6)})`,
+            `${emoji} ${dayName} — ${startTime} a ${endTime} (ID: ${item.assignment.id.substring(0, 6)})`,
           );
         }
       }
-      // advance to next day
       currentDayDate.setDate(currentDayDate.getDate() + 1);
     }
 
     lines.push('', this.i18n.t('bot.schedule.anything_else', { lang: locale }));
     return lines.join('\n');
+  }
+
+  private _combine(dateISO: string, hhmm: string): Date {
+    const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
+    const d = new Date(`${dateISO}T00:00:00Z`);
+    d.setUTCHours(h, m, 0, 0);
+    return d;
   }
 
   private _getCurrentMonday(): Date {

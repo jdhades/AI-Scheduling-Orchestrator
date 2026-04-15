@@ -2,82 +2,84 @@ import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
 import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { OpenShiftClaimedEvent } from '../../domain/events/open-shift-claimed.event';
-import type { IShiftRepository } from '../../domain/repositories/shift.repository';
-import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
+import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { randomUUID } from 'crypto';
 
 @CommandHandler(TakeOpenShiftCommand)
 export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftCommand> {
   constructor(
-    @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
+    @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
+    private readonly assignmentRepo: IShiftAssignmentRepository,
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly templateRepo: IShiftTemplateRepository,
     private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: TakeOpenShiftCommand): Promise<void> {
-    const { requesterId, currentShiftId, targetShiftId, companyId } = command;
+    const { requesterId, currentAssignmentId, targetSlotKey, companyId } = command;
 
-    // 1. Verify the requester's shift assignment
-    const requesterAssignments = await this.shiftRepo.findAssignmentsByEmployee(requesterId, companyId);
-    const requesterAssignment = requesterAssignments.find((a) => a.shiftId === currentShiftId);
-    
-    if (!requesterAssignment) {
-      throw new Error(`Shift ${currentShiftId} is not assigned to the requesting employee`);
-    }
-
-    // 2. Verify target shift is actually open
-    // Since our system assigns 1 person per shift, "open" means no active assignment exists for targetShiftId.
-    const weekStart = new Date();
-    const day = weekStart.getDay();
-    const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1);
-    weekStart.setDate(diff);
-    weekStart.setHours(0, 0, 0, 0);
-
-    const companyAssignmentsW1 = await this.shiftRepo.findAssignmentsByCompanyAndWeek(companyId, weekStart);
-    
-    const nextWeek = new Date(weekStart);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const companyAssignmentsW2 = await this.shiftRepo.findAssignmentsByCompanyAndWeek(companyId, nextWeek);
-
-    const targetAssignmentExists = [...companyAssignmentsW1, ...companyAssignmentsW2].find((a) => a.shiftId === targetShiftId);
-
-    if (targetAssignmentExists) {
-      throw new Error(`Shift ${targetShiftId} is no longer open or already assigned`);
-    }
-
-    // 3. Delete old assignment
-    await this.shiftRepo.deleteAssignment(requesterAssignment.id);
-
-    // 4. Create new assignment for target shift
-    // TODO(day-9-rework): este handler espera `targetShiftId` como identificador
-    // del slot, pero con el modelo nuevo el slot es (templateId, date). El
-    // command debe actualizarse para llevar ambos. Por ahora interpretamos
-    // `targetShiftId` como el slotKey con formato "templateId|YYYY-MM-DD".
-    const [targetTemplateId, targetDate] = targetShiftId.split('|');
-    if (!targetTemplateId || !targetDate) {
+    const requesterAssignment = await this.assignmentRepo.findById(
+      currentAssignmentId,
+      companyId,
+    );
+    if (!requesterAssignment || requesterAssignment.employeeId !== requesterId) {
       throw new Error(
-        `TakeOpenShiftHandler: invalid slot key "${targetShiftId}". Expected "templateId|YYYY-MM-DD".`,
+        `Assignment ${currentAssignmentId} is not assigned to the requesting employee`,
       );
     }
+
+    // El slot destino se expresa como "templateId|YYYY-MM-DD" (virtual, no persistido).
+    const [targetTemplateId, targetDate] = targetSlotKey.split('|');
+    if (!targetTemplateId || !targetDate) {
+      throw new Error(
+        `TakeOpenShiftHandler: invalid slot key "${targetSlotKey}". Expected "templateId|YYYY-MM-DD".`,
+      );
+    }
+
+    const template = await this.templateRepo.findById(targetTemplateId, companyId);
+    if (!template) {
+      throw new Error(`Template ${targetTemplateId} not found for company ${companyId}`);
+    }
+
+    // "Abierto" = capacidad del slot aún no alcanzada. Si requiredEmployees es
+    // null (opcional) cualquier toma libre cuenta; si es un número, respetar cap.
+    const existing = await this.assignmentRepo.findBySlot(
+      targetTemplateId,
+      targetDate,
+      companyId,
+    );
+    const cap = template.requiredEmployees;
+    if (cap !== null && cap !== undefined && existing.length >= cap) {
+      throw new Error(
+        `Slot ${targetSlotKey} is no longer open (${existing.length}/${cap} already filled)`,
+      );
+    }
+    if (existing.some((a) => a.employeeId === requesterId)) {
+      throw new Error(`Employee ${requesterId} is already assigned to slot ${targetSlotKey}`);
+    }
+
+    await this.assignmentRepo.deleteById(currentAssignmentId, companyId);
+
     const newAssignment = ShiftAssignment.create({
       id: randomUUID(),
       templateId: targetTemplateId,
       date: targetDate,
       employeeId: requesterId,
-      companyId: companyId,
+      companyId,
       origin: 'exception',
-      strategyType: 'hybrid', // manual override
+      strategyType: 'hybrid',
       fairnessSnapshot: {},
     });
-    
-    await this.shiftRepo.saveAssignment(newAssignment);
+    await this.assignmentRepo.save(newAssignment);
 
-    // 5. Emit domain event
     this.eventBus.publish(
       new OpenShiftClaimedEvent(
         requesterId,
-        currentShiftId,
-        targetShiftId,
+        currentAssignmentId,
+        newAssignment.id,
         companyId,
       ),
     );

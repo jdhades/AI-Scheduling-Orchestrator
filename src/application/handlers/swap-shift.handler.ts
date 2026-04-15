@@ -2,54 +2,52 @@ import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
 import { SwapShiftCommand } from '../commands/swap-shift.command';
 import { ShiftSwapRequestedEvent } from '../../domain/events/shift-swap-requested.event';
-import type { IShiftRepository } from '../../domain/repositories/shift.repository';
-import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
+import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 
 @CommandHandler(SwapShiftCommand)
 export class SwapShiftHandler implements ICommandHandler<SwapShiftCommand> {
   constructor(
-    @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
+    @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
+    private readonly assignmentRepo: IShiftAssignmentRepository,
     private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: SwapShiftCommand): Promise<{ swapRequestId: string }> {
-    const { requesterId, shiftId, targetEmployeeId, targetShiftId, companyId } =
-      command;
+    const {
+      requesterId,
+      assignmentId,
+      targetEmployeeId,
+      targetAssignmentId,
+      companyId,
+    } = command;
 
-    // 1. Verify the requester's shift assignment
-    const requesterAssignments =
-      await this.shiftRepo.findAssignmentsByEmployee(requesterId, companyId);
-    const requesterAssignment = requesterAssignments.find(
-      (a) => a.shiftId === shiftId,
+    const requesterAssignment = await this.assignmentRepo.findById(
+      assignmentId,
+      companyId,
     );
-    if (!requesterAssignment) {
+    if (!requesterAssignment || requesterAssignment.employeeId !== requesterId) {
       throw new Error(
-        `Shift ${shiftId} is not assigned to the requesting employee`,
+        `Assignment ${assignmentId} is not assigned to the requesting employee`,
       );
     }
 
-    // 2. Verify the target's shift assignment
-    const targetAssignments =
-      await this.shiftRepo.findAssignmentsByEmployee(
-        targetEmployeeId,
-        companyId,
-      );
-    const targetAssignment = targetAssignments.find(
-      (a) => a.shiftId === targetShiftId,
+    const targetAssignment = await this.assignmentRepo.findById(
+      targetAssignmentId,
+      companyId,
     );
-    if (!targetAssignment) {
+    if (!targetAssignment || targetAssignment.employeeId !== targetEmployeeId) {
       throw new Error(
-        `Shift ${targetShiftId} is not assigned to the target employee`,
+        `Assignment ${targetAssignmentId} is not assigned to the target employee`,
       );
     }
 
-    // 3. Emit domain event → listener notifies both employees
     const swapRequestId = `swap-${Date.now()}`;
     this.eventBus.publish(
       new ShiftSwapRequestedEvent(
         requesterId,
         targetEmployeeId,
-        shiftId,
+        assignmentId,
         companyId,
         swapRequestId,
       ),

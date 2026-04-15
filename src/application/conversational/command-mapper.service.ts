@@ -109,6 +109,7 @@ export class CommandMapperService {
         return {
           command: new ReportAbsenceCommand(
             employeeId,
+            // `entities.shiftId` ahora transporta el UUID de la assignment (nuevo modelo).
             mergedEntities.shiftId!,
             mergedEntities.reason!,
             companyId,

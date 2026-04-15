@@ -4,11 +4,14 @@ import type { IConversationalService } from '../../domain/services/conversationa
 import { CONVERSATIONAL_SERVICE } from '../../domain/services/conversational.service.interface';
 import type { INotificationService } from '../../domain/services/notification.service';
 import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service';
-import type { IShiftRepository } from '../../domain/repositories/shift.repository';
-import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
+import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
+import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
+import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { ConversationSessionRepository } from '../../infrastructure/conversational/conversation-session.repository';
 import { ConversationSessionVO } from '../../domain/value-objects/conversation-session.vo';
 import { ConversationIntentVO } from '../../domain/value-objects/conversation-intent.vo';
@@ -55,12 +58,13 @@ export class MessageRouterService {
     private readonly conversationalService: IConversationalService,
     @Inject(NOTIFICATION_SERVICE)
     private readonly notificationService: INotificationService,
-    @Inject(SHIFT_REPOSITORY)
-    private readonly shiftRepo: IShiftRepository,
+    @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
+    private readonly assignmentRepo: IShiftAssignmentRepository,
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepo: IEmployeeRepository,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly shiftTemplateRepo: IShiftTemplateRepository,
+    private readonly slotGenerator: ShiftSlotGeneratorService,
     private readonly sessionRepository: ConversationSessionRepository,
     private readonly commandMapper: CommandMapperService,
     private readonly commandBus: CommandBus,
@@ -619,25 +623,23 @@ export class MessageRouterService {
         return true;
       }
 
-      // Fetch all company shifts & assignments for the week
       const now = new Date();
-      const monday = this._getMonday(now);
-      const nextMonday = new Date(monday);
-      nextMonday.setDate(nextMonday.getDate() + 7);
+      const { slots: allSlots, assignments: allAssignments } =
+        await this._loadTwoWeekContext(companyId, now);
 
-      const [shiftsW1, shiftsW2, assignmentsW1, assignmentsW2] = await Promise.all([
-        this.shiftRepo.findByCompanyAndWeek(companyId, monday),
-        this.shiftRepo.findByCompanyAndWeek(companyId, nextMonday),
-        this.shiftRepo.findAssignmentsByCompanyAndWeek(companyId, monday),
-        this.shiftRepo.findAssignmentsByCompanyAndWeek(companyId, nextMonday),
-      ]);
-      const allShifts = [...shiftsW1, ...shiftsW2];
-      const allAssignments = [...assignmentsW1, ...assignmentsW2];
+      // Open slots: aún tienen capacidad libre (y el cierre es futuro)
+      const fillBySlotKey = new Map<string, number>();
+      for (const a of allAssignments) {
+        fillBySlotKey.set(a.slotKey, (fillBySlotKey.get(a.slotKey) ?? 0) + 1);
+      }
+      const openSlots = allSlots.filter((s) => {
+        if (s.endTime <= now) return false;
+        const cap = s.requiredEmployees;
+        if (cap === null || cap === undefined) return false;
+        return (fillBySlotKey.get(s.slotKey) ?? 0) < cap;
+      });
 
-      const assignedShiftIds = new Set(allAssignments.map((a) => a.shiftId));
-      const openShifts = allShifts.filter((s) => !assignedShiftIds.has(s.id) && s.endTime > now);
-
-      // Find other employees' assignments (exclude current user)
+      // Asignaciones de otros empleados (para swap con compañeros)
       const otherAssignments = allAssignments.filter(
         (a) => a.employeeId !== employeeId,
       );
@@ -645,7 +647,7 @@ export class MessageRouterService {
       let targetTypeFilter: 'OPEN' | 'SWAP';
 
       if (step === 'SELECT_OWN') {
-        const hasOpen = openShifts.length > 0;
+        const hasOpen = openSlots.length > 0;
         const hasSwap = otherAssignments.length > 0;
 
         if (!hasOpen && !hasSwap) {
@@ -686,9 +688,13 @@ export class MessageRouterService {
       const empMap = new Map(employees.map((e) => [e.id, e.name]));
 
       // Build options list (cap at 5)
-      const ownShiftRecord = allShifts.find((s) => s.id === shiftId);
-      const ownShiftDate = ownShiftRecord 
-        ? ownShiftRecord.startTime.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { weekday: 'short', month: 'short', day: 'numeric' })
+      // `shiftId` en este flujo transporta el UUID de la assignment propia.
+      const ownAssignment = allAssignments.find((a) => a.id === shiftId);
+      const ownSlot = ownAssignment
+        ? allSlots.find((s) => s.slotKey === ownAssignment.slotKey)
+        : undefined;
+      const ownShiftDate = ownSlot
+        ? ownSlot.startTime.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { weekday: 'short', month: 'short', day: 'numeric' })
         : '';
         
       let responseText = this.i18n.t('bot.swap.select_target_shift', { lang: locale, args: { date: ownShiftDate } }) + '\n\n';
@@ -699,59 +705,60 @@ export class MessageRouterService {
       };
 
       let count = 0;
-      
-      // 1. Add Open Shifts
+
+      // 1. Add Open Slots — el target se guarda como slotKey (templateId|YYYY-MM-DD)
       if (targetTypeFilter === 'OPEN') {
-        for (const shift of openShifts) {
+        for (const slot of openSlots) {
           if (count >= 5) break;
           count++;
           const desc = this._formatShiftLine({
-            shiftId: shift.id,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
+            shiftId: slot.slotKey,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
           }, locale);
           const openLabel = this.i18n.t('bot.swap.open_shift_label', { lang: locale, defaultValue: 'Turno Libre' });
           responseText += `${count}. *[${openLabel}]* — ${desc}\n`;
-          optionsEntities[`option${count}_shiftId`] = shift.id;
+          optionsEntities[`option${count}_shiftId`] = slot.slotKey;
           optionsEntities[`option${count}_type`] = 'OPEN';
         }
       }
 
-      // 2. Add Colleague Shifts
+      // 2. Add Colleague Assignments — agrupamos por slot (templateId|fecha)
       if (targetTypeFilter === 'SWAP') {
-        // Group assignments by Shift ID / Time Block
-        const groupedShifts = new Map<string, { shift: any, assignments: any[] }>();
+        const groupedBySlot = new Map<
+          string,
+          { slot: VirtualShiftSlot; assignments: ShiftAssignment[] }
+        >();
         for (const assignment of otherAssignments) {
-          const shift = allShifts.find((s) => s.id === assignment.shiftId);
-          if (!shift || shift.endTime <= now) continue;
-          
-          if (!groupedShifts.has(shift.id)) {
-            groupedShifts.set(shift.id, { shift, assignments: [] });
+          const slot = allSlots.find((s) => s.slotKey === assignment.slotKey);
+          if (!slot || slot.endTime <= now) continue;
+          if (!groupedBySlot.has(slot.slotKey)) {
+            groupedBySlot.set(slot.slotKey, { slot, assignments: [] });
           }
-          groupedShifts.get(shift.id)!.assignments.push(assignment);
+          groupedBySlot.get(slot.slotKey)!.assignments.push(assignment);
         }
 
-        // Render groups
-        for (const group of groupedShifts.values()) {
-          if (count >= 5) break; 
-          
+        for (const group of groupedBySlot.values()) {
+          if (count >= 5) break;
+
           const timeDesc = this._formatShiftLine({
-            shiftId: group.shift.id,
-            startTime: group.shift.startTime,
-            endTime: group.shift.endTime,
+            shiftId: group.slot.slotKey,
+            startTime: group.slot.startTime,
+            endTime: group.slot.endTime,
           }, locale);
-          
+
           responseText += `\n*${timeDesc}*\n`;
-          
+
           for (const assignment of group.assignments) {
-             if (count >= 5) break;
-             count++;
-             const empName = empMap.get(assignment.employeeId) || 'Compañero';
-             responseText += `${count}. ${empName}\n`;
-             
-             optionsEntities[`option${count}_shiftId`] = group.shift.id;
-             optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
-             optionsEntities[`option${count}_type`] = 'SWAP';
+            if (count >= 5) break;
+            count++;
+            const empName = empMap.get(assignment.employeeId) || 'Compañero';
+            responseText += `${count}. ${empName}\n`;
+
+            // Para swap con compañero guardamos el UUID de SU assignment.
+            optionsEntities[`option${count}_shiftId`] = assignment.id;
+            optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
+            optionsEntities[`option${count}_type`] = 'SWAP';
           }
         }
       }
@@ -781,27 +788,32 @@ export class MessageRouterService {
 
       const ownShiftId = sessionEntities.selectedOwnShiftId;
 
-      // Load shift details for confirmation
-      const monday = this._getMonday(new Date());
-      const nextMonday = new Date(monday);
-      nextMonday.setDate(nextMonday.getDate() + 7);
-      const [shiftsW1, shiftsW2] = await Promise.all([
-        this.shiftRepo.findByCompanyAndWeek(companyId, monday),
-        this.shiftRepo.findByCompanyAndWeek(companyId, nextMonday),
-      ]);
-      const allShifts = [...shiftsW1, ...shiftsW2];
+      const { slots: allSlots, assignments: allAssignments } =
+        await this._loadTwoWeekContext(companyId, new Date());
 
-      const ownShift = allShifts.find((s) => s.id === ownShiftId);
-      const targetShift = allShifts.find((s) => s.id === targetShiftId);
+      const ownAssignment = allAssignments.find((a) => a.id === ownShiftId);
+      const ownSlot = ownAssignment
+        ? allSlots.find((s) => s.slotKey === ownAssignment.slotKey)
+        : undefined;
+
+      // Target puede ser un slotKey (OPEN) o el UUID de la assignment del compañero (SWAP)
+      let targetSlot: VirtualShiftSlot | undefined;
+      if (targetType === 'OPEN') {
+        targetSlot = allSlots.find((s) => s.slotKey === targetShiftId);
+      } else {
+        const targetAssignment = allAssignments.find((a) => a.id === targetShiftId);
+        targetSlot = targetAssignment
+          ? allSlots.find((s) => s.slotKey === targetAssignment.slotKey)
+          : undefined;
+      }
 
       const employees = await this.employeeRepo.findAllByCompany(companyId);
-      const targetName = employees.find((e) => e.id === targetEmployeeId)?.name || 'Compañero';
 
-      const ownDesc = ownShift
-        ? this._formatShiftLine({ shiftId: ownShift.id, startTime: ownShift.startTime, endTime: ownShift.endTime }, locale)
+      const ownDesc = ownSlot
+        ? this._formatShiftLine({ shiftId: ownSlot.slotKey, startTime: ownSlot.startTime, endTime: ownSlot.endTime }, locale)
         : ownShiftId;
-      const targetDesc = targetShift
-        ? this._formatShiftLine({ shiftId: targetShift.id, startTime: targetShift.startTime, endTime: targetShift.endTime }, locale)
+      const targetDesc = targetSlot
+        ? this._formatShiftLine({ shiftId: targetSlot.slotKey, startTime: targetSlot.startTime, endTime: targetSlot.endTime }, locale)
         : targetShiftId;
 
       let confirmMsg = '';
@@ -925,14 +937,14 @@ export class MessageRouterService {
     let shiftId: string | undefined;
 
     if (command instanceof ReportAbsenceCommand) {
-      shiftId = command.shiftId;
+      shiftId = command.assignmentId;
     }
 
     if (!shiftId || shiftId.length >= UUID_LENGTH) {
       return command; // already a full UUID or not applicable
     }
 
-    const fullId = await this.shiftRepo.resolveShortId(shiftId, companyId);
+    const fullId = await this.assignmentRepo.resolveShortId(shiftId, companyId);
     if (!fullId) {
       this._reply(
         from,
@@ -972,6 +984,36 @@ export class MessageRouterService {
       minute: '2-digit',
     });
     return `${dateStr}, ${startHora}–${endHora}`;
+  }
+
+  /**
+   * Carga slots virtuales + asignaciones de la empresa para la semana que
+   * contiene `reference` y la siguiente. Base común para swap/open-shift.
+   */
+  private async _loadTwoWeekContext(
+    companyId: string,
+    reference: Date,
+  ): Promise<{ slots: VirtualShiftSlot[]; assignments: ShiftAssignment[] }> {
+    const monday = this._getMonday(reference);
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(nextMonday.getDate() + 7);
+
+    const templates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+    const activeTemplates = templates.filter((t) => t.isActive);
+    const slotsW1 = this.slotGenerator.generateSlotsForWeek(activeTemplates, monday);
+    const slotsW2 = this.slotGenerator.generateSlotsForWeek(activeTemplates, nextMonday);
+
+    const fromISO = monday.toISOString().split('T')[0];
+    const endSunday = new Date(nextMonday);
+    endSunday.setDate(endSunday.getDate() + 6);
+    const toISO = endSunday.toISOString().split('T')[0];
+    const assignments = await this.assignmentRepo.findByCompanyAndDateRange(
+      companyId,
+      fromISO,
+      toISO,
+    );
+
+    return { slots: [...slotsW1, ...slotsW2], assignments };
   }
 
   private _getMonday(date: Date): Date {
