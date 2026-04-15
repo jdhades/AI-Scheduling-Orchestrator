@@ -1,53 +1,46 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Employee } from '../aggregates/employee.aggregate';
-import type { Shift } from '../aggregates/shift.aggregate';
+import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
 import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interface';
 import type { WorkingTimePolicyVO } from '../value-objects/working-time-policy.vo';
 
-/**
- * Resultado de la validación de una propuesta de asignación del LLM.
- */
 export interface AssignmentValidationResult {
   valid: boolean;
-  shiftId: string;
+  slotKey: string;
   employeeId: string;
   violations: string[];
 }
 
 /**
+ * Entrada mínima que el validator conserva por empleado en el buffer de
+ * asignaciones ya aceptadas durante la generación. El `slotKey` es el
+ * identificador virtual (`templateId|YYYY-MM-DD`), no un UUID de BD.
+ */
+export interface BusyAssignment {
+  slotKey: string;
+  startTime: Date;
+  endTime: Date;
+  overlapsWith(other: { startTime: Date; endTime: Date }): boolean;
+}
+
+/**
  * ScheduleValidatorService — Servicio de dominio
  *
- * Valida que una asignación propuesta por el LLM respete todas las
- * restricciones duras del sistema:
- *  1. El empleado y el turno deben existir en el set actual
- *  2. El empleado debe tener la skill requerida por el turno
- *  3. No debe haber solapamiento con asignaciones previas del mismo empleado
- *  4. Las reglas semánticas de prioridad 1 (legales) no deben infringirse
- *
- * Esta es la "red de seguridad" del Prompt Orchestrator: garantiza que
- * el horario final nunca viole restricciones duras, aunque el LLM proponga
- * algo incorrecto.
+ * Red de seguridad del Prompt Orchestrator: cualquier asignación propuesta
+ * (por el LLM o por las strategies) pasa por aquí antes de aceptarse. El
+ * validator opera sobre VirtualShiftSlot — no conoce el modelo legacy Shift.
  */
 @Injectable()
 export class ScheduleValidatorService {
   private readonly logger = new Logger(ScheduleValidatorService.name);
-  /**
-   * Valida una propuesta de asignación individual.
-   *
-   * @param shiftId         ID del turno propuesto
-   * @param employeeId      ID del empleado propuesto
-   * @param employees       Conjunto de empleados disponibles
-   * @param shifts          Conjunto de turnos a cubrir
-   * @param alreadyAssigned Mapa employeeId → turnos ya asignados en este schedule
-   * @param semanticRules   Restricciones semánticas (del RAG)
-   */
+
   validate(
-    shiftId: string,
+    slotKey: string,
     employeeId: string,
     employees: Employee[],
-    shifts: Shift[],
-    alreadyAssigned: Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>,
+    slots: VirtualShiftSlot[],
+    alreadyAssigned: Map<string, BusyAssignment[]>,
     semanticRules: SemanticConstraint[],
     workingTimePolicies?: Map<string, WorkingTimePolicyVO>,
     multiShiftPermits?: Set<string>,
@@ -59,119 +52,100 @@ export class ScheduleValidatorService {
       (c) => c.employeeId && c.shiftId,
     ).length;
     this.logger.debug(
-      `validate(shift=${shiftId.slice(0, 8)} emp=${employeeId.slice(0, 8)}): ${semanticRules.length} rules (${hardCount} hard, ${resolvedCount} with resolved IDs)`,
+      `validate(slot=${slotKey.slice(0, 12)} emp=${employeeId.slice(0, 8)}): ${semanticRules.length} rules (${hardCount} hard, ${resolvedCount} with resolved IDs)`,
     );
 
-    // 1. Verificar existencia
     const employee = employees.find((e) => e.id === employeeId);
-    const shift = shifts.find((s) => s.id === shiftId);
+    const slot = slots.find((s) => s.slotKey === slotKey);
 
     if (!employee) {
       violations.push(
         `Employee ${employeeId} not found in current employee pool`,
       );
-      return { valid: false, shiftId, employeeId, violations };
+      return { valid: false, slotKey, employeeId, violations };
     }
 
-    if (!shift) {
-      violations.push(`Shift ${shiftId} not found in current shift list`);
-      return { valid: false, shiftId, employeeId, violations };
+    if (!slot) {
+      violations.push(`Slot ${slotKey} not found in current slot list`);
+      return { valid: false, slotKey, employeeId, violations };
     }
 
-    // 2. Verificar skill requerida
-    if (shift.requiredSkillId) {
+    if (slot.requiredSkillId) {
       const hasSkill = employee
         .getSkills()
-        .some((s) => s.id === shift.requiredSkillId);
+        .some((s) => s.id === slot.requiredSkillId);
       if (!hasSkill) {
         violations.push(
-          `Employee ${employeeId} lacks required skill ${shift.requiredSkillId} for shift ${shiftId}`,
+          `Employee ${employeeId} lacks required skill ${slot.requiredSkillId} for slot ${slotKey}`,
         );
       }
     }
 
-    // 3. Verificar solapamiento con turnos ya asignados
-    const existingShifts = alreadyAssigned.get(employeeId) ?? [];
-    const overlapping = existingShifts.find((s) => s.overlapsWith(shift));
+    const existing = alreadyAssigned.get(employeeId) ?? [];
+    const overlapping = existing.find((s) => s.overlapsWith(slot));
     if (overlapping) {
       violations.push(
-        `Employee ${employeeId} has overlapping shift ${overlapping.id} with proposed shift ${shiftId}`,
+        `Employee ${employeeId} has overlapping slot ${overlapping.slotKey} with proposed slot ${slotKey}`,
       );
     }
 
-    // 3b. Un turno por empleado por día (salvo permit explícito)
-    const shiftDay = shift.startTime.toISOString().split('T')[0];
-    const otherOnSameDay = existingShifts.find(
-      (s) => s.startTime.toISOString().split('T')[0] === shiftDay,
-    );
-    if (otherOnSameDay && otherOnSameDay.id !== shiftId) {
-      const permitted = multiShiftPermits?.has(`${employeeId}|${shiftDay}`);
+    // Un turno por empleado por día (salvo permit explícito)
+    const sameDay = existing.find((s) => s.slotKey !== slotKey && s.startTime.toISOString().split('T')[0] === slot.date);
+    if (sameDay) {
+      const permitted = multiShiftPermits?.has(`${employeeId}|${slot.date}`);
       if (!permitted) {
         violations.push(
-          `Employee ${employeeId} already has shift ${otherOnSameDay.id} on ${shiftDay} — only one shift per day unless explicitly permitted by a semantic rule`,
+          `Employee ${employeeId} already has slot ${sameDay.slotKey} on ${slot.date} — only one shift per day unless explicitly permitted by a semantic rule`,
         );
       }
     }
 
-    // 4. Verificar disponibilidad estructural del empleado (Hard Constraint)
-    if (!employee.isAvailable(shift.startTime, shift.endTime)) {
+    if (!employee.isAvailable(slot.startTime, slot.endTime)) {
       violations.push(
-        `Employee ${employeeId} has no availability window covering shift ${shiftId} ` +
-          `(${shift.startTime.toISOString()} – ${shift.endTime.toISOString()})`,
+        `Employee ${employeeId} has no availability window covering slot ${slotKey} ` +
+          `(${slot.startTime.toISOString()} – ${slot.endTime.toISOString()})`,
       );
     }
 
-    // workingTimePolicies reservado para futuras hard constraints (hoy no se aplica acá).
     void workingTimePolicies;
 
-    // 6. Hard Semantic Constraints (weight >= 2): el LLM nunca puede violarlas.
-    //    Mismo patrón que filterCandidatesForShift — solo bloquea si hay IDs resueltos
-    //    (por el LLM vía blocks[] o por el SemanticConstraintInterpreter).
     const hardSemanticBlocks = semanticRules.filter((c) => c.weight >= 2);
-
-    // 6a. Turno totalmente bloqueado (ej. feriado colectivo)
-    const shiftFullyBlocked = hardSemanticBlocks.some(
-      (c) =>
-        c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === shiftId,
+    const slotFullyBlocked = hardSemanticBlocks.some(
+      (c) => c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === slotKey,
     );
-    if (shiftFullyBlocked) {
+    if (slotFullyBlocked) {
       violations.push(
-        `Shift ${shiftId} is blocked for all employees by hard semantic rule (e.g. holiday)`,
+        `Slot ${slotKey} is blocked for all employees by hard semantic rule (e.g. holiday)`,
       );
     }
 
-    // 6b. Empleado concreto bloqueado para este turno
     const employeeBlocked = hardSemanticBlocks.some(
       (c) =>
         c.employeeId &&
         c.employeeId !== SEMANTIC_BLOCKED_ALL &&
         c.employeeId === employeeId &&
-        (!c.shiftId || c.shiftId === shiftId),
+        (!c.shiftId || c.shiftId === slotKey),
     );
     if (employeeBlocked) {
       violations.push(
-        `Employee ${employeeId} is blocked from shift ${shiftId} by hard semantic rule`,
+        `Employee ${employeeId} is blocked from slot ${slotKey} by hard semantic rule`,
       );
     }
 
     return {
       valid: violations.length === 0,
-      shiftId,
+      slotKey,
       employeeId,
       violations,
     };
   }
 
-  /**
-   * Comprueba si un empleado está disponible para un turno adicional
-   * (sin turnos solapados ya asignados).
-   */
   isAvailable(
     employee: Employee,
-    shift: Shift,
-    alreadyAssigned: Map<string, { id: string; startTime: Date; endTime: Date; overlapsWith: (other: Shift) => boolean }[]>,
+    slot: VirtualShiftSlot,
+    alreadyAssigned: Map<string, BusyAssignment[]>,
   ): boolean {
     const busy = alreadyAssigned.get(employee.id) ?? [];
-    return !busy.some((s) => s.overlapsWith(shift));
+    return !busy.some((s) => s.overlapsWith(slot));
   }
 }

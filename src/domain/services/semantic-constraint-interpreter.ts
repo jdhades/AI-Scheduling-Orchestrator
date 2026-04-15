@@ -1,5 +1,5 @@
 import type { Employee } from '../aggregates/employee.aggregate';
-import type { Shift } from '../aggregates/shift.aggregate';
+import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import {
   type SemanticConstraint,
   SEMANTIC_BLOCKED_ALL,
@@ -95,19 +95,18 @@ export class SemanticConstraintInterpreter {
   static interpret(
     constraints: SemanticConstraint[],
     employees: Employee[],
-    shifts: Shift[],
+    slots: VirtualShiftSlot[],
   ): SemanticConstraint[] {
-    if (constraints.length === 0 || shifts.length === 0) return constraints;
+    if (constraints.length === 0 || slots.length === 0) return constraints;
 
     const result: SemanticConstraint[] = [];
 
     for (const constraint of constraints) {
-      // Constraint ya resuelto por el LLM (tiene employeeId + shiftId concretos) — pasar directo.
       if (constraint.employeeId && constraint.shiftId) {
         result.push(constraint);
         continue;
       }
-      const expanded = this.expandConstraint(constraint, employees, shifts);
+      const expanded = this.expandConstraint(constraint, employees, slots);
       result.push(...expanded);
     }
 
@@ -117,7 +116,7 @@ export class SemanticConstraintInterpreter {
   private static expandConstraint(
     constraint: SemanticConstraint,
     employees: Employee[],
-    shifts: Shift[],
+    slots: VirtualShiftSlot[],
   ): SemanticConstraint[] {
     const ruleLower = constraint.rule.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -125,24 +124,22 @@ export class SemanticConstraintInterpreter {
       ruleLower.includes(p.normalize('NFD').replace(/[\u0300-\u036f]/g, '')),
     );
 
-    const matchingShifts = this.extractMatchingShifts(ruleLower, shifts);
+    const matchingSlots = this.extractMatchingSlots(ruleLower, slots);
     const matchingEmployees = this.extractMatchingEmployees(ruleLower, employees);
 
-    // Caso 1: "el 16 de abril nadie trabaja" → bloquear todos los empleados en esos turnos
-    if (isAllBlocked && matchingShifts.length > 0) {
-      return matchingShifts.map((shift) => ({
+    if (isAllBlocked && matchingSlots.length > 0) {
+      return matchingSlots.map((slot) => ({
         ...constraint,
-        shiftId: shift.id,
+        shiftId: slot.slotKey,
         employeeId: SEMANTIC_BLOCKED_ALL,
       }));
     }
 
-    // Caso 2: "Ana no puede trabajar los lunes" → bloquear empleados específicos en turnos específicos
-    if (matchingEmployees.length > 0 && matchingShifts.length > 0) {
+    if (matchingEmployees.length > 0 && matchingSlots.length > 0) {
       const expanded: SemanticConstraint[] = [];
       for (const emp of matchingEmployees) {
-        for (const shift of matchingShifts) {
-          expanded.push({ ...constraint, employeeId: emp.id, shiftId: shift.id });
+        for (const slot of matchingSlots) {
+          expanded.push({ ...constraint, employeeId: emp.id, shiftId: slot.slotKey });
         }
       }
       return expanded;
@@ -157,7 +154,7 @@ export class SemanticConstraintInterpreter {
     }
 
     // Caso 4: "el 16 de abril cerrado" sin detectar "nadie trabaja" pero con alta prioridad
-    if (isAllBlocked && matchingShifts.length === 0 && constraint.weight >= 2) {
+    if (isAllBlocked && matchingSlots.length === 0 && constraint.weight >= 2) {
       // No encontramos turnos concretos — devolver constraint original sin IDs
       return [constraint];
     }
@@ -167,15 +164,14 @@ export class SemanticConstraintInterpreter {
   }
 
   /**
-   * Extrae los turnos que coinciden con patrones de fecha/día en el texto de la regla.
+   * Extrae los slots virtuales que coinciden con patrones de fecha/día.
    */
-  private static extractMatchingShifts(
+  private static extractMatchingSlots(
     ruleLower: string,
-    shifts: Shift[],
-  ): Shift[] {
-    const matched = new Set<Shift>();
+    slots: VirtualShiftSlot[],
+  ): VirtualShiftSlot[] {
+    const matched = new Set<VirtualShiftSlot>();
 
-    // Patrón: "el 16 de abril", "el día 16 de abril", "el 16/04"
     const dayMonthPattern = /\b(\d{1,2})\s+de\s+(\w+)/g;
     let match: RegExpExecArray | null;
     while ((match = dayMonthPattern.exec(ruleLower)) !== null) {
@@ -183,7 +179,7 @@ export class SemanticConstraintInterpreter {
       const monthName = match[2].normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       const monthIndex = this.MONTH_NAMES[monthName];
       if (monthIndex !== undefined) {
-        shifts
+        slots
           .filter(
             (s) =>
               s.startTime.getUTCDate() === day &&
@@ -193,28 +189,23 @@ export class SemanticConstraintInterpreter {
       }
     }
 
-    // Patrón ISO: "2024-04-16"
     const isoPattern = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
     while ((match = isoPattern.exec(ruleLower)) !== null) {
       const isoStr = `${match[1]}-${match[2]}-${match[3]}`;
-      shifts
-        .filter((s) => s.startTime.toISOString().startsWith(isoStr))
-        .forEach((s) => matched.add(s));
+      slots.filter((s) => s.date === isoStr).forEach((s) => matched.add(s));
     }
 
-    // Patrón día de semana: "los lunes", "cada martes", "el viernes"
     for (const [dayName, dayIndex] of Object.entries(this.DAY_NAMES)) {
       const normalizedDay = dayName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       if (ruleLower.includes(normalizedDay)) {
-        shifts
+        slots
           .filter((s) => s.startTime.getUTCDay() === dayIndex)
           .forEach((s) => matched.add(s));
       }
     }
 
-    // Patrón "fin de semana"
     if (ruleLower.includes('fin de semana') || ruleLower.includes('weekend')) {
-      shifts
+      slots
         .filter((s) => {
           const day = s.startTime.getUTCDay();
           return day === 0 || day === 6;

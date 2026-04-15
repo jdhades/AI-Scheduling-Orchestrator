@@ -71,14 +71,31 @@ export class SchedulingEngine {
       };
     }
 
-    // Enriquecer constraints con IDs resueltos (employeeId, shiftId) antes de
-    // pasarlos a la estrategia. El intérprete hace pattern matching en el texto
-    // de cada regla para mapear nombres → IDs y fechas → shiftIds.
+    const slots: VirtualShiftSlot[] = shifts.map((s) =>
+      VirtualShiftSlot.create({
+        templateId: s.templateId ?? s.id,
+        companyId: s.companyId,
+        date: s.startTime.toISOString().split('T')[0],
+        startTime: s.startTime,
+        endTime: s.endTime,
+        templateName: (s as unknown as { name?: string }).name ?? '',
+        requiredSkillId: s.requiredSkillId ?? null,
+        requiredEmployees: s.requiredEmployees ?? 1,
+        demandScore: s.demandScore.value,
+        undesirableWeight: (s.undesirableWeight as unknown as { value?: number }).value ?? Number(s.undesirableWeight),
+      }),
+    );
+    const shiftBySlotKey = new Map<string, Shift>(
+      slots.map((slot, i) => [slot.slotKey, shifts[i]]),
+    );
+
+    // Enriquecer constraints con IDs resueltos (employeeId, shiftId como slotKey)
+    // antes de pasarlos a la estrategia.
     const rawConstraints = options.semanticConstraints ?? [];
     const resolvedConstraints = SemanticConstraintInterpreter.interpret(
       rawConstraints,
       employees,
-      shifts,
+      slots,
     );
 
     if (rawConstraints.length > 0) {
@@ -109,24 +126,6 @@ export class SchedulingEngine {
         );
       }
     }
-
-    const slots: VirtualShiftSlot[] = shifts.map((s) =>
-      VirtualShiftSlot.create({
-        templateId: s.templateId ?? s.id,
-        companyId: s.companyId,
-        date: s.startTime.toISOString().split('T')[0],
-        startTime: s.startTime,
-        endTime: s.endTime,
-        templateName: (s as unknown as { name?: string }).name ?? '',
-        requiredSkillId: s.requiredSkillId ?? null,
-        requiredEmployees: s.requiredEmployees ?? 1,
-        demandScore: s.demandScore.value,
-        undesirableWeight: (s.undesirableWeight as unknown as { value?: number }).value ?? Number(s.undesirableWeight),
-      }),
-    );
-    const shiftBySlotKey = new Map<string, Shift>(
-      slots.map((slot, i) => [slot.slotKey, shifts[i]]),
-    );
 
     const { assignments, unfilledSlots } = strategy.generate(
       employees,
