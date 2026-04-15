@@ -95,6 +95,8 @@ export class FairnessOptimizedStrategy implements SchedulingStrategy {
           origin: 'membership',
           strategyType: this.type,
           fairnessSnapshot: snapshot,
+          actualStartTime: slot.startTime,
+          actualEndTime: slot.endTime,
         }),
       );
       const currentHistory = liveHistory.get(winner.id)!;

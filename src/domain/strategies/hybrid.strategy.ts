@@ -135,6 +135,8 @@ export class HybridStrategy implements SchedulingStrategy {
             origin: 'membership',
             strategyType: this.type,
             fairnessSnapshot: snapshot,
+          actualStartTime: slot.startTime,
+          actualEndTime: slot.endTime,
           }),
         );
 
@@ -218,6 +220,8 @@ export class HybridStrategy implements SchedulingStrategy {
                 origin: 'membership',
                 strategyType: this.type,
                 fairnessSnapshot: snapshot,
+          actualStartTime: slot.startTime,
+          actualEndTime: slot.endTime,
               }),
             );
             fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);

@@ -215,6 +215,8 @@ export class PromptOrchestratorService {
             origin: 'membership',
             strategyType: 'hybrid',
             fairnessSnapshot: {},
+            actualStartTime: slot.startTime,
+            actualEndTime: slot.endTime,
           });
 
           llmAssignments.push(assignment);

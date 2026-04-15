@@ -7,11 +7,14 @@ export type AssignmentOrigin = 'membership' | 'override' | 'exception';
  * ShiftAssignment — Domain Aggregate
  *
  * Asignación de un empleado a un slot virtual (template + fecha concreta).
- * No referencia `shifts.id` (esa tabla fue eliminada). La instancia del turno
- * es virtual: se materializa en memoria al generar el horario.
+ * Las horas efectivas (`actualStartTime`/`actualEndTime`) son campos
+ * obligatorios que se inicializan desde `template.startTime/endTime + date`
+ * y son la única fuente de verdad del horario real. Un cambio puntual del
+ * manager ("Juan el jueves sale a las 13:00") edita estos campos sin tocar
+ * el template.
  *
  * `origin`:
- *  - 'membership'  → derivada de `shift_memberships` (flujo por defecto)
+ *  - 'membership'  → derivada de `shift_memberships` o flujo normal
  *  - 'override'    → puesta manualmente por el manager
  *  - 'exception'   → cambio puntual al patrón (swap, take-open, etc.)
  */
@@ -26,13 +29,13 @@ export class ShiftAssignment {
     public readonly assignedAt: Date,
     public readonly assignedByStrategy: StrategyType,
     public readonly fairnessSnapshot: Record<string, number>,
-    public readonly actualStartTime?: Date,
-    public readonly actualEndTime?: Date,
+    public readonly actualStartTime: Date,
+    public readonly actualEndTime: Date,
   ) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error(`ShiftAssignment.date must be YYYY-MM-DD, got: ${date}`);
     }
-    if (actualStartTime && actualEndTime && actualEndTime <= actualStartTime) {
+    if (actualEndTime <= actualStartTime) {
       throw new Error('actualEndTime must be after actualStartTime');
     }
   }
@@ -48,12 +51,19 @@ export class ShiftAssignment {
   /**
    * Alias deprecated para compatibilidad temporal con consumers que aún usan
    * `assignment.shiftId`. Devuelve `slotKey` — NO es el UUID del row en BD.
-   * Para operaciones CRUD sobre la persistencia, usar `.id`.
    *
    * @deprecated use `templateId + date` explicitly, or `.id` for DB operations.
    */
   get shiftId(): string {
     return this.slotKey;
+  }
+
+  /** Duración efectiva del turno en horas (considerando cruce de medianoche). */
+  getDuration(): number {
+    return (
+      (this.actualEndTime.getTime() - this.actualStartTime.getTime()) /
+      (1000 * 60 * 60)
+    );
   }
 
   static create(props: {
@@ -65,8 +75,8 @@ export class ShiftAssignment {
     origin: AssignmentOrigin;
     strategyType: StrategyType;
     fairnessSnapshot: Record<string, number>;
-    actualStartTime?: Date;
-    actualEndTime?: Date;
+    actualStartTime: Date;
+    actualEndTime: Date;
   }): ShiftAssignment {
     return new ShiftAssignment(
       props.id,
@@ -93,8 +103,8 @@ export class ShiftAssignment {
     assignedAt: Date;
     assignedByStrategy: StrategyType;
     fairnessSnapshot: Record<string, number>;
-    actualStartTime?: Date;
-    actualEndTime?: Date;
+    actualStartTime: Date;
+    actualEndTime: Date;
   }): ShiftAssignment {
     return new ShiftAssignment(
       props.id,

@@ -23,8 +23,8 @@ export class SupabaseShiftAssignmentRepository
       assigned_at: assignment.assignedAt.toISOString(),
       assigned_by_strategy: assignment.assignedByStrategy,
       fairness_snapshot: assignment.fairnessSnapshot,
-      actual_start_time: assignment.actualStartTime?.toISOString() ?? null,
-      actual_end_time: assignment.actualEndTime?.toISOString() ?? null,
+      actual_start_time: assignment.actualStartTime.toISOString(),
+      actual_end_time: assignment.actualEndTime.toISOString(),
     });
     if (error) {
       throw new Error(`ShiftAssignmentRepository.save: ${error.message}`);
@@ -166,10 +166,8 @@ export class SupabaseShiftAssignmentRepository
       assignedAt: new Date(row.assigned_at),
       assignedByStrategy: (row.assigned_by_strategy ?? 'hybrid') as StrategyType,
       fairnessSnapshot: row.fairness_snapshot ?? {},
-      actualStartTime: row.actual_start_time
-        ? new Date(row.actual_start_time)
-        : undefined,
-      actualEndTime: row.actual_end_time ? new Date(row.actual_end_time) : undefined,
+      actualStartTime: new Date(row.actual_start_time),
+      actualEndTime: new Date(row.actual_end_time),
     });
   }
 }

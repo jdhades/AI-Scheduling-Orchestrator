@@ -63,6 +63,18 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
 
     await this.assignmentRepo.deleteById(currentAssignmentId, companyId);
 
+    // Materializar horas efectivas desde el template + fecha (el cliente puede
+    // editarlas después si lo necesita).
+    const [sh, sm] = template.startTime.split(':').map(Number);
+    const [eh, em] = template.endTime.split(':').map(Number);
+    const actualStart = new Date(`${targetDate}T00:00:00Z`);
+    actualStart.setUTCHours(sh, sm, 0, 0);
+    let actualEnd = new Date(`${targetDate}T00:00:00Z`);
+    actualEnd.setUTCHours(eh, em, 0, 0);
+    if (actualEnd <= actualStart) {
+      actualEnd = new Date(actualEnd.getTime() + 24 * 60 * 60 * 1000);
+    }
+
     const newAssignment = ShiftAssignment.create({
       id: randomUUID(),
       templateId: targetTemplateId,
@@ -72,6 +84,8 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
       origin: 'exception',
       strategyType: 'hybrid',
       fairnessSnapshot: {},
+      actualStartTime: actualStart,
+      actualEndTime: actualEnd,
     });
     await this.assignmentRepo.save(newAssignment);
 

@@ -19,6 +19,8 @@ function makeAssignment(id: string, employeeId: string): ShiftAssignment {
     origin: 'membership',
     strategyType: 'hybrid',
     fairnessSnapshot: {},
+    actualStartTime: new Date('2026-03-05T08:00:00Z'),
+    actualEndTime: new Date('2026-03-05T16:00:00Z'),
   });
 }
 

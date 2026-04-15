@@ -39,6 +39,8 @@ function makeAssignment(
     origin: 'membership',
     strategyType: 'hybrid',
     fairnessSnapshot: {},
+    actualStartTime: new Date(`${date}T08:00:00Z`),
+    actualEndTime: new Date(`${date}T16:00:00Z`),
   });
 }
 

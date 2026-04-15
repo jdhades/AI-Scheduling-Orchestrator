@@ -99,6 +99,8 @@ export class MembershipAssignmentService {
             origin: 'membership',
             strategyType: 'hybrid',
             fairnessSnapshot: {},
+            actualStartTime: slot.startTime,
+            actualEndTime: slot.endTime,
           }),
         );
       }

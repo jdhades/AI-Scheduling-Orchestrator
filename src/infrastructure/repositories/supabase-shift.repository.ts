@@ -224,8 +224,8 @@ export class SupabaseShiftRepository implements IShiftRepository {
       assignedByStrategy: (row.assigned_by_strategy ??
         'hybrid') as StrategyType,
       fairnessSnapshot: row.fairness_snapshot ?? {},
-      actualStartTime: row.actual_start_time ? new Date(row.actual_start_time) : undefined,
-      actualEndTime: row.actual_end_time ? new Date(row.actual_end_time) : undefined,
+      actualStartTime: new Date(row.actual_start_time),
+      actualEndTime: new Date(row.actual_end_time),
     });
   }
 

@@ -105,6 +105,8 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
             origin: 'membership',
             strategyType: this.type,
             fairnessSnapshot: { ...snapshot },
+            actualStartTime: slot.startTime,
+            actualEndTime: slot.endTime,
           }),
         );
         filled++;
@@ -169,6 +171,8 @@ export class CostOptimizedStrategy implements SchedulingStrategy {
                 origin: 'membership',
                 strategyType: this.type,
                 fairnessSnapshot: { ...snapshot },
+            actualStartTime: slot.startTime,
+            actualEndTime: slot.endTime,
               }),
             );
             fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);
