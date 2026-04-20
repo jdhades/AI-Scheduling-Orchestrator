@@ -54,6 +54,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       undesirable_weight: template.undesirableWeight.value,
       is_active: template.isActive,
       required_employees: template.requiredEmployees,
+      target_mode: template.targetMode,
     });
     if (error)
       throw new Error(`ShiftTemplateRepository.save failed: ${error.message}`);
@@ -86,6 +87,11 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       undesirableWeight: UndesirableWeight.create(row.undesirable_weight),
       isActive: row.is_active,
       requiredEmployees: row.required_employees ?? null,
+      targetMode: (row.target_mode ?? null) as
+        | 'exact'
+        | 'minimum'
+        | 'aspirational'
+        | null,
     });
   }
 }

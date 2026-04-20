@@ -12,7 +12,6 @@ import {
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../../domain/services/week-schedule-builder.service';
-import { LLMLineProposerService } from '../../domain/services/llm-line-proposer.service';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -66,7 +65,6 @@ export class GenerateHybridScheduleHandler
     private readonly structuredRuleResolver: StructuredRuleResolver,
     private readonly shiftSlotGenerator: ShiftSlotGeneratorService,
     private readonly weekScheduleBuilder: WeekScheduleBuilder,
-    private readonly llmLineProposer: LLMLineProposerService,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly shiftTemplateRepository: IShiftTemplateRepository,
     @Inject(SHIFT_MEMBERSHIP_REPOSITORY)
@@ -233,20 +231,13 @@ export class GenerateHybridScheduleHandler
     void workingTimePolicies; // policies son informativas en este motor, no aplican caps hard
     void resolvedCapacities; // el builder lee slot.requiredEmployees directo
 
-    // LLM como proveedor de PREFERENCIAS (líneas semanales por empleado).
-    // Si el LLM no responde o su propuesta no es elegible, el builder usa su
-    // lógica determinística (pasos 2–5). El LLM nunca puede forzar reglas
-    // hard ni cerrar slots elásticos.
-    const llmLines = await this.llmLineProposer.proposeLines({
-      employees,
-      slots,
-      semanticRules,
-      weekStart,
-    });
-
-    // Motor employee-first: una línea por empleado resuelve las 7 celdas
-    // siguiendo los 5 pasos del diseño.
-    const buildResult = this.weekScheduleBuilder.build({
+    // Motor LLM-autoritario con guardarraíles:
+    //   1. Se pide al LLM que proponga líneas semanales.
+    //   2. Se verifica contra reglas hard (feriado, skill, one-per-day,
+    //      target=exact, referencias válidas).
+    //   3. Si viola algo, se le pide corregir (máx 2 reintentos totales).
+    //   4. Si sigue inválido, cae al motor determinístico como red de seguridad.
+    const buildResult = await this.weekScheduleBuilder.buildWithRetries({
       employees,
       slots,
       memberships,
@@ -255,7 +246,6 @@ export class GenerateHybridScheduleHandler
       multiShiftPermits: resolved.multiShiftPermits,
       weekStart,
       companyId: command.companyId,
-      llmLines,
     });
 
     const allAssignments = buildResult.assignments;

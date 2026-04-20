@@ -92,6 +92,7 @@ export class ShiftSlotGeneratorService {
             requiredEmployees: tpl.requiredEmployees,
             demandScore: tpl.demandScore.value,
             undesirableWeight: tpl.undesirableWeight.value,
+            targetMode: tpl.targetMode,
           }),
         );
       }

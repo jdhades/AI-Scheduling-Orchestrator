@@ -8,6 +8,8 @@
  * Reemplaza conceptualmente a la vieja aggregate `Shift` (que sí se persistía
  * en la tabla `shifts`, ya eliminada).
  */
+export type SlotTargetMode = 'exact' | 'minimum' | 'aspirational' | null;
+
 export class VirtualShiftSlot {
   private constructor(
     public readonly templateId: string,
@@ -20,6 +22,7 @@ export class VirtualShiftSlot {
     public readonly requiredEmployees: number | null, // null = opcional
     public readonly demandScore: number,
     public readonly undesirableWeight: number,
+    public readonly targetMode: SlotTargetMode = null,
   ) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error(`VirtualShiftSlot.date must be YYYY-MM-DD, got: ${date}`);
@@ -40,6 +43,7 @@ export class VirtualShiftSlot {
     requiredEmployees?: number | null;
     demandScore?: number;
     undesirableWeight?: number;
+    targetMode?: SlotTargetMode;
   }): VirtualShiftSlot {
     return new VirtualShiftSlot(
       props.templateId,
@@ -52,6 +56,7 @@ export class VirtualShiftSlot {
       props.requiredEmployees ?? null,
       props.demandScore ?? 1.0,
       props.undesirableWeight ?? 0.0,
+      props.targetMode ?? null,
     );
   }
 

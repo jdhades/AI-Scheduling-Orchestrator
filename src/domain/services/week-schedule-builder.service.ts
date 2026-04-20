@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { ShiftMembership } from '../aggregates/shift-membership.aggregate';
@@ -7,6 +7,31 @@ import { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
 import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
 import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interface';
+import { LLMLineProposerService } from './llm-line-proposer.service';
+
+/** Violación hard detectada por `verify()` en una propuesta del LLM. */
+export interface VerifyViolation {
+  kind:
+    | 'holiday-worked'
+    | 'exact-target-overfilled'
+    | 'exact-target-underfilled'
+    | 'employee-blocked'
+    | 'skill-mismatch'
+    | 'unknown-employee'
+    | 'unknown-template'
+    | 'two-shifts-same-day';
+  employeeId?: string;
+  date?: string;
+  slotKey?: string;
+  message: string;
+}
+
+export interface BuildWithRetriesResult extends BuilderResult {
+  /** Intentos consumidos (1 = LLM clavó, 2 = corrigió, 3 = cayó a determinístico). */
+  attempts: number;
+  /** True si el LLM no pudo y se usó el camino determinístico. */
+  fellBackToDeterministic: boolean;
+}
 
 /**
  * Una línea semanal por empleado: 7 celdas, cada una asignada a un slot
@@ -56,6 +81,91 @@ export interface BuilderResult {
 @Injectable()
 export class WeekScheduleBuilder {
   private readonly logger = new Logger(WeekScheduleBuilder.name);
+  private static readonly MAX_LLM_ATTEMPTS = 2;
+
+  constructor(
+    /**
+     * Opcional: si no se inyecta, `buildWithRetries` degrada directamente
+     * al camino determinístico. Los tests pueden omitirlo.
+     */
+    @Optional() private readonly proposer?: LLMLineProposerService,
+  ) {}
+
+  /**
+   * Pipeline completo LLM-autoritario + verify + retry + fallback.
+   * Llama al proposer, verifica, reintenta con feedback si hay violaciones
+   * hard, y como último recurso usa el motor determinístico.
+   */
+  async buildWithRetries(params: {
+    employees: Employee[];
+    slots: VirtualShiftSlot[];
+    memberships: ShiftMembership[];
+    histories: FairnessHistoryVO[];
+    semanticRules: SemanticConstraint[];
+    multiShiftPermits?: Set<string>;
+    weekStart: Date;
+    companyId: string;
+  }): Promise<BuildWithRetriesResult> {
+    // Sin proposer inyectado → directo al determinístico.
+    if (!this.proposer) {
+      const result = this.build(params);
+      return { ...result, attempts: 1, fellBackToDeterministic: true };
+    }
+
+    let feedback: string | undefined;
+
+    for (let attempt = 1; attempt <= WeekScheduleBuilder.MAX_LLM_ATTEMPTS; attempt++) {
+      const llmLines = await this.proposer.proposeLines({
+        employees: params.employees,
+        slots: params.slots,
+        semanticRules: params.semanticRules,
+        weekStart: params.weekStart,
+        feedback,
+      });
+
+      if (llmLines.size === 0) {
+        this.logger.warn(
+          `LLM proposer devolvió 0 líneas (intento ${attempt}). Saltando a determinístico.`,
+        );
+        break;
+      }
+
+      const candidate = this.applyLines({ ...params, llmLines });
+      const violations = this.verify(
+        candidate.assignments,
+        params.slots,
+        params.semanticRules,
+        params.employees,
+        params.multiShiftPermits,
+      );
+
+      if (violations.length === 0) {
+        this.logger.log(
+          `LLM propuesta aceptada en intento ${attempt} (${candidate.assignments.length} asignaciones, ${candidate.restDays.length} rest, ${candidate.underfilled.length} underfilled).`,
+        );
+        return { ...candidate, attempts: attempt, fellBackToDeterministic: false };
+      }
+
+      this.logger.warn(
+        `LLM intento ${attempt} inválido: ${violations.length} violación(es). ${
+          attempt < WeekScheduleBuilder.MAX_LLM_ATTEMPTS ? 'Pidiendo corrección.' : 'Saltando a determinístico.'
+        }`,
+      );
+      for (const v of violations.slice(0, 10)) {
+        this.logger.warn(`  • ${v.message}`);
+      }
+
+      feedback = this.formatFeedback(violations);
+    }
+
+    // Fallback final: builder determinístico (sin llmLines).
+    const deterministic = this.build({ ...params, llmLines: undefined });
+    return {
+      ...deterministic,
+      attempts: WeekScheduleBuilder.MAX_LLM_ATTEMPTS + 1,
+      fellBackToDeterministic: true,
+    };
+  }
 
   build(params: {
     employees: Employee[];
@@ -351,5 +461,243 @@ export class WeekScheduleBuilder {
     const snap: Record<string, number> = {};
     for (const [id, h] of live) snap[id] = h.computeRawScore();
     return snap;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Modo LLM-autoritario: `applyLines` aplica literalmente lo que dice el LLM.
+  // `verify` comprueba reglas hard y reporta violaciones para el loop.
+  // ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Toma las líneas del LLM y materializa asignaciones RESPETANDO literalmente
+   * lo que dice — incluido `rest`. NO redistribuye. Si la línea no tiene una
+   * decisión para una celda (empleado × día), esa celda queda `rest` por omisión.
+   */
+  applyLines(params: {
+    employees: Employee[];
+    slots: VirtualShiftSlot[];
+    histories: FairnessHistoryVO[];
+    llmLines: Map<string, Record<string, string | 'rest'>>;
+    weekStart: Date;
+    companyId: string;
+  }): BuilderResult {
+    const { employees, slots, histories, llmLines, weekStart, companyId } = params;
+
+    const slotByKey = new Map<string, VirtualShiftSlot>();
+    for (const s of slots) slotByKey.set(`${s.templateId}|${s.date}`, s);
+
+    const dates = new Set(slots.map((s) => s.date));
+    const liveHistory = new Map<string, FairnessHistoryVO>(
+      employees.map((e) => {
+        const existing = histories.find((h) => h.employeeId === e.id);
+        return [
+          e.id,
+          existing ?? FairnessHistoryVO.empty(e.id, e.companyId, weekStart),
+        ];
+      }),
+    );
+
+    const fillBySlot = new Map<string, number>();
+    const assignments: ShiftAssignment[] = [];
+    const restDays: BuilderResult['restDays'] = [];
+
+    for (const emp of employees) {
+      const days = llmLines.get(emp.id) ?? {};
+      for (const date of dates) {
+        const pick = days[date];
+        if (!pick || pick === 'rest') {
+          restDays.push({ employeeId: emp.id, date, reason: 'llm-rest' });
+          continue;
+        }
+        const key = `${pick}|${date}`;
+        const slot = slotByKey.get(key);
+        if (!slot) {
+          // El LLM apuntó a un (template, día) que no existe → celda rest.
+          restDays.push({ employeeId: emp.id, date, reason: 'llm-unknown-slot' });
+          continue;
+        }
+        const snapshot = this.snapshotOf(liveHistory);
+        assignments.push(
+          ShiftAssignment.create({
+            id: randomUUID(),
+            templateId: slot.templateId,
+            date: slot.date,
+            employeeId: emp.id,
+            companyId,
+            origin: 'membership',
+            strategyType: 'hybrid',
+            fairnessSnapshot: snapshot,
+            actualStartTime: slot.startTime,
+            actualEndTime: slot.endTime,
+          }),
+        );
+        fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);
+        const curr = liveHistory.get(emp.id)!;
+        liveHistory.set(
+          emp.id,
+          curr.addShift(slot.getDuration(), {
+            isUndesirable: slot.undesirableWeight >= 0.5,
+            isNight: slot.isNightShift(),
+            isWeekend: slot.isWeekendShift(),
+          }),
+        );
+      }
+    }
+
+    const underfilled: BuilderResult['underfilled'] = [];
+    for (const s of slots) {
+      const target = s.requiredEmployees;
+      if (target === null || target === undefined || target <= 0) continue;
+      const filled = fillBySlot.get(s.slotKey) ?? 0;
+      if (filled < target) underfilled.push({ slot: s, target, filled });
+    }
+
+    return { assignments, restDays, underfilled };
+  }
+
+  /**
+   * Comprueba reglas hard sobre las asignaciones propuestas.
+   * Devuelve lista de violaciones (vacía = válido).
+   */
+  verify(
+    assignments: ShiftAssignment[],
+    slots: VirtualShiftSlot[],
+    semanticRules: SemanticConstraint[],
+    employees: Employee[],
+    multiShiftPermits?: Set<string>,
+  ): VerifyViolation[] {
+    const violations: VerifyViolation[] = [];
+    const empById = new Map(employees.map((e) => [e.id, e]));
+    const slotByKey = new Map(slots.map((s) => [s.slotKey, s]));
+    const hardRules = semanticRules.filter((c) => c.weight >= 2);
+
+    // 1. Empleados y templates existen
+    for (const a of assignments) {
+      if (!empById.has(a.employeeId)) {
+        violations.push({
+          kind: 'unknown-employee',
+          employeeId: a.employeeId,
+          message: `Empleado ${a.employeeId.slice(0, 8)} no existe.`,
+        });
+      }
+      if (!slotByKey.has(a.slotKey)) {
+        violations.push({
+          kind: 'unknown-template',
+          slotKey: a.slotKey,
+          message: `Slot ${a.slotKey} no existe.`,
+        });
+      }
+    }
+
+    // 2. Ningún empleado trabaja en un día feriado (SEMANTIC_BLOCKED_ALL sobre el slot)
+    for (const a of assignments) {
+      const blocked = hardRules.some(
+        (c) => c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === a.slotKey,
+      );
+      if (blocked) {
+        violations.push({
+          kind: 'holiday-worked',
+          employeeId: a.employeeId,
+          date: a.date,
+          slotKey: a.slotKey,
+          message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} tiene turno el ${a.date} pero ese slot está bloqueado (feriado).`,
+        });
+      }
+    }
+
+    // 3. Bloqueos puntuales por empleado
+    for (const a of assignments) {
+      const blocked = hardRules.some(
+        (c) =>
+          c.employeeId === a.employeeId &&
+          c.employeeId !== SEMANTIC_BLOCKED_ALL &&
+          (!c.shiftId || c.shiftId === a.slotKey),
+      );
+      if (blocked) {
+        violations.push({
+          kind: 'employee-blocked',
+          employeeId: a.employeeId,
+          date: a.date,
+          slotKey: a.slotKey,
+          message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} está bloqueado para ${a.slotKey} por regla hard.`,
+        });
+      }
+    }
+
+    // 4. Skill requerida
+    for (const a of assignments) {
+      const slot = slotByKey.get(a.slotKey);
+      const emp = empById.get(a.employeeId);
+      if (!slot || !emp) continue;
+      if (slot.requiredSkillId) {
+        const has = emp.getSkills().some((s) => s.id === slot.requiredSkillId);
+        if (!has) {
+          violations.push({
+            kind: 'skill-mismatch',
+            employeeId: a.employeeId,
+            slotKey: a.slotKey,
+            message: `${emp.name} no tiene la skill requerida por ${slot.templateName}.`,
+          });
+        }
+      }
+    }
+
+    // 5. Un empleado, un turno por día (salvo permit)
+    const byEmpDay = new Map<string, ShiftAssignment[]>();
+    for (const a of assignments) {
+      const key = `${a.employeeId}|${a.date}`;
+      if (!byEmpDay.has(key)) byEmpDay.set(key, []);
+      byEmpDay.get(key)!.push(a);
+    }
+    for (const [key, list] of byEmpDay) {
+      if (list.length > 1 && !multiShiftPermits?.has(key)) {
+        const emp = empById.get(list[0].employeeId);
+        violations.push({
+          kind: 'two-shifts-same-day',
+          employeeId: list[0].employeeId,
+          date: list[0].date,
+          message: `${emp?.name ?? list[0].employeeId.slice(0, 8)} tiene ${list.length} turnos el ${list[0].date}.`,
+        });
+      }
+    }
+
+    // 6. target_mode='exact' — count por slot debe coincidir con requiredEmployees
+    const fillBySlot = new Map<string, number>();
+    for (const a of assignments) {
+      fillBySlot.set(a.slotKey, (fillBySlot.get(a.slotKey) ?? 0) + 1);
+    }
+    for (const slot of slots) {
+      if (slot.targetMode !== 'exact') continue;
+      if (slot.requiredEmployees === null || slot.requiredEmployees === undefined) continue;
+      const filled = fillBySlot.get(slot.slotKey) ?? 0;
+      if (filled > slot.requiredEmployees) {
+        violations.push({
+          kind: 'exact-target-overfilled',
+          slotKey: slot.slotKey,
+          message: `${slot.templateName} el ${slot.date} tiene ${filled} personas; el target exacto es ${slot.requiredEmployees}.`,
+        });
+      } else if (filled < slot.requiredEmployees) {
+        violations.push({
+          kind: 'exact-target-underfilled',
+          slotKey: slot.slotKey,
+          message: `${slot.templateName} el ${slot.date} tiene solo ${filled} personas; el target exacto es ${slot.requiredEmployees}.`,
+        });
+      }
+    }
+
+    return violations;
+  }
+
+  private formatFeedback(violations: VerifyViolation[]): string {
+    const lines = ['Tu propuesta anterior violó las siguientes reglas hard:'];
+    for (const v of violations.slice(0, 20)) {
+      lines.push(`  - ${v.message}`);
+    }
+    lines.push(
+      '',
+      'Genera una nueva propuesta que corrija específicamente estos problemas.',
+      'Respeta TODAS las reglas — no es suficiente corregir una sola.',
+    );
+    return lines.join('\n');
   }
 }

@@ -366,3 +366,159 @@ describe('WeekScheduleBuilder', () => {
     );
   });
 });
+
+// ─── buildWithRetries: LLM-autoritario + verify + feedback loop + fallback ───
+
+describe('WeekScheduleBuilder — buildWithRetries (LLM-autoritario)', () => {
+  /**
+   * Mock del LLM proposer que devuelve líneas pre-cocinadas en orden.
+   * Cada llamada consume la siguiente línea de la cola; cuando se agota,
+   * devuelve Map vacío (el builder cae a determinístico).
+   */
+  class FakeProposer {
+    private queue: Array<Map<string, Record<string, string | 'rest'>>>;
+    calls = 0;
+    lastFeedback: string | undefined;
+    constructor(queue: Array<Map<string, Record<string, string | 'rest'>>>) {
+      this.queue = queue;
+    }
+    async proposeLines(params: { feedback?: string }): Promise<Map<string, Record<string, string | 'rest'>>> {
+      this.calls++;
+      this.lastFeedback = params.feedback;
+      return this.queue.shift() ?? new Map();
+    }
+  }
+
+  const lineFor = (template: string): Record<string, string | 'rest'> =>
+    Object.fromEntries(WEEK.map((d) => [d, template]));
+
+  it('intento 1 válido: builder lo acepta sin retry', async () => {
+    const proposer = new FakeProposer([
+      new Map<string, Record<string, string | 'rest'>>(
+        ['e1', 'e2', 'e3', 'e4', 'e5'].map((id) => [id, lineFor('nocturno')]),
+      ),
+    ]);
+    const builder = new WeekScheduleBuilder(proposer as any);
+    const result = await builder.buildWithRetries({
+      ...DEFAULT_BUILD,
+      employees: FIVE_EMPS(),
+      slots: weekSlots(),
+      semanticRules: [],
+    });
+    expect(proposer.calls).toBe(1);
+    expect(result.attempts).toBe(1);
+    expect(result.fellBackToDeterministic).toBe(false);
+    expect(result.assignments).toHaveLength(35);
+    expect(result.assignments.every((a) => a.templateId === 'nocturno')).toBe(true);
+  });
+
+  it('intento 1 viola feriado, intento 2 corrige: aceptado en 2', async () => {
+    const slots = weekSlots();
+    const holidayRules = slots
+      .filter((s) => s.date === '2026-03-11')
+      .map((s) => hardRule(null, s.slotKey));
+
+    // Intento 1: e1 trabaja el día feriado (violación) + el resto descansa
+    const bad = new Map<string, Record<string, string | 'rest'>>();
+    bad.set('e1', {
+      ...Object.fromEntries(WEEK.map((d) => [d, 'rest'])),
+      '2026-03-11': 'diurno', // ← violación: feriado
+    });
+    for (const id of ['e2', 'e3', 'e4', 'e5']) bad.set(id, lineFor('rest' as string) as any);
+
+    // Intento 2: todos rest (corrige la violación)
+    const good = new Map<string, Record<string, string | 'rest'>>();
+    for (const id of ['e1', 'e2', 'e3', 'e4', 'e5']) good.set(id, lineFor('nocturno'));
+    // Nadie trabaja el feriado
+    for (const line of good.values()) line['2026-03-11'] = 'rest';
+
+    const proposer = new FakeProposer([bad, good]);
+    const builder = new WeekScheduleBuilder(proposer as any);
+    const result = await builder.buildWithRetries({
+      ...DEFAULT_BUILD,
+      employees: FIVE_EMPS(),
+      slots,
+      semanticRules: holidayRules,
+    });
+    expect(proposer.calls).toBe(2);
+    expect(proposer.lastFeedback).toContain('feriado');
+    expect(result.attempts).toBe(2);
+    expect(result.fellBackToDeterministic).toBe(false);
+    // Nadie trabaja el 11
+    expect(result.assignments.every((a) => a.date !== '2026-03-11')).toBe(true);
+  });
+
+  it('2 intentos inválidos: cae al motor determinístico', async () => {
+    const slots = weekSlots();
+    const badLine = new Map<string, Record<string, string | 'rest'>>();
+    badLine.set('e1', { ...lineFor('rest'), '2026-03-11': 'diurno' });
+    for (const id of ['e2', 'e3', 'e4', 'e5']) badLine.set(id, lineFor('rest'));
+
+    const holidayRules = slots
+      .filter((s) => s.date === '2026-03-11')
+      .map((s) => hardRule(null, s.slotKey));
+
+    const proposer = new FakeProposer([badLine, badLine]); // ambos rompen feriado
+    const builder = new WeekScheduleBuilder(proposer as any);
+    const result = await builder.buildWithRetries({
+      ...DEFAULT_BUILD,
+      employees: FIVE_EMPS(),
+      slots,
+      semanticRules: holidayRules,
+    });
+    expect(proposer.calls).toBe(2);
+    expect(result.fellBackToDeterministic).toBe(true);
+    expect(result.attempts).toBe(3);
+    // Determinístico respeta feriado
+    expect(result.assignments.every((a) => a.date !== '2026-03-11')).toBe(true);
+  });
+
+  it('target_mode=exact violado por overflow: verify lo captura', async () => {
+    // Diurno con target=2 exact. LLM pone 3. verify detecta exact-target-overfilled.
+    const diurnoExact = VirtualShiftSlot.create({
+      templateId: 'diurno',
+      companyId: COMPANY,
+      date: '2026-03-09',
+      startTime: new Date('2026-03-09T08:00:00Z'),
+      endTime: new Date('2026-03-09T16:00:00Z'),
+      templateName: 'diurno',
+      requiredEmployees: 2,
+      targetMode: 'exact',
+    });
+    const builder = new WeekScheduleBuilder();
+    const fakeAssignments = ['e1', 'e2', 'e3'].map((id) =>
+      require('../../../src/domain/aggregates/shift-assignment.aggregate').ShiftAssignment.create({
+        id: `a-${id}`,
+        templateId: 'diurno',
+        date: '2026-03-09',
+        employeeId: id,
+        companyId: COMPANY,
+        origin: 'membership',
+        strategyType: 'hybrid',
+        fairnessSnapshot: {},
+        actualStartTime: diurnoExact.startTime,
+        actualEndTime: diurnoExact.endTime,
+      }),
+    );
+    const violations = builder.verify(
+      fakeAssignments,
+      [diurnoExact],
+      [],
+      ['e1', 'e2', 'e3'].map((id) => makeEmployee(id)),
+    );
+    expect(violations.some((v) => v.kind === 'exact-target-overfilled')).toBe(true);
+  });
+
+  it('sin proposer inyectado: cae a determinístico sin intentar LLM', async () => {
+    const builder = new WeekScheduleBuilder(); // sin proposer
+    const result = await builder.buildWithRetries({
+      ...DEFAULT_BUILD,
+      employees: FIVE_EMPS(),
+      slots: weekSlots(),
+      semanticRules: [],
+    });
+    expect(result.fellBackToDeterministic).toBe(true);
+    expect(result.attempts).toBe(1);
+    expect(result.assignments).toHaveLength(35);
+  });
+});
