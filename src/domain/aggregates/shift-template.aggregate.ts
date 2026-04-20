@@ -3,16 +3,6 @@ import { Shift, SkillLevel } from './shift.aggregate';
 import { DemandWeight } from '../value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../value-objects/undesirable-weight.vo';
 
-/**
- * Semántica de `requiredEmployees` por template.
- *
- *  - `'exact'`        → cuota estricta (no excedas ni incumplas).
- *  - `'minimum'`      → al menos N; se permite superarlo.
- *  - `'aspirational'` → idealmente N; se permite quedarse corto.
- *  - `null` (default) → el sistema decide la distribución óptima.
- */
-export type TemplateTargetMode = 'exact' | 'minimum' | 'aspirational' | null;
-
 export interface CreateShiftTemplateProps {
   id: string;
   companyId: string;
@@ -27,7 +17,6 @@ export interface CreateShiftTemplateProps {
   undesirableWeight: UndesirableWeight;
   isActive: boolean;
   requiredEmployees?: number | null;
-  targetMode?: TemplateTargetMode;
 }
 
 /**
@@ -59,7 +48,6 @@ export class ShiftTemplate {
     public readonly undesirableWeight: UndesirableWeight,
     public readonly isActive: boolean,
     public readonly requiredEmployees: number | null = null,
-    public readonly targetMode: TemplateTargetMode = null,
   ) {
     if (dayOfWeek < 0 || dayOfWeek > 6) {
       throw new Error(`Invalid dayOfWeek: ${dayOfWeek}. Must be 0–6.`);
@@ -81,7 +69,6 @@ export class ShiftTemplate {
       props.undesirableWeight,
       props.isActive,
       props.requiredEmployees ?? null,
-      props.targetMode ?? null,
     );
   }
 
@@ -164,7 +151,6 @@ export class ShiftTemplate {
       undesirableWeight: this.undesirableWeight,
       isActive: this.isActive,
       requiredEmployees: this.requiredEmployees,
-      targetMode: this.targetMode,
     };
   }
 }

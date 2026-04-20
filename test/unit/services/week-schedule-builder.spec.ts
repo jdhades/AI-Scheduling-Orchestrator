@@ -441,7 +441,7 @@ describe('WeekScheduleBuilder — buildWithRetries (LLM-autoritario)', () => {
       semanticRules: holidayRules,
     });
     expect(proposer.calls).toBe(2);
-    expect(proposer.lastFeedback).toContain('feriado');
+    expect(proposer.lastFeedback).toContain('holiday');
     expect(result.attempts).toBe(2);
     expect(result.fellBackToDeterministic).toBe(false);
     // Nadie trabaja el 11
@@ -471,42 +471,6 @@ describe('WeekScheduleBuilder — buildWithRetries (LLM-autoritario)', () => {
     expect(result.attempts).toBe(3);
     // Determinístico respeta feriado
     expect(result.assignments.every((a) => a.date !== '2026-03-11')).toBe(true);
-  });
-
-  it('target_mode=exact violado por overflow: verify lo captura', async () => {
-    // Diurno con target=2 exact. LLM pone 3. verify detecta exact-target-overfilled.
-    const diurnoExact = VirtualShiftSlot.create({
-      templateId: 'diurno',
-      companyId: COMPANY,
-      date: '2026-03-09',
-      startTime: new Date('2026-03-09T08:00:00Z'),
-      endTime: new Date('2026-03-09T16:00:00Z'),
-      templateName: 'diurno',
-      requiredEmployees: 2,
-      targetMode: 'exact',
-    });
-    const builder = new WeekScheduleBuilder();
-    const fakeAssignments = ['e1', 'e2', 'e3'].map((id) =>
-      require('../../../src/domain/aggregates/shift-assignment.aggregate').ShiftAssignment.create({
-        id: `a-${id}`,
-        templateId: 'diurno',
-        date: '2026-03-09',
-        employeeId: id,
-        companyId: COMPANY,
-        origin: 'membership',
-        strategyType: 'hybrid',
-        fairnessSnapshot: {},
-        actualStartTime: diurnoExact.startTime,
-        actualEndTime: diurnoExact.endTime,
-      }),
-    );
-    const violations = builder.verify(
-      fakeAssignments,
-      [diurnoExact],
-      [],
-      ['e1', 'e2', 'e3'].map((id) => makeEmployee(id)),
-    );
-    expect(violations.some((v) => v.kind === 'exact-target-overfilled')).toBe(true);
   });
 
   it('sin proposer inyectado: cae a determinístico sin intentar LLM', async () => {

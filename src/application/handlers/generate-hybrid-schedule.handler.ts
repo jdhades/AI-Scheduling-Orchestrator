@@ -210,14 +210,17 @@ export class GenerateHybridScheduleHandler
       employees,
       slots,
     );
+    // Reglas unstructured/complex ya no son "warning al manager": se pasan
+    // al LLM como texto y él las interpreta (ver `rawRuleTexts` abajo).
+    // Dejamos logs informativos para trazabilidad.
     if (resolved.complexRules.length > 0) {
       resolved.complexRules.forEach((r) =>
-        this.logger.warn(`Regla compleja (requiere supervisión): "${r.ruleText}" — ${r.reason}`),
+        this.logger.log(`Regla compleja (interpretada por el LLM): "${r.ruleText}" — ${r.reason}`),
       );
     }
     if (resolved.unstructuredRules.length > 0) {
       resolved.unstructuredRules.forEach((r) =>
-        this.logger.warn(`Regla sin structure (el LLM no la analizó al crearla): "${r.ruleText}"`),
+        this.logger.log(`Regla sin estructura (interpretada por el LLM): "${r.ruleText}"`),
       );
     }
 
@@ -237,12 +240,22 @@ export class GenerateHybridScheduleHandler
     //      target=exact, referencias válidas).
     //   3. Si viola algo, se le pide corregir (máx 2 reintentos totales).
     //   4. Si sigue inválido, cae al motor determinístico como red de seguridad.
+    // Reglas textuales que el LLM sí puede interpretar pero el resolver no
+    // pudo estructurar (complex/unstructured). Se las pasamos para que el
+    // LLM las considere en la propuesta; verify() sigue enforzando solo lo
+    // estructurado como hard.
+    const rawRuleTexts = [
+      ...resolved.unstructuredRules.map((r) => r.ruleText),
+      ...resolved.complexRules.map((r) => r.ruleText),
+    ];
+
     const buildResult = await this.weekScheduleBuilder.buildWithRetries({
       employees,
       slots,
       memberships,
       histories,
       semanticRules,
+      rawRuleTexts,
       multiShiftPermits: resolved.multiShiftPermits,
       weekStart,
       companyId: command.companyId,
@@ -283,12 +296,10 @@ export class GenerateHybridScheduleHandler
         this.i18nWarnUnderfilled(u.slot.slotKey, u.target, u.filled, command.locale ?? 'es'),
       );
     }
-    for (const r of resolved.complexRules) {
-      warnings.push(`Regla compleja (supervisión): "${r.ruleText}" — ${r.reason}`);
-    }
-    for (const r of resolved.unstructuredRules) {
-      warnings.push(`Regla sin análisis: "${r.ruleText}"`);
-    }
+    // Nota: las reglas complex/unstructured ya NO son warnings al manager —
+    // el LLM las procesa como texto libre vía `rawRuleTexts`. Si el manager
+    // quiere enforcement garantizado, debe expresarlas en términos
+    // estructurables (empleado × día concreto / día-de-semana / etc).
 
     this.logger.log(
       `Hybrid schedule complete — total=${allAssignments.length} ` +

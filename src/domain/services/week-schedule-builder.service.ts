@@ -13,8 +13,6 @@ import { LLMLineProposerService } from './llm-line-proposer.service';
 export interface VerifyViolation {
   kind:
     | 'holiday-worked'
-    | 'exact-target-overfilled'
-    | 'exact-target-underfilled'
     | 'employee-blocked'
     | 'skill-mismatch'
     | 'unknown-employee'
@@ -102,6 +100,8 @@ export class WeekScheduleBuilder {
     memberships: ShiftMembership[];
     histories: FairnessHistoryVO[];
     semanticRules: SemanticConstraint[];
+    /** Textos de reglas unstructured/complex que el LLM sí puede interpretar. */
+    rawRuleTexts?: string[];
     multiShiftPermits?: Set<string>;
     weekStart: Date;
     companyId: string;
@@ -119,6 +119,7 @@ export class WeekScheduleBuilder {
         employees: params.employees,
         slots: params.slots,
         semanticRules: params.semanticRules,
+        rawRuleTexts: params.rawRuleTexts,
         weekStart: params.weekStart,
         feedback,
       });
@@ -577,19 +578,19 @@ export class WeekScheduleBuilder {
         violations.push({
           kind: 'unknown-employee',
           employeeId: a.employeeId,
-          message: `Empleado ${a.employeeId.slice(0, 8)} no existe.`,
+          message: `Employee ${a.employeeId.slice(0, 8)} does not exist.`,
         });
       }
       if (!slotByKey.has(a.slotKey)) {
         violations.push({
           kind: 'unknown-template',
           slotKey: a.slotKey,
-          message: `Slot ${a.slotKey} no existe.`,
+          message: `Shift ${a.slotKey} does not exist.`,
         });
       }
     }
 
-    // 2. Ningún empleado trabaja en un día feriado (SEMANTIC_BLOCKED_ALL sobre el slot)
+    // 2. Nobody works on a blocked slot (holiday)
     for (const a of assignments) {
       const blocked = hardRules.some(
         (c) => c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === a.slotKey,
@@ -600,12 +601,12 @@ export class WeekScheduleBuilder {
           employeeId: a.employeeId,
           date: a.date,
           slotKey: a.slotKey,
-          message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} tiene turno el ${a.date} pero ese slot está bloqueado (feriado).`,
+          message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} is scheduled on ${a.date} but that shift is blocked (holiday).`,
         });
       }
     }
 
-    // 3. Bloqueos puntuales por empleado
+    // 3. Employee-specific hard blocks
     for (const a of assignments) {
       const blocked = hardRules.some(
         (c) =>
@@ -619,12 +620,12 @@ export class WeekScheduleBuilder {
           employeeId: a.employeeId,
           date: a.date,
           slotKey: a.slotKey,
-          message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} está bloqueado para ${a.slotKey} por regla hard.`,
+          message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} is blocked from ${a.slotKey} by a hard rule.`,
         });
       }
     }
 
-    // 4. Skill requerida
+    // 4. Required skill
     for (const a of assignments) {
       const slot = slotByKey.get(a.slotKey);
       const emp = empById.get(a.employeeId);
@@ -636,13 +637,13 @@ export class WeekScheduleBuilder {
             kind: 'skill-mismatch',
             employeeId: a.employeeId,
             slotKey: a.slotKey,
-            message: `${emp.name} no tiene la skill requerida por ${slot.templateName}.`,
+            message: `${emp.name} does not have the skill required by ${slot.templateName}.`,
           });
         }
       }
     }
 
-    // 5. Un empleado, un turno por día (salvo permit)
+    // 5. One shift per employee per day (unless permit)
     const byEmpDay = new Map<string, ShiftAssignment[]>();
     for (const a of assignments) {
       const key = `${a.employeeId}|${a.date}`;
@@ -656,31 +657,7 @@ export class WeekScheduleBuilder {
           kind: 'two-shifts-same-day',
           employeeId: list[0].employeeId,
           date: list[0].date,
-          message: `${emp?.name ?? list[0].employeeId.slice(0, 8)} tiene ${list.length} turnos el ${list[0].date}.`,
-        });
-      }
-    }
-
-    // 6. target_mode='exact' — count por slot debe coincidir con requiredEmployees
-    const fillBySlot = new Map<string, number>();
-    for (const a of assignments) {
-      fillBySlot.set(a.slotKey, (fillBySlot.get(a.slotKey) ?? 0) + 1);
-    }
-    for (const slot of slots) {
-      if (slot.targetMode !== 'exact') continue;
-      if (slot.requiredEmployees === null || slot.requiredEmployees === undefined) continue;
-      const filled = fillBySlot.get(slot.slotKey) ?? 0;
-      if (filled > slot.requiredEmployees) {
-        violations.push({
-          kind: 'exact-target-overfilled',
-          slotKey: slot.slotKey,
-          message: `${slot.templateName} el ${slot.date} tiene ${filled} personas; el target exacto es ${slot.requiredEmployees}.`,
-        });
-      } else if (filled < slot.requiredEmployees) {
-        violations.push({
-          kind: 'exact-target-underfilled',
-          slotKey: slot.slotKey,
-          message: `${slot.templateName} el ${slot.date} tiene solo ${filled} personas; el target exacto es ${slot.requiredEmployees}.`,
+          message: `${emp?.name ?? list[0].employeeId.slice(0, 8)} has ${list.length} shifts on ${list[0].date}.`,
         });
       }
     }
@@ -689,14 +666,14 @@ export class WeekScheduleBuilder {
   }
 
   private formatFeedback(violations: VerifyViolation[]): string {
-    const lines = ['Tu propuesta anterior violó las siguientes reglas hard:'];
+    const lines = ['Your previous attempt violated the following hard rules:'];
     for (const v of violations.slice(0, 20)) {
       lines.push(`  - ${v.message}`);
     }
     lines.push(
       '',
-      'Genera una nueva propuesta que corrija específicamente estos problemas.',
-      'Respeta TODAS las reglas — no es suficiente corregir una sola.',
+      'Produce a new proposal that specifically fixes these problems.',
+      'Respect ALL rules — fixing only one is not enough.',
     );
     return lines.join('\n');
   }

@@ -31,12 +31,18 @@ export class LLMLineProposerService {
     employees: Employee[];
     slots: VirtualShiftSlot[];
     semanticRules: SemanticConstraint[];
+    /**
+     * Reglas textuales adicionales (ej. `unstructured` y `complex` del RAG)
+     * que no produjeron constraints pero el LLM sí puede interpretar. Se
+     * concatenan con `semanticRules` en la sección de reglas específicas.
+     */
+    rawRuleTexts?: string[];
     weekStart: Date;
     /** Si está presente, se añade al prompt un bloque "Tu intento anterior
      *  violó X; corrige." para el loop de reintento del builder. */
     feedback?: string;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
-    const { employees, slots, semanticRules, weekStart, feedback } = params;
+    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback } = params;
 
     if (employees.length === 0 || slots.length === 0) {
       return new Map();
@@ -46,6 +52,7 @@ export class LLMLineProposerService {
       employees,
       slots,
       semanticRules,
+      rawRuleTexts: rawRuleTexts ?? [],
       weekStart,
       feedback,
     });
@@ -78,6 +85,7 @@ export class LLMLineProposerService {
     employees: Employee[];
     slots: VirtualShiftSlot[];
     semanticRules: SemanticConstraint[];
+    rawRuleTexts: string[];
     weekStart: Date;
     feedback?: string;
   }): {
@@ -85,7 +93,7 @@ export class LLMLineProposerService {
     nameToEmpId: Map<string, string>;
     nameToTemplateId: Map<string, string>;
   } {
-    const { employees, slots, semanticRules, weekStart, feedback } = params;
+    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback } = params;
 
     // Mapeo de nombres a UUIDs. Si dos empleados comparten nombre, desambiguamos
     // con un sufijo compacto basado en los primeros chars del UUID.
@@ -115,7 +123,7 @@ export class LLMLineProposerService {
     const templateBlock = templates
       .map((t) => {
         const displayName = templateIdToName.get(t.templateId)!;
-        const capacity = this.capacityLabel(t.requiredEmployees, t.targetMode);
+        const capacity = this.capacityLabel(t.requiredEmployees);
         return `  - ${displayName}: ${t.startLabel} a ${t.endLabel} (${capacity})`;
       })
       .join('\n');
@@ -124,129 +132,121 @@ export class LLMLineProposerService {
       .map((d, i) => `  ${i + 1}. ${d} (${this.weekdayLabel(d)})`)
       .join('\n');
 
+    // Dedupe: the same textual rule can produce many constraints (e.g.
+    // holiday × N blocked slots). Dedupe by `rule` to keep the prompt clean,
+    // and include unstructured rule texts coming from the RAG (previously
+    // silently dropped).
+    const structuredTexts = semanticRules.map((r) => r.rule);
+    const allRuleTexts = [...new Set([...structuredTexts, ...rawRuleTexts])];
     const rulesBlock =
-      semanticRules.length > 0
-        ? semanticRules.map((r, i) => `  ${i + 1}. ${r.rule}`).join('\n')
-        : '  (ninguna regla adicional)';
+      allRuleTexts.length > 0
+        ? allRuleTexts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
+        : '  (no additional rules)';
 
     const feedbackBlock = feedback
-      ? `\n## Tu intento anterior no fue válido\n\n${feedback}\n\nCorrige esos problemas en la nueva respuesta.\n`
+      ? `\n## Your previous attempt was invalid\n\n${feedback}\n\nFix those problems in the new response.\n`
       : '';
 
-    const prompt = `Eres un asistente de planificación de horarios. Tu trabajo es armar el
-horario semanal de un equipo, respetando las reglas listadas abajo.
+    const prompt = `You are a schedule generator. Produce the weekly schedule satisfying ALL rules.
+Think step by step INTERNALLY. Output ONLY 3–5 short lines of reasoning and then the JSON.
 
-Piensa paso a paso antes de decidir. Primero cuenta empleados, días
-laborables disponibles, ausencias pedidas (feriados, vacaciones, días
-libres). Luego reparte los turnos de forma equilibrada.
-
-## Contexto
-
-Empleados:
+## Employees
+Everyone has the same conditions (including the manager).
 ${employeeBlock}
 
-Turnos disponibles (aplican todos los días de la semana):
+## Shifts (valid every day of the week)
 ${templateBlock}
 
-Semana a planificar (comienza el ${weekStartIso}):
+## Week
+${weekStartIso} to ${dates[dates.length - 1]}.
 ${datesBlock}
 
-## Reglas específicas de esta semana
-
+## Specific rules for this week
 ${rulesBlock}
 
-## Reglas generales del sistema
+## General rules
+- One shift per employee per day.
+- On holidays everyone rests (including the manager).
+- Vacation days count as rest days.
+- Rests: spread them across different days across employees; do not concentrate rest days on the same day.
+- Balance: avoid any employee always doing only one type of shift; alternate shift types across days.
 
-- Un empleado solo puede tener un turno por día.
-- Los días feriados nadie trabaja (nadie, ni el manager).
-- Las vacaciones cuentan como días libres adicionales.
-- Los turnos con capacidad "exactamente N" deben cubrirse con ese número EXACTO de personas.
-- Los turnos con capacidad "al menos N" deben cubrirse con N o más.
-- Los turnos con capacidad "idealmente N" intentan llegar a N, se permite menos.
-- Los turnos con capacidad "objetivo N (el sistema distribuye)" usan N como guía; si sobra gente, repártela hacia turnos elásticos antes que saturar.
-- Los turnos "elásticos" aceptan cualquier número de personas (0 o más).
-- Reparte los tipos de turno de forma equilibrada entre todos los empleados. Evita que un empleado cargue siempre el mismo turno.
+## Distribution (deterministic, applied PER DAY)
 
-## Formato de salida
+Assignment order:
 
-**CRÍTICO**: responde BREVEMENTE. Máximo 3–5 líneas de razonamiento en texto
-(quién libra qué día, de un tirón). Luego, inmediatamente, el bloque JSON.
-No uses tablas markdown, no expliques cada día uno por uno, no repitas las
-reglas. El JSON es lo único que la máquina procesa.
+1. **Exact targets first**: for each shift with EXACT TARGET N, assign exactly N available employees (with the required skill, if any). If fewer than N are available, report underfilled but continue.
+
+2. **Even split across elastic shifts**: the remaining employees are split as evenly as possible across the ELASTIC shifts.
+   - If M employees remain and there are K elastic shifts: some receive ceil(M/K), the rest receive floor(M/K).
+   - Examples:
+       M=10, K=2 → 5 + 5
+       M=9,  K=2 → 5 + 4
+       M=10, K=3 → 4 + 3 + 3
+       M=6,  K=4 → 2 + 2 + 1 + 1
+
+3. **No elastic shifts available**: if all shifts have EXACT TARGET and employees remain, those employees get "rest" that day. Never exceed an exact target.
+
+## Output format
+
+Reasoning: 3–5 lines maximum.
+Then ONLY this JSON (nothing before or after, no extra markdown):
 
 \`\`\`json
 {
   "weekStart": "${weekStartIso}",
   "lines": [
     {
-      "employee": "<nombre exacto del empleado>",
+      "employee": "<exact employee name>",
       "days": {
-        "YYYY-MM-DD": "<nombre exacto del turno | 'rest' | 'feriado' | 'vacaciones'>",
-        ...
+        "YYYY-MM-DD": "<exact shift name | 'rest' | 'holiday' | 'vacation'>"
       }
-    },
-    ...
+    }
   ]
 }
 \`\`\`
 
-Reglas del JSON:
-- Una entrada de "lines" por cada empleado listado arriba.
-- Una entrada por cada fecha listada arriba (las ${dates.length} fechas son obligatorias).
-- Los valores de "days" deben ser: el nombre exacto de un turno, o "rest", o "feriado", o "vacaciones".
-- No inventes empleados, turnos ni fechas.
+Implicit validations:
+- One "line" per employee listed above (${employees.length} total).
+- ${dates.length} entries in "days" per employee (all dates listed above).
+- Names and dates must match EXACTLY the ones listed above. Do not invent.
 
-## Ejemplo de referencia (SOLO para ilustrar el formato — NO es el caso real)
+## Reference example (format only — NOT the real case)
 
-Contexto del ejemplo: 3 empleados (A, B, C), un turno "Mañana" con capacidad
-"exactamente 2 personas", semana de 3 días (lunes, martes, miércoles), sin
-feriado, regla adicional "cada uno un día libre".
+Example context: 3 employees (A, B, C), a shift "Morning" with EXACT TARGET 2, a 3-day week.
 
-Razonamiento: cada empleado descansa un día distinto → A libre lunes,
-B libre martes, C libre miércoles. Los días siempre trabajan 2 personas.
+Reasoning: each employee rests on a different day; 2 people always work.
 
 \`\`\`json
 {
   "weekStart": "2026-01-05",
   "lines": [
-    {"employee": "A", "days": {"2026-01-05": "rest",    "2026-01-06": "Mañana", "2026-01-07": "Mañana"}},
-    {"employee": "B", "days": {"2026-01-05": "Mañana",  "2026-01-06": "rest",   "2026-01-07": "Mañana"}},
-    {"employee": "C", "days": {"2026-01-05": "Mañana",  "2026-01-06": "Mañana", "2026-01-07": "rest"}}
+    {"employee": "A", "days": {"2026-01-05": "rest",    "2026-01-06": "Morning", "2026-01-07": "Morning"}},
+    {"employee": "B", "days": {"2026-01-05": "Morning", "2026-01-06": "rest",    "2026-01-07": "Morning"}},
+    {"employee": "C", "days": {"2026-01-05": "Morning", "2026-01-06": "Morning", "2026-01-07": "rest"}}
   ]
 }
 \`\`\`
 ${feedbackBlock}
-## Tu tarea
+## Your task
 
-Resuelve el horario real descrito arriba siguiendo TODAS las reglas específicas
-y generales. Razona, luego devuelve el JSON final.`;
+Solve the real schedule described above, obeying ALL specific and general rules.
+Reason (3–5 lines), then return the JSON.`;
 
     return { prompt, nameToEmpId, nameToTemplateId };
   }
 
-  private capacityLabel(
-    requiredEmployees: number | null,
-    targetMode: 'exact' | 'minimum' | 'aspirational' | null,
-  ): string {
+  private capacityLabel(requiredEmployees: number | null): string {
     if (requiredEmployees === null) {
-      return 'capacidad elástica — recibe cualquier número de personas';
+      return 'ELASTIC';
     }
-    switch (targetMode) {
-      case 'exact':
-        return `exactamente ${requiredEmployees} personas`;
-      case 'minimum':
-        return `al menos ${requiredEmployees} personas`;
-      case 'aspirational':
-        return `idealmente ${requiredEmployees} personas (se permite menos)`;
-      default:
-        return `objetivo ${requiredEmployees} personas (el sistema distribuye el sobrante a elásticos)`;
-    }
+    return `EXACT TARGET: ${requiredEmployees} people/day`;
   }
 
   private weekdayLabel(dateISO: string): string {
     const d = new Date(`${dateISO}T12:00:00Z`);
     const dow = d.getUTCDay();
-    return ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][dow];
+    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow];
   }
 
   private uniqueTemplates(
@@ -257,7 +257,6 @@ y generales. Razona, luego devuelve el JSON final.`;
     startLabel: string;
     endLabel: string;
     requiredEmployees: number | null;
-    targetMode: 'exact' | 'minimum' | 'aspirational' | null;
   }[] {
     const byId = new Map<string, VirtualShiftSlot>();
     for (const s of slots) {
@@ -269,7 +268,6 @@ y generales. Razona, luego devuelve el JSON final.`;
       startLabel: this.hm(s.startTime),
       endLabel: this.hm(s.endTime),
       requiredEmployees: s.requiredEmployees,
-      targetMode: s.targetMode,
     }));
   }
 
@@ -366,9 +364,14 @@ y generales. Razona, luego devuelve el JSON final.`;
         if (!validDates.has(date)) continue;
         const value = typeof rawValue === 'string' ? rawValue : '';
         const norm = this.normalize(value);
-        if (norm === 'rest' || norm === 'libre') {
-          clean[date] = 'rest';
-        } else if (norm === 'feriado' || norm === 'vacaciones') {
+        if (
+          norm === 'rest' ||
+          norm === 'libre' ||
+          norm === 'holiday' ||
+          norm === 'feriado' ||
+          norm === 'vacation' ||
+          norm === 'vacaciones'
+        ) {
           clean[date] = 'rest';
         } else {
           const tplId = this.resolveName(value, normalizedTemplateMap);
