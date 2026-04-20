@@ -55,8 +55,13 @@ export class QwenLLMService implements ILLMService {
           model: this.model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1, // Bajo para respuestas deterministas estructuradas
-          max_tokens: 8192, // respuesta puede incluir blocks + permits + assignments; con 4096 se truncaba el JSON
-          response_format: { type: 'json_object' },
+          max_tokens: 4096, // suficiente para líneas de hasta ~20 empleados × 7 días;
+          //                  el caller usa `extractJson` para tolerar prosa + JSON
+          // NOTA: no se usa `response_format: json_object` porque los prompts
+          // actuales piden chain-of-thought (razonamiento + JSON al final).
+          // Forzar json_object contradice esa instrucción y hace que el modelo
+          // consuma el techo de tokens intentando cuadrar ambas. El caller
+          // extrae el bloque JSON del output mixto.
         }),
       });
     } finally {

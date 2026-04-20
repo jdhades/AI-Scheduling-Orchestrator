@@ -422,12 +422,23 @@ y generales. Razona, luego devuelve el JSON final.`;
       .replace(/[\u0300-\u036f]/g, ''); // remove diacritics
   }
 
+  /** Devuelve la versión "corta" de un nombre — sin paréntesis ni sufijos. */
+  private stripSuffix(s: string): string {
+    return this.normalize(s.replace(/\([^)]*\)/g, '').trim());
+  }
+
   private buildNormalizedNameMap(
     original: Map<string, string>,
   ): Map<string, string> {
+    // Indexamos el nombre completo Y la versión sin paréntesis, para tolerar
+    // casos como "Sofía (Manager)" cuando el LLM devuelve solo "Sofía".
+    // Si el stripped coincide con varias entradas, prevalece la primera; el
+    // prompt usa el nombre completo para reducir ambigüedades.
     const out = new Map<string, string>();
     for (const [name, id] of original) {
       out.set(this.normalize(name), id);
+      const short = this.stripSuffix(name);
+      if (!out.has(short)) out.set(short, id);
     }
     return out;
   }
@@ -436,6 +447,8 @@ y generales. Razona, luego devuelve el JSON final.`;
     candidate: string,
     normalizedMap: Map<string, string>,
   ): string | null {
-    return normalizedMap.get(this.normalize(candidate)) ?? null;
+    const exact = normalizedMap.get(this.normalize(candidate));
+    if (exact) return exact;
+    return normalizedMap.get(this.stripSuffix(candidate)) ?? null;
   }
 }
