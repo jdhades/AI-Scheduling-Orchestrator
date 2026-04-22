@@ -39,6 +39,26 @@ const EMP_ELENA = '11111111-aaaa-bbbb-cccc-000000000003';
 const EMP_LUIS = '11111111-aaaa-bbbb-cccc-000000000004';
 const EMP_ANA = '11111111-aaaa-bbbb-cccc-000000000005';
 
+// 11 empleados extra (ids 006..016) — sin membership específica: se suman a
+// AMBOS templates para que el LLM los distribuya libremente.
+const EXTRA_EMPLOYEES = [
+  { name: 'Carlos',   experience_months: 48, hire_date: '2022-03-01' },
+  { name: 'María',    experience_months: 36, hire_date: '2023-02-01' },
+  { name: 'Diego',    experience_months: 24, hire_date: '2023-09-01' },
+  { name: 'Laura',    experience_months: 18, hire_date: '2024-02-01' },
+  { name: 'Javier',   experience_months: 12, hire_date: '2024-07-01' },
+  { name: 'Marta',    experience_months: 10, hire_date: '2024-09-01' },
+  { name: 'Andrés',   experience_months: 6,  hire_date: '2025-01-01' },
+  { name: 'Lucía',    experience_months: 5,  hire_date: '2025-02-01' },
+  { name: 'Raúl',     experience_months: 4,  hire_date: '2025-03-01' },
+  { name: 'Beatriz',  experience_months: 3,  hire_date: '2025-04-01' },
+  { name: 'Fernando', experience_months: 2,  hire_date: '2025-05-01' },
+].map((e, i) => ({
+  ...e,
+  id: `11111111-aaaa-bbbb-cccc-${String(6 + i).padStart(12, '0')}`,
+  phone_number: `+1202555${String(105 + i).padStart(4, '0')}`,
+}));
+
 function upcomingMondayISO() {
   const d = new Date();
   const dow = d.getUTCDay();
@@ -176,6 +196,16 @@ async function main() {
       experience_months: 8,
       hire_date: '2024-06-01',
     },
+    ...EXTRA_EMPLOYEES.map((e) => ({
+      id: e.id,
+      company_id: COMPANY_ID,
+      department_id: DEPT_SALA_ID,
+      name: e.name,
+      phone_number: e.phone_number,
+      role: 'employee',
+      experience_months: e.experience_months,
+      hire_date: e.hire_date,
+    })),
   ];
 
   {
@@ -198,6 +228,11 @@ async function main() {
       { company_id: COMPANY_ID, employee_id: EMP_ELENA, template_id: TEMPLATE_DIURNO_ID, effective_from: effectiveFrom },
       { company_id: COMPANY_ID, employee_id: EMP_LUIS,  template_id: TEMPLATE_NOCTURNO_ID, effective_from: effectiveFrom },
       { company_id: COMPANY_ID, employee_id: EMP_ELENA, template_id: TEMPLATE_NOCTURNO_ID, effective_from: effectiveFrom },
+      // Los 11 extra reciben ambos templates: el LLM decide a quién asigna dónde.
+      ...EXTRA_EMPLOYEES.flatMap((e) => [
+        { company_id: COMPANY_ID, employee_id: e.id, template_id: TEMPLATE_DIURNO_ID,   effective_from: effectiveFrom },
+        { company_id: COMPANY_ID, employee_id: e.id, template_id: TEMPLATE_NOCTURNO_ID, effective_from: effectiveFrom },
+      ]),
     ];
     const { error } = await supabase.from('shift_memberships').insert(memberships);
     if (error) return die('Insert shift_memberships failed', error);
@@ -219,7 +254,15 @@ async function main() {
   console.log(`  - Elena            ${employees[2].phone_number}  (Diurno + Nocturno)`);
   console.log(`  - Luis             ${employees[3].phone_number}  (Nocturno)`);
   console.log(`  - Ana              ${employees[4].phone_number}`);
-  console.log(`Memberships : 6 filas (4 en Diurno, 2 en Nocturno)`);
+  for (const e of EXTRA_EMPLOYEES) {
+    const pad = e.name.padEnd(16, ' ');
+    console.log(`  - ${pad} ${e.phone_number}  (Diurno + Nocturno)`);
+  }
+  const diurnoCount = 4 + EXTRA_EMPLOYEES.length;   // Sofía, Pablo, Ana, Elena + extras
+  const nocturnoCount = 2 + EXTRA_EMPLOYEES.length; // Luis, Elena + extras
+  console.log(
+    `Memberships : ${diurnoCount + nocturnoCount} filas (${diurnoCount} en Diurno, ${nocturnoCount} en Nocturno)`,
+  );
   console.log('---------------------------------------------------------------');
   console.log(`Semana a generar : ${monday} (próximo lunes)`);
   console.log('');
