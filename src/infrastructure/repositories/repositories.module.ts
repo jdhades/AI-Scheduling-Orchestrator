@@ -16,6 +16,8 @@ import { QwenEmbeddingService } from '../services/qwen-embedding.service';
 import { GeminiEmbeddingService } from '../services/gemini-embedding.service';
 import { QwenLLMService } from '../services/qwen-llm.service';
 import { GeminiLLMService } from '../services/gemini-llm.service';
+import { LocalLLMService } from '../services/local-llm.service';
+import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { HANDSHAKE_REPOSITORY } from '../../domain/repositories/handshake.repository';
 import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
@@ -64,6 +66,8 @@ import { TenantModule } from '../tenant/tenant.module';
     GeminiEmbeddingService,
     QwenLLMService,
     GeminiLLMService,
+    LocalLLMService,
+    LLMUsageTracker,
     {
       provide: EMBEDDING_SERVICE_TOKEN,
       inject: [ConfigService, QwenEmbeddingService, GeminiEmbeddingService],
@@ -74,9 +78,17 @@ import { TenantModule } from '../tenant/tenant.module';
     // Prompt Orchestrator — LLM Service
     {
       provide: LLM_SERVICE,
-      inject: [ConfigService, QwenLLMService, GeminiLLMService],
-      useFactory: (config: ConfigService, qwen: QwenLLMService, gemini: GeminiLLMService) => {
-        return config.get('ai.activeProvider') === 'gemini' ? gemini : qwen;
+      inject: [ConfigService, QwenLLMService, GeminiLLMService, LocalLLMService],
+      useFactory: (
+        config: ConfigService,
+        qwen: QwenLLMService,
+        gemini: GeminiLLMService,
+        local: LocalLLMService,
+      ) => {
+        const provider = config.get('ai.activeProvider');
+        if (provider === 'gemini') return gemini;
+        if (provider === 'local') return local;
+        return qwen;
       },
     },
     // Phase 2 — Shift Templates
@@ -105,6 +117,7 @@ import { TenantModule } from '../tenant/tenant.module';
     'SHIFT_TEMPLATE_REPOSITORY',
     SHIFT_ASSIGNMENT_REPOSITORY,
     SHIFT_MEMBERSHIP_REPOSITORY,
+    LLMUsageTracker,
   ],
 })
 export class RepositoriesModule {}

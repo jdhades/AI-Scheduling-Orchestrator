@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ILLMService } from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
+import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 
 /**
  * QwenLLMService — Implementación concreta de ILLMService
@@ -13,11 +14,14 @@ import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 export class QwenLLMService implements ILLMService {
   private readonly logger = new Logger(QwenLLMService.name);
   private readonly apiKey: string | undefined;
-  private readonly model = 'qwen-turbo'; // O 'qwen-max' o 'qwen-turbo'
+  private readonly model = 'qwen3.6-plus';
   private readonly baseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
-  private readonly TIMEOUT_MS = 120_000; // qwen-max needs more time than qwen-turbo
+  private readonly TIMEOUT_MS = 300_000;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly usageTracker: LLMUsageTracker,
+  ) {
     this.apiKey = this.config.get<string>('qwen.apiKey');
     if (!this.apiKey) {
       this.logger.warn(
@@ -55,7 +59,7 @@ export class QwenLLMService implements ILLMService {
           model: this.model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1, // Bajo para respuestas deterministas estructuradas
-          max_tokens: 4096, // suficiente para líneas de hasta ~20 empleados × 7 días;
+          max_tokens: 8192, // qwen3.x "thinking mode" consume completion tokens internamente;
           //                  el caller usa `extractJson` para tolerar prosa + JSON
           // NOTA: no se usa `response_format: json_object` porque los prompts
           // actuales piden chain-of-thought (razonamiento + JSON al final).
@@ -83,6 +87,11 @@ export class QwenLLMService implements ILLMService {
       this.logger.log(
         `📊 Qwen LLM Token Usage -> Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens}`,
       );
+      this.usageTracker.record({
+        prompt: usage.prompt_tokens ?? 0,
+        completion: usage.completion_tokens ?? 0,
+        total: usage.total_tokens ?? 0,
+      });
     }
 
     if (!rawText) {

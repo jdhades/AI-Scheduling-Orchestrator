@@ -8,6 +8,10 @@ export default () => ({
   qwen: {
     apiKey: process.env.QWEN_API_KEY,
   },
+  llmLocal: {
+    baseUrl: process.env.LLM_LOCAL_BASE_URL,
+    model: process.env.LLM_LOCAL_MODEL,
+  },
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
   },

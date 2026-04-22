@@ -18,11 +18,15 @@ export const envValidationSchema = Joi.object({
   TWILIO_WEBHOOK_URL: Joi.string().optional().allow(''),
 
   ACTIVE_AI_PROVIDER: Joi.string()
-    .valid('gemini', 'qwen')
+    .valid('gemini', 'qwen', 'local')
     .default('qwen')
     .optional(),
 
   // LLM Providers — Ambos opcionales para test, requeridos según ACTIVE_AI_PROVIDER en producción
   QWEN_API_KEY: Joi.string().optional().allow(''),
   GEMINI_API_KEY: Joi.string().optional().allow(''),
+
+  // LLM local (LM Studio / Ollama / llama.cpp)
+  LLM_LOCAL_BASE_URL: Joi.string().optional().allow(''),
+  LLM_LOCAL_MODEL: Joi.string().optional().allow(''),
 });
