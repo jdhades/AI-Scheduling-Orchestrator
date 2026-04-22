@@ -81,6 +81,10 @@ export class LLMLineProposerService {
       return new Map();
     }
 
+    this.logger.log(
+      `📥 LLM raw response (${raw.length} chars):\n${raw}`,
+    );
+
     return this.parse(raw, {
       employees,
       slots,
@@ -376,7 +380,10 @@ Reason (3–5 lines), then return the JSON.`;
     const prefixToId = new Map<string, string>();
     const nameToIds = new Map<string, string[]>();
     for (const { id, name } of entries) {
-      const suffix = id.slice(0, 6);
+      // Últimos 6 chars del UUID: en v4 son la zona más aleatoria, y en los
+      // seeds de testing (ej. 11111111-aaaa-bbbb-cccc-000000000001) son la
+      // única parte que varía entre filas.
+      const suffix = id.slice(-6);
       display.set(`${name}-${suffix}`, id);
       prefixToId.set(suffix.toLowerCase(), id);
       const norm = this.normalize(name);

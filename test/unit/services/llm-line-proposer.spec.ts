@@ -111,13 +111,13 @@ Listo.`;
     const slots = [
       makeSlot('a0b0c0d0-1111-1111-1111-111111111111', 'Diurno', '2026-03-09'),
     ];
-    // El LLM, viendo "Ana-a1b2c3" y "Ana-d4e5f6" en el prompt, debe devolverlos
-    // así. El parser hace match por sufijo de 6 chars hex.
+    // El LLM, viendo "Ana-556666" y "Ana-eeffff" en el prompt, debe devolverlos
+    // así. El parser hace match por sufijo de 6 chars hex (últimos 6 del UUID).
     const raw = JSON.stringify({
       weekStart: '2026-03-09',
       lines: [
-        { employee: 'Ana-a1b2c3', days: { '2026-03-09': 'Diurno-a0b0c0' } },
-        { employee: 'Ana-d4e5f6', days: { '2026-03-09': 'rest' } },
+        { employee: 'Ana-556666', days: { '2026-03-09': 'Diurno-111111' } },
+        { employee: 'Ana-eeffff', days: { '2026-03-09': 'rest' } },
       ],
     });
     const service = new LLMLineProposerService(fakeLLM(raw));
@@ -144,7 +144,7 @@ Listo.`;
     ];
     const raw = JSON.stringify({
       weekStart: '2026-03-09',
-      lines: [{ employee: 'Ana', days: { '2026-03-09': 'Diurno-a0b0c0' } }],
+      lines: [{ employee: 'Ana', days: { '2026-03-09': 'Diurno-111111' } }],
     });
     const service = new LLMLineProposerService(fakeLLM(raw));
     const result = await service.proposeLines({
