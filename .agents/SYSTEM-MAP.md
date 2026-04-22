@@ -4,7 +4,7 @@ Project:
 AI Workforce Scheduling SaaS
 
 Version:
-1.0
+1.1 (Phase 3.5 — 2026-04-20)
 
 Purpose:
 Provide a unified map of the entire system architecture, documentation, and AI components.
@@ -186,10 +186,10 @@ The platform follows Clean Architecture.
 
 Interfaces:
 
-React / Next.js Admin Dashboard  
-Interactive Schedule Grid  
-Coverage & Demand Heatmaps  
-Employee WhatsApp Interface  
+Vite + React 19 Admin Dashboard (SPA — NOT Next.js)
+Interactive Schedule Grid
+Coverage & Demand Heatmaps
+Employee WhatsApp Interface
 
 Responsibilities:
 
@@ -224,17 +224,25 @@ Core business logic. Pure TypeScript, agnostic of frameworks.
 
 Aggregates:
 
-EmployeeAggregate  
-ShiftAggregate  
-SemanticRuleAggregate  
+EmployeeAggregate
+ShiftTemplateAggregate
+ShiftMembershipAggregate (Phase 13)
+ShiftAssignmentAggregate (single persisted scheduling output)
+SemanticRuleAggregate (with `structure` JSONB)
 IncidentAggregate
+CompanyAggregate / CompanySkillAggregate
+WhatsAppHandshakeAggregate
 
 Domain Services:
 
-ScheduleGenerator  
-ConflictResolutionEngine  
-FairnessCalculator  
-AutoRepairEngine
+WeekScheduleBuilder (employee-first, LLM-authoritative + verify-loop + deterministic fallback)
+LLMLineProposerService (builds EN prompt, translates rules, parses JSON)
+ShiftSlotGeneratorService (materializes VirtualShiftSlot on-demand)
+StructuredRuleResolver / RuleStructureExtractor
+FairnessCalculatorService
+ConflictResolverService
+SemanticRetrievalService
+AutoRepairEngine / ConflictResolutionEngine (Scenario 5)
 
 ---
 
@@ -244,12 +252,17 @@ External integrations.
 
 Components:
 
-PostgreSQL database (Supabase)  
-pgvector database  
-Redis Streams (background jobs)  
-WhatsApp API (Twilio) 
-Gemini 1.5 Pro (JSON validation, Speech-to-Text)  
-Google Vision API (OCR extraction)  
+PostgreSQL database (Supabase + RLS)
+pgvector extension (vector search)
+Redis Streams (background jobs; BullMQ forbidden)
+WhatsApp API (Twilio)
+LLM providers (selected via `ACTIVE_AI_PROVIDER`):
+  - QwenLLMService (default, `qwen3.6-plus` on DashScope)
+  - GeminiLLMService (Gemini 2.0 Flash)
+  - LocalLLMService (LM Studio / Ollama / llama.cpp via OpenAI-compat)
+Embeddings: Gemini `text-embedding-004` (768-dim)
+LLMUsageTracker (AsyncLocalStorage token accumulator per generation)
+Google Vision API (OCR extraction, Scenario 5)
 
 Responsibilities:
 
@@ -271,13 +284,20 @@ Trigger:
 Manager requests schedule generation.
 
 Flow:
-Manager Request  
-→ GenerateHybridScheduleCommand  
-→ Rule Engine loads rules (pgvector)  
-→ Scheduler Engine runs constraint solver  
-→ Fairness optimization  
-→ ScheduleGenerated Event  
-→ Notifications sent via Twilio  
+Manager Request
+→ GenerateHybridScheduleCommand
+→ Handler loads employees + templates + memberships + histories
+→ ShiftSlotGeneratorService materializes VirtualShiftSlot[] on-demand
+→ SemanticRetrievalService loads rules (pgvector, top-K, cosine < 0.35)
+→ StructuredRuleResolver splits into {constraints, unstructured, complex, permits}
+→ WeekScheduleBuilder.buildWithRetries()
+   • LLMLineProposerService proposes weekly lines (EN prompt, chain-of-thought)
+   • verify() checks 6 hard-violation kinds
+   • up to 2 LLM attempts, then deterministic fallback
+→ ShiftAssignment[] persisted + fairness histories updated
+→ LLMUsageTracker emits consolidated token-usage log
+→ ScheduleGenerated event
+→ WebSocket broadcast + WhatsApp notification
 
 ---
 
@@ -286,12 +306,12 @@ Manager Request
 Employee sends voice note via WhatsApp.
 
 Flow:
-Voice Message (.ogg payload)  
-→ MessageRouterService  
-→ Gemini 1.5 Pro (Multimodal conversion to ConversationIntentVO)  
-→ CommandMapperService (translates JSON intent to Application Command)  
-→ Command Handler (e.g. SwapShiftHandler)  
-→ WhatsApp Response via NotificationService  
+Voice Message (.ogg payload)
+→ MessageRouterService
+→ Active LLM provider converts audio+prompt to ConversationIntentVO (Qwen/Gemini multimodal, or Whisper→LLM for non-multimodal runtimes)
+→ CommandMapperService (translates JSON intent to Application Command)
+→ Command Handler (e.g. SwapShiftHandler)
+→ WhatsApp Response via NotificationService
 
 ---
 
@@ -304,8 +324,8 @@ Image Upload
 → WhatsAppController  
 → CreateIncidentCommand  
 → Incident processing stream (Redis)  
-→ Vision Consumer runs Google Vision OCR  
-→ Gemini parsing validates data  
+→ Vision Consumer runs Google Vision OCR
+→ Active LLM provider parses OCR text into structured data
 → IncidentValidation rules applied  
 → IncidentValidatedEvent  
 → Auto-Repair Engine detects broken shifts and searches replacements  
@@ -348,7 +368,7 @@ Purpose:
 Generate optimal workforce schedules.
 
 Technologies:
-constraint optimization, heuristic programming, LLM validation
+LLM-authoritative proposer (Qwen/Gemini/Local), verify-loop with feedback, deterministic fallback
 
 Documentation:
 scheduler-engine.md
@@ -374,7 +394,7 @@ Purpose:
 Interpret audio/text commands directly from WhatsApp without intermediate NLP services.
 
 Technologies:
-Gemini 1.5 Pro native Multimodal
+Active LLM provider per `ACTIVE_AI_PROVIDER` (Qwen / Gemini / Local). For multimodal-incapable providers, a Whisper stage precedes LLM intent extraction.
 
 ---
 
@@ -384,7 +404,7 @@ Purpose:
 Extract text from medical certificates and parse cleanly into structured JSON.
 
 Technologies:
-Google Vision API, Gemini 1.5 Pro Text Validation
+Google Vision API + active LLM provider (Qwen/Gemini/Local) for structured extraction
 
 ---
 
@@ -393,13 +413,18 @@ Google Vision API, Gemini 1.5 Pro Text Validation
 Primary Database: Supabase PostgreSQL
 
 Stores:
-employees  
-shift_assignments  
-schedules  
-semantic_rules  
-shift_swap_requests  
-incidents  
-incident_events  
+employees
+company_skills
+shift_templates (logical definitions)
+shift_memberships (Phase 13 — employee ↔ template with effective dates)
+shift_assignments (single persisted scheduling output; `actualStartTime`/`actualEndTime` required)
+shifts (legacy — deprecated in Phase 13)
+semantic_rules (with `structure` JSONB)
+shift_swap_requests
+absence_reports
+day_off_requests
+incidents
+incident_events
 
 Vector Database: pgvector
 
@@ -411,15 +436,16 @@ semantic_rules (rule_embedding array)
 # SECURITY MODEL
 
 Authentication
-JWT tokens via Supabase Auth
+Header-based `X-Company-Id` tenant header.
+🔴 JWT/Bearer auth is HIGH security debt — not yet implemented.
 
 Authorization Roles
-Admin  
-Manager  
-Employee  
+Admin
+Manager
+Employee
 
 Multi-tenancy
-Row Level Security (RLS) policies by `companyId`
+Row Level Security (RLS) policies by `company_id`. `TenantMiddleware` sets the Postgres session variable read by `current_tenant_id()`.
 
 Phone linking
 UUID handshake verification (HandshakeToken)

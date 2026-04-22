@@ -1,8 +1,14 @@
 # Escenario 4 — Conversacional (WhatsApp + Voz + Gemini/Qwen): Review Detallado
 
+> ⚠️ **FROZEN SNAPSHOT (Mar 2026).** Las referencias a "Gemini 1.5 Pro" en el texto
+> se deben leer como **"el proveedor LLM activo"** (seleccionable vía
+> `ACTIVE_AI_PROVIDER=qwen|gemini|local`): Qwen `qwen3.6-plus` default,
+> Gemini 2.0 Flash, o `LocalLLMService` contra LM Studio/Ollama/llama.cpp.
+> Ver `.agents/ARCHITECTURE.md` §External Services y `docs/00_root_context.md` §1.
+
 > **Proyecto:** AI Scheduling Orchestrator  
 > **Fecha de implementación:** Marzo 2026  
-> **Stack:** NestJS · Twilio (WhatsApp y Audio) · Gemini 2.0 Flash / Qwen Plus · CQRS / DDD · Supabase  
+> **Stack:** NestJS · Twilio (WhatsApp y Audio) · LLM providers (Qwen/Gemini/Local) · CQRS / DDD · Supabase  
 > **Autor principal:** Jean Newman  
 > **Revisión técnica:** Antigravity (IA Assistant)
 

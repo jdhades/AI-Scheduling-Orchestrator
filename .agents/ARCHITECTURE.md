@@ -21,7 +21,7 @@ Presentation Layer
 
 Interfaces:
 
-- Admin Web App / Manager Dashboard (React, Next.js, TailwindCSS)
+- Admin Web App / Manager Dashboard (Vite + React 19 + Zustand + React Query + TailwindCSS — SPA, not Next.js)
 - Real-time Visual Analytics (Coverage Heatmaps & Demand Heatmaps)
 - Employee WhatsApp Bot (Conversational Interface)
 
@@ -61,25 +61,33 @@ Core business logic. Completely agnostic of external frameworks.
 Entities and Aggregates:
 
 EmployeeAggregate
-ShiftAggregate
-SemanticRuleAggregate
+ShiftTemplateAggregate
+ShiftMembershipAggregate (Phase 13)
+ShiftAssignmentAggregate (single persisted scheduling output)
+SemanticRuleAggregate (carries `structure` JSON produced at ingestion)
 IncidentAggregate (Scenario 5)
+CompanyAggregate / CompanySkillAggregate
+WhatsAppHandshakeAggregate
 
 Value Objects:
 
-FairnessScore
-ExperienceLevel
+FairnessHistoryVO
+VirtualShiftSlot (materialized on-demand from ShiftTemplate × date)
+WorkingTimePolicyVO
 ConversationIntentVO
 OCRConfidence
 MedicalLeavePeriod
 
 Domain Services:
 
-ScheduleGenerator
-FairnessCalculator
-ConflictResolutionEngine
+WeekScheduleBuilder — employee-first, LLM-authoritative with verify-loop + deterministic fallback (Phase 3.5)
+LLMLineProposerService — builds the English prompt, translates rule texts, parses JSON
+ShiftSlotGeneratorService — materializes VirtualShiftSlot[] on-demand
+StructuredRuleResolver / RuleStructureExtractor — splits rules into structured vs free-text buckets
+FairnessCalculatorService
+ConflictResolverService
 SemanticRetrievalService
-AutoRepairEngine
+AutoRepairEngine / ConflictResolutionEngine (Scenario 5)
 
 ---
 
@@ -94,8 +102,14 @@ Vector Database (pgvector)
 Redis Streams (Async Jobs)
 WebSockets Server (Real-time Frontend sync)
 Twilio API (WhatsApp)
-Gemini 1.5 Pro (Multimodal AI & Embeddings)
-Google Vision API (OCR)
+LLM providers (selectable via `ACTIVE_AI_PROVIDER` env):
+  - Qwen (DashScope OpenAI-compat) — default, model `qwen3.6-plus`
+  - Gemini 2.0 Flash (Google)
+  - LocalLLMService — any OpenAI-compat runtime (LM Studio, Ollama, llama.cpp server)
+    via `LLM_LOCAL_BASE_URL` + `LLM_LOCAL_MODEL`
+Embeddings: Gemini `text-embedding-004` (768-dim)
+LLMUsageTracker (AsyncLocalStorage-based token accumulator per generation)
+Google Vision API (OCR, Scenario 5)
 
 Responsibilities:
 
@@ -115,10 +129,12 @@ PostgreSQL (Supabase RLS Enabled)
 Tables:
 
 employees
-skills
-shift_assignments
-schedules
-semantic_rules
+company_skills
+shift_templates (logical definition)
+shift_memberships (Phase 13 — employee ↔ template with effective dates)
+shift_assignments (single persisted scheduling output; has its own UUID PK + actualStartTime/actualEndTime)
+shifts (legacy — deprecated in Phase 13, not written by new code paths)
+semantic_rules (carries `structure` JSONB from ingestion-time LLM)
 shift_swap_requests
 absence_reports
 day_off_requests
@@ -143,20 +159,23 @@ Semantic Rule Engine
 - retrieves rules using pgvector (RAG)
 - resolves conflicts contextually
 
-Schedule Optimization Engine
+Schedule Generation (LLM-authoritative, Phase 3.5)
 
-- constraint solver + heuristic optimizer
-- fairness optimizer
+- LLMLineProposerService proposes one weekly line per employee (English prompt, chain-of-thought allowed, names instead of UUIDs)
+- WeekScheduleBuilder.verify() audits for 6 hard-violation kinds
+- Up to 2 LLM attempts (second with feedback on violations)
+- Deterministic fallback if the LLM cannot converge
+- LLMUsageTracker emits per-generation token totals
 
 Conversational Engine
 
-- processes audio/text directly via Gemini 1.5 Pro Multimodal
+- processes audio/text directly via the active LLM provider (Qwen/Gemini/Local per ACTIVE_AI_PROVIDER)
 - maps intents directly to CQRS Commands without NLP intermediate pipelines
 
 Auto-Repair Incident Engine (Scenario 5)
 
 - OCR text extraction via Google Vision API
-- structured data extraction via Gemini 1.5 Pro
+- structured data extraction via the active LLM provider per `ACTIVE_AI_PROVIDER`
 - detects affected shifts and automatically finds replacements
 
 ---
@@ -164,8 +183,8 @@ Auto-Repair Incident Engine (Scenario 5)
 # EXTERNAL SERVICES
 
 WhatsApp Messaging: Twilio API
-Voice Processing: Gemini 1.5 Pro (Native Multimodal Base64)
-Document Analysis: Google Vision API & Gemini 1.5 Pro
+Voice Processing: active LLM provider (Qwen Conversational default; Gemini available; Whisper pipeline for non-multimodal runtimes)
+Document Analysis: Google Vision API + active LLM provider for structured extraction (Scenario 5)
 Async Task Queueing: Redis Streams (BullMQ explicitly forbidden)
 
 ---
@@ -173,11 +192,11 @@ Async Task Queueing: Redis Streams (BullMQ explicitly forbidden)
 # SECURITY
 
 Authentication:
-JWT / Supabase Auth
+Header-based `X-Company-Id` tenant header (JWT/Bearer auth is HIGH security debt — not yet implemented).
 
 Authorization:
 Roles: Admin, Manager, Employee
-Row Level Security (RLS): Tenant Isolation by `companyId`
+Row Level Security (RLS): Tenant Isolation by `companyId` via `TenantMiddleware` → `current_tenant_id()` Postgres session variable
 
 Phone linking:
 UUID handshake (HandshakeToken)

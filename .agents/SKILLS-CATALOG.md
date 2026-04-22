@@ -202,13 +202,13 @@ Transform raw OCR unstructured text into a validated domain object.
 - extraction_schema_prompt
 
 ### Steps
-1. Send raw text and strict system prompt to Gemini 1.5 Pro.
+1. Send raw text and strict system prompt to the active LLM provider (`ILLMService`) — Qwen/Gemini/Local chosen via `ACTIVE_AI_PROVIDER`.
 2. Demand exclusively JSON format output.
 3. Extract critical entities (`patient_name`, `issue_date`, `rest_days`, `doctor_name`).
 4. Validate JSON integrity.
 
 ### Tools
-- Gemini 1.5 Pro
+- Active LLM provider via `ILLMService` (Qwen default; Gemini / Local alternatives)
 
 ---
 
@@ -278,7 +278,7 @@ Process conversational commands received from end-users.
 
 ### Steps
 1. Identify employee by phone lookup.
-2. Forward exact Base64 payload + instructions to Gemini 1.5 Pro Multimodal.
+2. Forward exact Base64 payload + instructions to the active LLM provider (Qwen/Gemini multimodal; or Whisper + LLM pipeline for non-multimodal providers like LocalLLMService).
 3. Detect intent and extract entities into a JSON representation.
 4. Map JSON directly to CQRS Command (via CommandMapperService).
 5. Trigger action in Domain without manual intervention.

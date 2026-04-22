@@ -24,18 +24,28 @@ IncidentResolvedEvent
 
 ---
 
-# FLOW 1: Generate Schedule
+# FLOW 1: Generate Schedule (LLM-authoritative, Phase 3.5)
 
 Trigger:
 Manager requests schedule generation.
 
 Steps:
-1 Manager creates schedule request (GenerateHybridScheduleCommand)
-2 Semantic rules retrieved via pgvector (RAG)
-3 Constraint solver and heuristic optimizer run
-4 Fairness metrics calculated
-5 ScheduleGenerated event emitted
-6 Notifications sent to employees
+1  Manager creates schedule request (GenerateHybridScheduleCommand)
+2  Handler loads employees, templates, memberships, fairness histories
+3  ShiftSlotGeneratorService materializes VirtualShiftSlot[] (in-memory) for the week
+4  SemanticRetrievalService retrieves relevant rules via pgvector (RAG, top-K, cosine < 0.35)
+5  StructuredRuleResolver splits rules into { constraints, unstructuredRules, complexRules, multiShiftPermits }
+6  Handler opens LLMUsageTracker scope and calls WeekScheduleBuilder.buildWithRetries()
+   6a LLMLineProposerService.translateRulesToEnglish() — cached LLM call
+   6b LLMLineProposerService.proposeLines() — LLM emits one weekly line per employee (name-based JSON)
+   6c WeekScheduleBuilder.verify() — checks 6 hard violation kinds
+   6d On violations → formatFeedback → retry (max 2 LLM attempts total)
+   6e If still invalid → deterministic fallback (build())
+7  ShiftAssignment[] persisted (single source of truth)
+8  FairnessHistoryVO updated per employee
+9  LLMUsageTracker emits `📊 Hybrid schedule LLM usage — calls=N prompt=P completion=C total=T`
+10 ScheduleGenerated event emitted
+11 WebSocket broadcast + WhatsApp notifications sent
 
 ---
 
@@ -48,7 +58,7 @@ Steps:
 1 Twilio webhook hits WhatsAppController (returns 200 OK immediately, fire-and-forget).
 2 MessageRouterService routes the media/text.
 3 Media (if audio) fetched, converted to Base64.
-4 Gemini 1.5 Pro processes audio+prompt to extract JSON intent (ConversationIntentVO).
+4 Active LLM provider (default: Qwen `qwen3.6-plus`; fallback Gemini 2.0 Flash or LocalLLMService per `ACTIVE_AI_PROVIDER`) processes audio+prompt to extract JSON intent (ConversationIntentVO).
 5 CommandMapperService translates intent to a CQRS Command (e.g. ReportAbsenceCommand).
 6 Command Bus executes Handler.
 7 Success or Clarification message sent back via Twilio.

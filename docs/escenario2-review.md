@@ -1,6 +1,14 @@
 # Escenario 2 — Review Detallado
 ## AI Scheduling Orchestrator: Scheduling Engine + Strategy Pattern + Fairness Algorithm
 
+> ⚠️ **FROZEN SNAPSHOT (Feb–Mar 2026).**
+> El motor descrito aquí (3 estrategias: cost / fairness / hybrid) fue **reworkeado en Phase 13
+> (Abr 2026)** y reemplazado por `WeekScheduleBuilder` (employee-first, LLM-authoritative
+> con verify-loop + fallback determinístico). La tabla `shifts` (instancias diarias)
+> está deprecada en favor de `shift_templates` + `shift_memberships` + `VirtualShiftSlot`
+> on-demand. Consultá `docs/00_root_context.md` §4–§6 y `.agents/SCHEDULER-ENGINE.md`
+> para la arquitectura vigente.
+
 > **Proyecto:** AI Scheduling Orchestrator  
 > **Fecha de implementación:** Febrero–Marzo 2026  
 > **Stack:** NestJS · PostgreSQL · Supabase · Strategy Pattern · CQRS  

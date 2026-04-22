@@ -131,8 +131,8 @@ auto-repair
 
 Tools:
 
-Node.js / TypeScript Heuristics
-Gemini 1.5 Pro (for LLM heuristic proposals and semantic rule resolving)
+Node.js / TypeScript heuristics (deterministic fallback inside `WeekScheduleBuilder`)
+Active LLM provider per `ACTIVE_AI_PROVIDER` (Qwen `qwen3.6-plus` default, Gemini 2.0 Flash, or LocalLLMService via LM Studio/Ollama) for authoritative weekly-line proposals and semantic rule resolving
 
 ---
 
@@ -151,7 +151,7 @@ conversation-design
 Tools:
 
 Twilio API
-Gemini 1.5 Pro (Multimodal Voice-to-JSON and Text-to-JSON)
+Active LLM provider per `ACTIVE_AI_PROVIDER` (Qwen/Gemini multimodal; Whisper + LLM pipeline for non-multimodal runtimes like LocalLLMService)
 
 Responsibilities:
 
@@ -226,7 +226,7 @@ fraud-detection
 Tools:
 
 Google Vision API
-Gemini 1.5 Pro (JSON extraction from raw OCR)
+Active LLM provider per `ACTIVE_AI_PROVIDER` for JSON extraction from raw OCR
 
 Responsibilities:
 

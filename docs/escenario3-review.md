@@ -1,8 +1,25 @@
 # Escenario 3 — Semantic Rule Engine: Review Detallado
 
+> ⚠️ **FROZEN SNAPSHOT (Mar 2026) + updates through Phase 3.5 (Abr 2026).**
+> Cambios clave posteriores a este doc:
+> - LLM **autoritario** sobre las líneas semanales vía `LLMLineProposerService` +
+>   `WeekScheduleBuilder.verify()` con feedback-loop y fallback determinístico
+>   (no solo "guidance dentro del prompt").
+> - Reglas `unstructured` y `complex` ya no se descartan: se pasan al LLM como
+>   texto libre (`rawRuleTexts`) por el handler. Antes eran warnings al manager.
+> - Traducción de reglas a inglés (cacheada) previa al prompt del proposer.
+> - `target_mode` fue agregado y luego REMOVIDO en Phase 3.5
+>   (`supabase/migrations/20260420000000_drop_shift_template_target_mode.sql`).
+> - Providers LLM seleccionables vía `ACTIVE_AI_PROVIDER=qwen|gemini|local` —
+>   Qwen (`qwen3.6-plus`) default, Gemini 2.0 Flash, o LocalLLMService
+>   (LM Studio / Ollama / llama.cpp via OpenAI-compat).
+> - `LLMUsageTracker` registra tokens por generación.
+> Ver `.agents/RULES-ENGINE.md` y `.agents/SCHEDULER-ENGINE.md` para la
+> arquitectura vigente.
+
 > **Proyecto:** AI Scheduling Orchestrator  
 > **Fecha de implementación:** Marzo 2026  
-> **Stack:** NestJS · PostgreSQL + pgvector · Supabase · Gemini 1.5 Pro / text-embedding-004  
+> **Stack:** NestJS · PostgreSQL + pgvector · Supabase · LLM providers (Qwen/Gemini/Local) · `text-embedding-004`  
 > **Autor principal:** Jean Newman  
 > **Revisión técnica:** Antigravity (AI Agent)
 
