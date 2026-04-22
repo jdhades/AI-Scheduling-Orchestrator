@@ -25,6 +25,9 @@ import { LLM_SERVICE } from './llm.service.interface';
 export class LLMLineProposerService {
   private readonly logger = new Logger(LLMLineProposerService.name);
 
+  /** Cache de traducciones: evita re-llamar al LLM en loops de reintento. */
+  private readonly translationCache = new Map<string, string[]>();
+
   constructor(@Inject(LLM_SERVICE) private readonly llm: ILLMService) {}
 
   async proposeLines(params: {
@@ -48,17 +51,24 @@ export class LLMLineProposerService {
       return new Map();
     }
 
-    const { prompt, nameToEmpId, nameToTemplateId } = this.buildPrompt({
+    const combinedRuleTexts = [
+      ...new Set([
+        ...semanticRules.map((r) => r.rule),
+        ...(rawRuleTexts ?? []),
+      ]),
+    ];
+    const englishRuleTexts = await this.translateRulesToEnglish(combinedRuleTexts);
+
+    const { prompt, empMaps, templateMaps } = this.buildPrompt({
       employees,
       slots,
-      semanticRules,
-      rawRuleTexts: rawRuleTexts ?? [],
+      ruleTexts: englishRuleTexts,
       weekStart,
       feedback,
     });
 
-    this.logger.debug(
-      `LLM line-proposer prompt (${prompt.length} chars):\n${prompt.slice(0, 2000)}${prompt.length > 2000 ? '\n…[truncated]' : ''}`,
+    this.logger.log(
+      `📝 LLM line-proposer prompt (${prompt.length} chars):\n${prompt}`,
     );
 
     let raw: string;
@@ -74,9 +84,80 @@ export class LLMLineProposerService {
     return this.parse(raw, {
       employees,
       slots,
-      nameToEmpId,
-      nameToTemplateId,
+      empMaps,
+      templateMaps,
     });
+  }
+
+  // ─── Translation ─────────────────────────────────────────────────────────
+
+  /**
+   * Traduce reglas textuales a inglés para que encajen con el resto del
+   * prompt (que ya está en inglés). Si el LLM falla o devuelve un formato
+   * inesperado, se devuelven los originales (fallback silencioso).
+   *
+   * Cachea por input completo: en un loop de reintento con las mismas reglas
+   * no re-llama al LLM.
+   */
+  private async translateRulesToEnglish(texts: string[]): Promise<string[]> {
+    if (texts.length === 0) return [];
+
+    const key = texts.join('\n---\n');
+    const cached = this.translationCache.get(key);
+    if (cached) return cached;
+
+    const prompt = `Translate the following scheduling rules to clear English.
+Preserve dates, numbers, employee names and shift names exactly.
+Return ONLY a JSON array of strings — one translation per rule, in the same order.
+No prose, no code fences, no explanations.
+
+Rules:
+${texts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+Expected output format:
+["<english of rule 1>", "<english of rule 2>"]`;
+
+    let raw: string;
+    try {
+      raw = await this.llm.complete(prompt);
+    } catch (err) {
+      this.logger.warn(
+        `Rule translation failed (${(err as Error).message}); using originals`,
+      );
+      return texts;
+    }
+
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) {
+      this.logger.warn(
+        'Rule translation: no JSON array in LLM output; using originals',
+      );
+      return texts;
+    }
+
+    try {
+      const parsed = JSON.parse(match[0]);
+      if (
+        !Array.isArray(parsed) ||
+        parsed.length !== texts.length ||
+        !parsed.every((s) => typeof s === 'string' && s.trim().length > 0)
+      ) {
+        this.logger.warn(
+          `Rule translation: shape mismatch (expected ${texts.length} strings); using originals`,
+        );
+        return texts;
+      }
+      this.translationCache.set(key, parsed);
+      this.logger.log(
+        `Rule translation: ${texts.length} rule(s) translated to English`,
+      );
+      return parsed;
+    } catch (err) {
+      this.logger.warn(
+        `Rule translation: JSON parse failed (${(err as Error).message}); using originals`,
+      );
+      return texts;
+    }
   }
 
   // ─── Prompt ──────────────────────────────────────────────────────────────
@@ -84,30 +165,29 @@ export class LLMLineProposerService {
   private buildPrompt(params: {
     employees: Employee[];
     slots: VirtualShiftSlot[];
-    semanticRules: SemanticConstraint[];
-    rawRuleTexts: string[];
+    ruleTexts: string[];
     weekStart: Date;
     feedback?: string;
   }): {
     prompt: string;
-    nameToEmpId: Map<string, string>;
-    nameToTemplateId: Map<string, string>;
+    empMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
+    templateMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
   } {
-    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback } = params;
+    const { employees, slots, ruleTexts, weekStart, feedback } = params;
 
-    // Mapeo de nombres a UUIDs. Si dos empleados comparten nombre, desambiguamos
-    // con un sufijo compacto basado en los primeros chars del UUID.
-    const nameToEmpId = this.buildNameMap(
+    // Mapeo de nombres a UUIDs. Sufijo `-xxxxxx` (6 chars del UUID) se incluye
+    // SIEMPRE para que el LLM use un identificador estable y desambiguado.
+    const empMaps = this.buildIdentifierMaps(
       employees.map((e) => ({ id: e.id, name: e.name })),
     );
-    const empIdToName = new Map([...nameToEmpId.entries()].map(([n, id]) => [id, n]));
+    const empIdToName = new Map([...empMaps.display.entries()].map(([n, id]) => [id, n]));
 
     const templates = this.uniqueTemplates(slots);
-    const nameToTemplateId = this.buildNameMap(
+    const templateMaps = this.buildIdentifierMaps(
       templates.map((t) => ({ id: t.templateId, name: t.templateName })),
     );
     const templateIdToName = new Map(
-      [...nameToTemplateId.entries()].map(([n, id]) => [id, n]),
+      [...templateMaps.display.entries()].map(([n, id]) => [id, n]),
     );
 
     const weekStartIso = weekStart.toISOString().split('T')[0];
@@ -132,15 +212,10 @@ export class LLMLineProposerService {
       .map((d, i) => `  ${i + 1}. ${d} (${this.weekdayLabel(d)})`)
       .join('\n');
 
-    // Dedupe: the same textual rule can produce many constraints (e.g.
-    // holiday × N blocked slots). Dedupe by `rule` to keep the prompt clean,
-    // and include unstructured rule texts coming from the RAG (previously
-    // silently dropped).
-    const structuredTexts = semanticRules.map((r) => r.rule);
-    const allRuleTexts = [...new Set([...structuredTexts, ...rawRuleTexts])];
+    // `ruleTexts` comes deduped and translated to English from `proposeLines`.
     const rulesBlock =
-      allRuleTexts.length > 0
-        ? allRuleTexts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
+      ruleTexts.length > 0
+        ? ruleTexts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
         : '  (no additional rules)';
 
     const feedbackBlock = feedback
@@ -149,6 +224,10 @@ export class LLMLineProposerService {
 
     const prompt = `You are a schedule generator. Produce the weekly schedule satisfying ALL rules.
 Think step by step INTERNALLY. Output ONLY 3–5 short lines of reasoning and then the JSON.
+
+## Identifier format (MANDATORY)
+Every employee and shift identifier has the form \`Name-xxxxxx\`, where \`xxxxxx\` is a stable 6-character suffix.
+Use the FULL identifier (name + dash + suffix) EXACTLY as listed below in your JSON output. Do NOT drop, shorten, or omit the suffix — even if two identifiers share the same name.
 
 ## Employees
 Everyone has the same conditions (including the manager).
@@ -197,9 +276,9 @@ Then ONLY this JSON (nothing before or after, no extra markdown):
   "weekStart": "${weekStartIso}",
   "lines": [
     {
-      "employee": "<exact employee name>",
+      "employee": "<exact employee identifier including the -xxxxxx suffix>",
       "days": {
-        "YYYY-MM-DD": "<exact shift name | 'rest' | 'holiday' | 'vacation'>"
+        "YYYY-MM-DD": "<exact shift identifier including the -xxxxxx suffix | 'rest' | 'holiday' | 'vacation'>"
       }
     }
   ]
@@ -213,7 +292,7 @@ Implicit validations:
 
 ## Reference example (format only — NOT the real case)
 
-Example context: 3 employees (A, B, C), a shift "Morning" with EXACT TARGET 2, a 3-day week.
+Example context: 3 employees (A-aaaaaa, B-bbbbbb, C-cccccc), one shift "Morning-mmmmmm" with EXACT TARGET 2, a 3-day week.
 
 Reasoning: each employee rests on a different day; 2 people always work.
 
@@ -221,9 +300,9 @@ Reasoning: each employee rests on a different day; 2 people always work.
 {
   "weekStart": "2026-01-05",
   "lines": [
-    {"employee": "A", "days": {"2026-01-05": "rest",    "2026-01-06": "Morning", "2026-01-07": "Morning"}},
-    {"employee": "B", "days": {"2026-01-05": "Morning", "2026-01-06": "rest",    "2026-01-07": "Morning"}},
-    {"employee": "C", "days": {"2026-01-05": "Morning", "2026-01-06": "Morning", "2026-01-07": "rest"}}
+    {"employee": "A-aaaaaa", "days": {"2026-01-05": "rest",            "2026-01-06": "Morning-mmmmmm", "2026-01-07": "Morning-mmmmmm"}},
+    {"employee": "B-bbbbbb", "days": {"2026-01-05": "Morning-mmmmmm", "2026-01-06": "rest",            "2026-01-07": "Morning-mmmmmm"}},
+    {"employee": "C-cccccc", "days": {"2026-01-05": "Morning-mmmmmm", "2026-01-06": "Morning-mmmmmm", "2026-01-07": "rest"}}
   ]
 }
 \`\`\`
@@ -233,7 +312,7 @@ ${feedbackBlock}
 Solve the real schedule described above, obeying ALL specific and general rules.
 Reason (3–5 lines), then return the JSON.`;
 
-    return { prompt, nameToEmpId, nameToTemplateId };
+    return { prompt, empMaps, templateMaps };
   }
 
   private capacityLabel(requiredEmployees: number | null): string {
@@ -276,27 +355,35 @@ Reason (3–5 lines), then return the JSON.`;
   }
 
   /**
-   * Produce un mapa `displayName → id` resolviendo colisiones con sufijos
-   * `(<6 chars del id>)`. Si un name ya es único, se usa tal cual.
+   * Produce mapas para identificar entidades por nombre+sufijo de UUID.
+   *
+   * `display`     — `"Nombre-xxxxxx" → uuid` (para renderizar en el prompt;
+   *                 el sufijo siempre va, sea único o no, para que el LLM
+   *                 use un identificador estable y no normalice el nombre).
+   * `prefixToId`  — `"xxxxxx" → uuid` (parser primario; el LLM puede tipear
+   *                 el nombre como quiera mientras conserve el sufijo).
+   * `nameToIds`   — `normalize(nombre) → [uuids]` (fallback si el LLM
+   *                 dropea el sufijo; >1 candidato ⇒ ambigüedad reportada).
    */
-  private buildNameMap(
+  private buildIdentifierMaps(
     entries: { id: string; name: string }[],
-  ): Map<string, string> {
-    const byName = new Map<string, string[]>();
+  ): {
+    display: Map<string, string>;
+    prefixToId: Map<string, string>;
+    nameToIds: Map<string, string[]>;
+  } {
+    const display = new Map<string, string>();
+    const prefixToId = new Map<string, string>();
+    const nameToIds = new Map<string, string[]>();
     for (const { id, name } of entries) {
-      if (!byName.has(name)) byName.set(name, []);
-      byName.get(name)!.push(id);
+      const suffix = id.slice(0, 6);
+      display.set(`${name}-${suffix}`, id);
+      prefixToId.set(suffix.toLowerCase(), id);
+      const norm = this.normalize(name);
+      if (!nameToIds.has(norm)) nameToIds.set(norm, []);
+      nameToIds.get(norm)!.push(id);
     }
-    const result = new Map<string, string>();
-    for (const { id, name } of entries) {
-      const ids = byName.get(name)!;
-      if (ids.length === 1) {
-        result.set(name, id);
-      } else {
-        result.set(`${name} (${id.slice(0, 6)})`, id);
-      }
-    }
-    return result;
+    return { display, prefixToId, nameToIds };
   }
 
   // ─── Parse ───────────────────────────────────────────────────────────────
@@ -306,8 +393,8 @@ Reason (3–5 lines), then return the JSON.`;
     context: {
       employees: Employee[];
       slots: VirtualShiftSlot[];
-      nameToEmpId: Map<string, string>;
-      nameToTemplateId: Map<string, string>;
+      empMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
+      templateMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
     },
   ): Map<string, Record<string, string | 'rest'>> {
     const result = new Map<string, Record<string, string | 'rest'>>();
@@ -336,10 +423,6 @@ Reason (3–5 lines), then return the JSON.`;
     }
 
     const validDates = new Set(context.slots.map((s) => s.date));
-    const normalizedEmpMap = this.buildNormalizedNameMap(context.nameToEmpId);
-    const normalizedTemplateMap = this.buildNormalizedNameMap(
-      context.nameToTemplateId,
-    );
 
     for (const line of parsed.lines) {
       if (typeof line?.employeeId === 'string') {
@@ -350,13 +433,8 @@ Reason (3–5 lines), then return the JSON.`;
         continue;
       }
       if (typeof line?.employee !== 'string') continue;
-      const empId = this.resolveName(line.employee, normalizedEmpMap);
-      if (!empId) {
-        this.logger.warn(
-          `LLM line-proposer: empleado desconocido "${line.employee}" en la respuesta`,
-        );
-        continue;
-      }
+      const empId = this.resolveIdentifier(line.employee, context.empMaps, 'employee');
+      if (!empId) continue; // resolveIdentifier ya warnea
       if (typeof line?.days !== 'object' || !line.days) continue;
 
       const clean: Record<string, string | 'rest'> = {};
@@ -374,10 +452,10 @@ Reason (3–5 lines), then return the JSON.`;
         ) {
           clean[date] = 'rest';
         } else {
-          const tplId = this.resolveName(value, normalizedTemplateMap);
+          const tplId = this.resolveIdentifier(value, context.templateMaps, 'shift');
           if (tplId) clean[date] = tplId;
-          // Valor desconocido: se descarta silenciosamente (builder tratará
-          // esa celda como sin sugerencia).
+          // Valor desconocido: el `resolveIdentifier` ya warneó; la celda queda
+          // sin sugerencia y el builder decidirá.
         }
       }
       if (Object.keys(clean).length > 0) {
@@ -425,33 +503,52 @@ Reason (3–5 lines), then return the JSON.`;
       .replace(/[\u0300-\u036f]/g, ''); // remove diacritics
   }
 
-  /** Devuelve la versión "corta" de un nombre — sin paréntesis ni sufijos. */
-  private stripSuffix(s: string): string {
-    return this.normalize(s.replace(/\([^)]*\)/g, '').trim());
-  }
-
-  private buildNormalizedNameMap(
-    original: Map<string, string>,
-  ): Map<string, string> {
-    // Indexamos el nombre completo Y la versión sin paréntesis, para tolerar
-    // casos como "Sofía (Manager)" cuando el LLM devuelve solo "Sofía".
-    // Si el stripped coincide con varias entradas, prevalece la primera; el
-    // prompt usa el nombre completo para reducir ambigüedades.
-    const out = new Map<string, string>();
-    for (const [name, id] of original) {
-      out.set(this.normalize(name), id);
-      const short = this.stripSuffix(name);
-      if (!out.has(short)) out.set(short, id);
-    }
-    return out;
-  }
-
-  private resolveName(
+  /**
+   * Resuelve el identificador devuelto por el LLM contra los maps producidos
+   * en `buildIdentifierMaps`. Estrategia:
+   *
+   * 1. Suffix-first: si el candidate termina en `-xxxxxx` (6 hex) → match
+   *    directo contra `prefixToId`. Es la ruta esperada (el prompt enseña
+   *    `Name-xxxxxx`).
+   * 2. Fallback por nombre: si no hay sufijo o no resuelve, intenta por
+   *    nombre normalizado contra `nameToIds`:
+   *    - 1 candidato → resuelve.
+   *    - >1 candidato (homónimos) → warnea ambigüedad y NO resuelve.
+   *    - 0 candidatos → warnea desconocido.
+   */
+  private resolveIdentifier(
     candidate: string,
-    normalizedMap: Map<string, string>,
+    maps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>,
+    kind: 'employee' | 'shift',
   ): string | null {
-    const exact = normalizedMap.get(this.normalize(candidate));
-    if (exact) return exact;
-    return normalizedMap.get(this.stripSuffix(candidate)) ?? null;
+    const trimmed = candidate.trim();
+
+    // 1. Suffix-first.
+    const suffixMatch = trimmed.match(/-([a-f0-9]{6})\s*$/i);
+    if (suffixMatch) {
+      const id = maps.prefixToId.get(suffixMatch[1].toLowerCase());
+      if (id) return id;
+    }
+
+    // 2. Fallback: strip cualquier sufijo `-xxxx`/`(...)` y matchear por nombre.
+    const cleaned = trimmed
+      .replace(/-[a-f0-9]{4,8}\s*$/i, '')
+      .replace(/\([^)]*\)/g, '')
+      .trim();
+    const norm = this.normalize(cleaned);
+    const ids = maps.nameToIds.get(norm);
+    if (!ids || ids.length === 0) {
+      this.logger.warn(
+        `LLM line-proposer: ${kind} desconocido "${candidate}" (no matchea sufijo ni nombre).`,
+      );
+      return null;
+    }
+    if (ids.length > 1) {
+      this.logger.warn(
+        `LLM line-proposer: ${kind} ambiguo "${candidate}" — ${ids.length} candidatos con el mismo nombre y sin sufijo. Línea descartada.`,
+      );
+      return null;
+    }
+    return ids[0];
   }
 }

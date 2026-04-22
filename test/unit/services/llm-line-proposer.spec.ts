@@ -102,20 +102,22 @@ Listo.`;
     expect(result.size).toBe(0);
   });
 
-  it('nombres de empleado duplicados se desambiguan con sufijo del UUID', async () => {
-    // Dos empleados con el mismo nombre "Ana"
+  it('nombres duplicados se desambiguan con sufijo `Name-xxxxxx` del UUID', async () => {
+    // Dos empleados con el mismo nombre "Ana", IDs hex (como los UUIDs reales).
     const emps = [
-      makeEmployee('u-ana1-aaaaaaaa', 'Ana'),
-      makeEmployee('u-ana2-bbbbbbbb', 'Ana'),
+      makeEmployee('a1b2c3d4-1111-2222-3333-444455556666', 'Ana'),
+      makeEmployee('d4e5f607-aaaa-bbbb-cccc-ddddeeeeffff', 'Ana'),
     ];
-    const slots = [makeSlot('tpl-d', 'Diurno', '2026-03-09')];
-    // El LLM (si recibe el prompt correctamente) ve "Ana (u-ana1)" y "Ana (u-ana2)"
-    // Comprobamos que el parser mapea ambos correctamente.
+    const slots = [
+      makeSlot('a0b0c0d0-1111-1111-1111-111111111111', 'Diurno', '2026-03-09'),
+    ];
+    // El LLM, viendo "Ana-a1b2c3" y "Ana-d4e5f6" en el prompt, debe devolverlos
+    // así. El parser hace match por sufijo de 6 chars hex.
     const raw = JSON.stringify({
       weekStart: '2026-03-09',
       lines: [
-        { employee: 'Ana (u-ana1)', days: { '2026-03-09': 'Diurno' } },
-        { employee: 'Ana (u-ana2)', days: { '2026-03-09': 'rest' } },
+        { employee: 'Ana-a1b2c3', days: { '2026-03-09': 'Diurno-a0b0c0' } },
+        { employee: 'Ana-d4e5f6', days: { '2026-03-09': 'rest' } },
       ],
     });
     const service = new LLMLineProposerService(fakeLLM(raw));
@@ -126,7 +128,31 @@ Listo.`;
       weekStart: new Date('2026-03-09T00:00:00Z'),
     });
     expect(result.size).toBe(2);
-    expect(result.get('u-ana1-aaaaaaaa')?.['2026-03-09']).toBe('tpl-d');
-    expect(result.get('u-ana2-bbbbbbbb')?.['2026-03-09']).toBe('rest');
+    expect(result.get('a1b2c3d4-1111-2222-3333-444455556666')?.['2026-03-09']).toBe(
+      'a0b0c0d0-1111-1111-1111-111111111111',
+    );
+    expect(result.get('d4e5f607-aaaa-bbbb-cccc-ddddeeeeffff')?.['2026-03-09']).toBe('rest');
+  });
+
+  it('si el LLM dropea el sufijo en un nombre ambiguo, la línea se descarta + warning', async () => {
+    const emps = [
+      makeEmployee('a1b2c3d4-1111-2222-3333-444455556666', 'Ana'),
+      makeEmployee('d4e5f607-aaaa-bbbb-cccc-ddddeeeeffff', 'Ana'),
+    ];
+    const slots = [
+      makeSlot('a0b0c0d0-1111-1111-1111-111111111111', 'Diurno', '2026-03-09'),
+    ];
+    const raw = JSON.stringify({
+      weekStart: '2026-03-09',
+      lines: [{ employee: 'Ana', days: { '2026-03-09': 'Diurno-a0b0c0' } }],
+    });
+    const service = new LLMLineProposerService(fakeLLM(raw));
+    const result = await service.proposeLines({
+      employees: emps,
+      slots,
+      semanticRules: [],
+      weekStart: new Date('2026-03-09T00:00:00Z'),
+    });
+    expect(result.size).toBe(0);
   });
 });

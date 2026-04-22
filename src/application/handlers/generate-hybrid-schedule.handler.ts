@@ -25,6 +25,7 @@ import { FAIRNESS_HISTORY_REPOSITORY } from '../../domain/repositories/fairness-
 import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.vo';
 import type { Employee } from '../../domain/aggregates/employee.aggregate';
+import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
 
 export interface HybridScheduleResult {
   assignmentsCount: number;
@@ -71,6 +72,7 @@ export class GenerateHybridScheduleHandler
     private readonly membershipRepository: IShiftMembershipRepository,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
+    private readonly llmUsageTracker: LLMUsageTracker,
   ) {
     void this.eventBus;
   }
@@ -145,6 +147,19 @@ export class GenerateHybridScheduleHandler
   }
 
   async execute(
+    command: GenerateHybridScheduleCommand,
+  ): Promise<HybridScheduleResult> {
+    const { result, usage } = await this.llmUsageTracker.run(() =>
+      this.runGeneration(command),
+    );
+    this.logger.log(
+      `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
+        `prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
+    );
+    return result;
+  }
+
+  private async runGeneration(
     command: GenerateHybridScheduleCommand,
   ): Promise<HybridScheduleResult> {
     const rawDate = new Date(`${command.weekStart}T00:00:00.000Z`);
@@ -293,7 +308,7 @@ export class GenerateHybridScheduleHandler
     const warnings: string[] = [];
     for (const u of buildResult.underfilled) {
       warnings.push(
-        this.i18nWarnUnderfilled(u.slot.slotKey, u.target, u.filled, command.locale ?? 'es'),
+        this.i18nWarnUnderfilled(u.slot, u.target, u.filled, command.locale ?? 'es'),
       );
     }
     // Nota: las reglas complex/unstructured ya NO son warnings al manager —
@@ -358,12 +373,23 @@ export class GenerateHybridScheduleHandler
   }
 
   private i18nWarnUnderfilled(
-    slotKey: string,
+    slot: VirtualShiftSlot,
     target: number,
     filled: number,
-    _locale: string,
+    locale: string,
   ): string {
-    return `Slot ${slotKey}: target=${target} empleados, cubiertos=${filled}.`;
+    const isEn = locale.startsWith('en');
+    const date = new Date(`${slot.date}T12:00:00Z`);
+    const formatted = new Intl.DateTimeFormat(isEn ? 'en-US' : 'es-ES', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(date);
+    if (isEn) {
+      return `${slot.templateName} on ${formatted}: needs ${target} people, ${filled} assigned.`;
+    }
+    return `${slot.templateName} del ${formatted}: necesitaba ${target} ${target === 1 ? 'persona' : 'personas'}, asignada${filled === 1 ? '' : 's'} ${filled}.`;
   }
 
   private buildExplanation(
