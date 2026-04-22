@@ -14,7 +14,7 @@ import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 export class QwenLLMService implements ILLMService {
   private readonly logger = new Logger(QwenLLMService.name);
   private readonly apiKey: string | undefined;
-  private readonly model = 'qwen3.6-plus';
+  private readonly model = 'qwen3.6-flash';
   private readonly baseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
   private readonly TIMEOUT_MS = 300_000;
 
