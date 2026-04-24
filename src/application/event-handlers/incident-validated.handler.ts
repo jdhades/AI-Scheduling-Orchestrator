@@ -4,7 +4,9 @@ import { AutoRepairEngine } from '../../domain/services/auto-repair.engine';
 import { IncidentRepository } from '../../infrastructure/database/incident.repository';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
+import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
+import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 
 @EventsHandler(IncidentValidatedEvent)
 export class IncidentValidatedHandler implements IEventHandler<IncidentValidatedEvent> {
@@ -14,9 +16,9 @@ export class IncidentValidatedHandler implements IEventHandler<IncidentValidated
     private readonly autoRepairEngine: AutoRepairEngine,
     private readonly incidentRepository: IncidentRepository,
     private readonly eventBus: EventBus,
-    @Inject('IShiftRepository')
+    @Inject(SHIFT_REPOSITORY)
     private readonly shiftRepository: IShiftRepository,
-    @Inject('IEmployeeRepository')
+    @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,
   ) {}
 

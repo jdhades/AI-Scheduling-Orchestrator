@@ -8,6 +8,7 @@ import { MedicalLeavePeriod } from '../../domain/value-objects/medical-leave-per
 
 import { IncidentValidationPolicy } from '../../domain/policies/incident-validation.policy';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
+import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { Inject } from '@nestjs/common';
 
 @CommandHandler(ProcessIncidentEvidenceCommand)
@@ -16,7 +17,7 @@ export class ProcessIncidentEvidenceHandler implements ICommandHandler<ProcessIn
     private readonly incidentRepository: IncidentRepository,
     private readonly ocrService: OcrService,
     private readonly llmParsingService: LlmParsingService,
-    @Inject('IEmployeeRepository')
+    @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,
     private readonly eventBus: EventBus,
   ) {}
