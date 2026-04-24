@@ -10,6 +10,9 @@ import { CompanySkillsController } from './controllers/company-skills.controller
 import { WorkingTimePolicyController } from './controllers/working-time-policy.controller';
 import { FairnessHistoryController } from './controllers/fairness-history.controller';
 import { IncidentsController } from './controllers/incidents.controller';
+import { ShiftSwapRequestsController } from './controllers/shift-swap-requests.controller';
+import { AbsenceReportsController } from './controllers/absence-reports.controller';
+import { DayOffRequestsController } from './controllers/day-off-requests.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
@@ -31,6 +34,9 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     WorkingTimePolicyController,
     FairnessHistoryController,
     IncidentsController,
+    ShiftSwapRequestsController,
+    AbsenceReportsController,
+    DayOffRequestsController,
   ],
 })
 export class InterfacesModule {}

@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CreateIncidentCommand } from '../../application/commands/create-incident.command';
+import { RejectIncidentCommand } from '../../application/commands/reject-incident.command';
+import { ResolveIncidentCommand } from '../../application/commands/resolve-incident.command';
 import { GetIncidentsQuery } from '../../application/queries/get-incidents.query';
 import { GetIncidentByIdQuery } from '../../application/queries/get-incident-by-id.query';
 import type { IncidentStatus } from '../../domain/aggregates/incident.aggregate';
@@ -21,6 +23,14 @@ export class CreateIncidentDto {
   message?: string;
   /** URL al archivo evidencia (imagen/PDF). Puede ir vacío en MVP. */
   mediaUrl?: string;
+}
+
+export class RejectIncidentDto {
+  reason!: string;
+}
+
+export class ResolveIncidentDto {
+  details!: string;
 }
 
 /**
@@ -88,5 +98,41 @@ export class IncidentsController {
   ): Promise<unknown> {
     const companyId = companyIdHeader || companyIdQuery || '';
     return this.queryBus.execute(new GetIncidentByIdQuery(id, companyId));
+  }
+
+  /**
+   * POST /incidents/:id/reject
+   * Aplicable desde cualquier estado excepto RESOLVED o REJECTED.
+   */
+  @Post(':id/reject')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async reject(
+    @Param('id') id: string,
+    @Body() dto: RejectIncidentDto,
+    @Headers('x-company-id') companyIdHeader: string,
+    @Query('companyId') companyIdQuery?: string,
+  ): Promise<void> {
+    const companyId = companyIdHeader || companyIdQuery || '';
+    await this.commandBus.execute(
+      new RejectIncidentCommand(id, companyId, dto.reason),
+    );
+  }
+
+  /**
+   * POST /incidents/:id/resolve
+   * Requiere estado REPLACEMENT_ASSIGNED | VALIDATED | REPAIR_IN_PROGRESS.
+   */
+  @Post(':id/resolve')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resolve(
+    @Param('id') id: string,
+    @Body() dto: ResolveIncidentDto,
+    @Headers('x-company-id') companyIdHeader: string,
+    @Query('companyId') companyIdQuery?: string,
+  ): Promise<void> {
+    const companyId = companyIdHeader || companyIdQuery || '';
+    await this.commandBus.execute(
+      new ResolveIncidentCommand(id, companyId, dto.details),
+    );
   }
 }

@@ -28,6 +28,8 @@ import { GetCompanyEmployeesHandler } from './handlers/get-company-employees.han
 import { ShiftSwapRequestedHandler } from './handlers/shift-swap-requested.handler';
 import { AbsenceReportedHandler } from './handlers/absence-reported.handler';
 import { CreateIncidentHandler } from './handlers/create-incident.handler';
+import { RejectIncidentHandler } from './handlers/reject-incident.handler';
+import { ResolveIncidentHandler } from './handlers/resolve-incident.handler';
 import { GetIncidentsHandler } from './handlers/get-incidents.handler';
 import { GetIncidentByIdHandler } from './handlers/get-incident-by-id.handler';
 import { CommandMapperService } from './conversational/command-mapper.service';
@@ -71,6 +73,8 @@ const CommandHandlers = [
   RequestDayOffHandler,
   // E5 — Incidents
   CreateIncidentHandler,
+  RejectIncidentHandler,
+  ResolveIncidentHandler,
 ];
 const QueryHandlers = [
   GetEmployeeByIdHandler,
