@@ -9,15 +9,28 @@ export const SHIFT_MEMBERSHIP_REPOSITORY = Symbol('SHIFT_MEMBERSHIP_REPOSITORY')
  * durante qué rango de fechas". Alimenta al ShiftSlotGeneratorService
  * al momento de generar el horario de una semana.
  */
+export interface ShiftMembershipFilter {
+  employeeId?: string;
+  templateId?: string;
+  /** Si se pasa, filtra membresías activas en esa fecha (YYYY-MM-DD). */
+  date?: string;
+}
+
 export interface IShiftMembershipRepository {
   /** Guarda o actualiza una membresía (upsert por `id`). */
   save(membership: ShiftMembership): Promise<void>;
 
-  /** Borra una membresía por id. */
+  /** Soft delete (is_active=false + deleted_at=NOW). */
   delete(id: string, companyId: string): Promise<void>;
 
-  /** Encuentra una membresía específica por id. */
+  /** Encuentra una membresía específica por id (ignora soft-deleted). */
   findById(id: string, companyId: string): Promise<ShiftMembership | null>;
+
+  /** Listado filtrable — ignora soft-deleted. Sin filtros, devuelve todas. */
+  findAllByCompany(
+    companyId: string,
+    filter?: ShiftMembershipFilter,
+  ): Promise<ShiftMembership[]>;
 
   /**
    * Retorna todas las membresías activas en la fecha dada (inclusive).

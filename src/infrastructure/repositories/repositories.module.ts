@@ -9,8 +9,10 @@ import { SupabaseSemanticRuleRepository } from './supabase-semantic-rule.reposit
 import { SupabaseShiftTemplateRepository } from './supabase-shift-template.repository';
 import { SupabaseShiftAssignmentRepository } from './supabase-shift-assignment.repository';
 import { SupabaseShiftMembershipRepository } from './supabase-shift-membership.repository';
+import { SupabaseCompanySkillRepository } from './supabase-company-skill.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
+import { COMPANY_SKILL_REPOSITORY } from '../../domain/repositories/company-skill.repository';
 import { ConfigService } from '@nestjs/config';
 import { QwenEmbeddingService } from '../services/qwen-embedding.service';
 import { GeminiEmbeddingService } from '../services/gemini-embedding.service';
@@ -105,6 +107,10 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: SHIFT_MEMBERSHIP_REPOSITORY,
       useClass: SupabaseShiftMembershipRepository,
     },
+    {
+      provide: COMPANY_SKILL_REPOSITORY,
+      useClass: SupabaseCompanySkillRepository,
+    },
   ],
   exports: [
     EMPLOYEE_REPOSITORY,
@@ -117,6 +123,7 @@ import { TenantModule } from '../tenant/tenant.module';
     'SHIFT_TEMPLATE_REPOSITORY',
     SHIFT_ASSIGNMENT_REPOSITORY,
     SHIFT_MEMBERSHIP_REPOSITORY,
+    COMPANY_SKILL_REPOSITORY,
     LLMUsageTracker,
   ],
 })

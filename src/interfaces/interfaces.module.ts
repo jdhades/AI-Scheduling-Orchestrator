@@ -5,6 +5,8 @@ import { ScheduleController } from './controllers/schedule.controller';
 import { RuleController } from './controllers/rule.controller';
 import { WhatsAppController } from './controllers/whatsapp.controller';
 import { ShiftTemplatesController } from './controllers/shift-templates.controller';
+import { ShiftMembershipsController } from './controllers/shift-memberships.controller';
+import { CompanySkillsController } from './controllers/company-skills.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 
@@ -20,6 +22,8 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     WhatsAppController,
     WhatsAppIncidentController,
     ShiftTemplatesController,
+    ShiftMembershipsController,
+    CompanySkillsController,
   ],
 })
 export class InterfacesModule {}
