@@ -27,6 +27,9 @@ import { GetUpcomingShiftsHandler } from './handlers/get-upcoming-shifts.handler
 import { GetCompanyEmployeesHandler } from './handlers/get-company-employees.handler';
 import { ShiftSwapRequestedHandler } from './handlers/shift-swap-requested.handler';
 import { AbsenceReportedHandler } from './handlers/absence-reported.handler';
+import { CreateIncidentHandler } from './handlers/create-incident.handler';
+import { GetIncidentsHandler } from './handlers/get-incidents.handler';
+import { GetIncidentByIdHandler } from './handlers/get-incident-by-id.handler';
 import { CommandMapperService } from './conversational/command-mapper.service';
 import { MessageRouterService } from './conversational/message-router.service';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
@@ -66,10 +69,14 @@ const CommandHandlers = [
   TakeOpenShiftHandler,
   ReportAbsenceHandler,
   RequestDayOffHandler,
+  // E5 — Incidents
+  CreateIncidentHandler,
 ];
 const QueryHandlers = [
   GetEmployeeByIdHandler,
   GetEmployeeCalendarHandler,
+  GetIncidentsHandler,
+  GetIncidentByIdHandler,
   GetCompanyScheduleHandler,
   GetCompanyEmployeesHandler,
   GetSemanticRulesHandler,

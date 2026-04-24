@@ -10,6 +10,7 @@ import { SupabaseShiftTemplateRepository } from './supabase-shift-template.repos
 import { SupabaseShiftAssignmentRepository } from './supabase-shift-assignment.repository';
 import { SupabaseShiftMembershipRepository } from './supabase-shift-membership.repository';
 import { SupabaseCompanySkillRepository } from './supabase-company-skill.repository';
+import { IncidentRepository } from '../database/incident.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
 import { COMPANY_SKILL_REPOSITORY } from '../../domain/repositories/company-skill.repository';
@@ -111,6 +112,8 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: COMPANY_SKILL_REPOSITORY,
       useClass: SupabaseCompanySkillRepository,
     },
+    // Incident: repositorio Supabase-backed (reemplaza el stub in-memory)
+    IncidentRepository,
   ],
   exports: [
     EMPLOYEE_REPOSITORY,
@@ -124,6 +127,7 @@ import { TenantModule } from '../tenant/tenant.module';
     SHIFT_ASSIGNMENT_REPOSITORY,
     SHIFT_MEMBERSHIP_REPOSITORY,
     COMPANY_SKILL_REPOSITORY,
+    IncidentRepository,
     LLMUsageTracker,
   ],
 })

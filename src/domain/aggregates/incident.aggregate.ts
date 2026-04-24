@@ -98,6 +98,43 @@ export class Incident extends AggregateRoot {
     return this._updatedAt;
   }
 
+  /**
+   * Reconstituye un Incident desde una fila de persistencia SIN disparar
+   * eventos. Usado por el adapter Supabase para hidratar lecturas.
+   */
+  static fromPersistence(row: {
+    id: string;
+    companyId: string;
+    employeeId: string;
+    type: IncidentType;
+    status: IncidentStatus;
+    evidenceUrl: string | null;
+    ocrText: string | null;
+    ocrConfidence: number | null;
+    validated: boolean;
+    startDate: Date | null;
+    endDate: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): Incident {
+    const incident = new Incident(
+      IncidentId.fromString(row.id),
+      row.companyId,
+      row.employeeId,
+      row.type,
+      row.status,
+      row.createdAt,
+    );
+    incident._evidenceUrl = row.evidenceUrl;
+    incident._ocrText = row.ocrText;
+    incident._ocrConfidence = row.ocrConfidence;
+    incident._validated = row.validated;
+    incident._startDate = row.startDate;
+    incident._endDate = row.endDate;
+    incident._updatedAt = row.updatedAt;
+    return incident;
+  }
+
   // State Management
   private setStatus(newStatus: IncidentStatus) {
     this._status = newStatus;

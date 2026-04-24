@@ -9,6 +9,7 @@ import { ShiftMembershipsController } from './controllers/shift-memberships.cont
 import { CompanySkillsController } from './controllers/company-skills.controller';
 import { WorkingTimePolicyController } from './controllers/working-time-policy.controller';
 import { FairnessHistoryController } from './controllers/fairness-history.controller';
+import { IncidentsController } from './controllers/incidents.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
@@ -29,6 +30,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     CompanySkillsController,
     WorkingTimePolicyController,
     FairnessHistoryController,
+    IncidentsController,
   ],
 })
 export class InterfacesModule {}
