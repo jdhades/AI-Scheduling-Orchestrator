@@ -27,6 +27,8 @@ describe('RegisterEmployeeHandler', () => {
       findByPhone: jest.fn(),
       findAllByCompany: jest.fn().mockResolvedValue([]),
       markWhatsappVerified: jest.fn(),
+      updatePartial: jest.fn().mockResolvedValue(undefined),
+      softDelete: jest.fn().mockResolvedValue(undefined),
     };
 
     handler = new RegisterEmployeeHandler(mockPublisher, mockEmployeeRepo);

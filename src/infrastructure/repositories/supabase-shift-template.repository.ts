@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import {
+  IShiftTemplateRepository,
+  type ShiftTemplatePatch,
+} from '../../domain/repositories/shift-template.repository';
 import { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
@@ -19,6 +22,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       .select('*')
       .eq('company_id', companyId)
       .eq('is_active', true)
+      .is('deleted_at', null)
       .order('day_of_week', { ascending: true })
       .order('start_time', { ascending: true });
 
@@ -35,6 +39,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       .select('*')
       .eq('id', id)
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .single();
 
     if (error || !data) return null;
@@ -59,12 +64,46 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       throw new Error(`ShiftTemplateRepository.save failed: ${error.message}`);
   }
 
+  async updatePartial(
+    id: string,
+    companyId: string,
+    patch: ShiftTemplatePatch,
+  ): Promise<void> {
+    const row: Record<string, unknown> = {};
+    if (patch.name !== undefined) row.name = patch.name;
+    if (patch.dayOfWeek !== undefined) row.day_of_week = patch.dayOfWeek;
+    if (patch.startTime !== undefined) row.start_time = patch.startTime;
+    if (patch.endTime !== undefined) row.end_time = patch.endTime;
+    if (patch.requiredSkillId !== undefined)
+      row.required_skill_id = patch.requiredSkillId;
+    if (patch.demandScore !== undefined) row.demand_score = patch.demandScore;
+    if (patch.undesirableWeight !== undefined)
+      row.undesirable_weight = patch.undesirableWeight;
+    if (patch.isActive !== undefined) row.is_active = patch.isActive;
+    if (patch.requiredEmployees !== undefined)
+      row.required_employees = patch.requiredEmployees;
+
+    if (Object.keys(row).length === 0) return;
+
+    const { error } = await this.supabase
+      .from('shift_templates')
+      .update(row)
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
+    if (error)
+      throw new Error(
+        `ShiftTemplateRepository.updatePartial failed: ${error.message}`,
+      );
+  }
+
   async delete(id: string, companyId: string): Promise<void> {
     const { error } = await this.supabase
       .from('shift_templates')
-      .delete()
+      .update({ is_active: false, deleted_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('company_id', companyId);
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
     if (error)
       throw new Error(
         `ShiftTemplateRepository.delete failed: ${error.message}`,

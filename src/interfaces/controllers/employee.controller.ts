@@ -1,22 +1,28 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Headers,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { RegisterEmployeeCommand } from '../../application/commands/register-employee.command';
+import { UpdateEmployeeCommand } from '../../application/commands/update-employee.command';
+import { DeleteEmployeeCommand } from '../../application/commands/delete-employee.command';
 import { GetEmployeeCalendarQuery } from '../../application/queries/get-employee-calendar.query';
 import { GetCompanyEmployeesQuery } from '../../application/queries/get-company-employees.query';
+import { GetEmployeeByIdQuery } from '../../application/queries/get-employee-by-id.query';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo';
 import { RegisterEmployeeDto } from '../dtos/register-employee.dto';
 import { GetEmployeeCalendarDto } from '../dtos/get-employee-calendar.dto';
+import { UpdateEmployeeDto } from '../dtos/update-employee.dto';
 
 /**
  * EmployeeController — Interfaces Layer
@@ -78,6 +84,18 @@ export class EmployeeController {
   }
 
   /**
+   * GET /employees/:id
+   * Devuelve un empleado puntual por id dentro del tenant actual.
+   */
+  @Get(':id')
+  async getById(
+    @Param('id') employeeId: string,
+    @Headers('x-company-id') companyId: string,
+  ): Promise<unknown> {
+    return this.queryBus.execute(new GetEmployeeByIdQuery(employeeId, companyId));
+  }
+
+  /**
    * GET /employees/:id/calendar?from=&to=
    * Retorna el calendario de turnos de un empleado en un rango de fechas.
    */
@@ -94,6 +112,38 @@ export class EmployeeController {
         new Date(query.from),
         new Date(query.to),
       ),
+    );
+  }
+
+  /**
+   * PATCH /employees/:id
+   * Actualiza parcialmente un empleado. Los campos no enviados quedan
+   * intactos. Para limpiar un nullable, mandar `null` explícito.
+   */
+  @Patch(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async update(
+    @Param('id') employeeId: string,
+    @Body() dto: UpdateEmployeeDto,
+    @Headers('x-company-id') companyId: string,
+  ): Promise<void> {
+    await this.commandBus.execute(
+      new UpdateEmployeeCommand(employeeId, companyId, dto),
+    );
+  }
+
+  /**
+   * DELETE /employees/:id
+   * Soft delete: marca `is_active=false` + `deleted_at=NOW()`.
+   */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async delete(
+    @Param('id') employeeId: string,
+    @Headers('x-company-id') companyId: string,
+  ): Promise<void> {
+    await this.commandBus.execute(
+      new DeleteEmployeeCommand(employeeId, companyId),
     );
   }
 }

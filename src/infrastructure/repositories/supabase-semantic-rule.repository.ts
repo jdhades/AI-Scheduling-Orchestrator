@@ -4,6 +4,7 @@ import { SemanticRuleAggregate } from '../../domain/aggregates/semantic-rule.agg
 import type {
   ISemanticRuleRepository,
   SemanticRuleWithDistance,
+  SemanticRuleMetadataPatch,
 } from '../../domain/repositories/semantic-rule.repository.interface';
 import { isValidRuleStructure } from '../../domain/value-objects/rule-structure.vo';
 
@@ -56,6 +57,7 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       .select('*')
       .eq('id', id)
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .single();
 
     if (error) {
@@ -74,6 +76,7 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       .select('*')
       .eq('company_id', companyId)
       .eq('is_active', true)
+      .is('deleted_at', null)
       .order('priority_level', { ascending: true })
       .order('created_at', { ascending: false });
 
@@ -119,12 +122,42 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
     }));
   }
 
+  async updateMetadata(
+    id: string,
+    companyId: string,
+    patch: SemanticRuleMetadataPatch,
+  ): Promise<void> {
+    const row: Record<string, unknown> = {};
+    if (patch.priorityLevel !== undefined) row.priority_level = patch.priorityLevel;
+    if (patch.isActive !== undefined) row.is_active = patch.isActive;
+    if (patch.expiresAt !== undefined)
+      row.expires_at = patch.expiresAt ? patch.expiresAt.toISOString() : null;
+    if (patch.branchId !== undefined) row.branch_id = patch.branchId;
+    if (patch.departmentId !== undefined) row.department_id = patch.departmentId;
+
+    if (Object.keys(row).length === 0) return;
+
+    const { error } = await this.supabase
+      .from('semantic_rules')
+      .update(row)
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
+
+    if (error) {
+      throw new Error(
+        `SemanticRuleRepository.updateMetadata failed: ${error.message}`,
+      );
+    }
+  }
+
   async softDelete(id: string, companyId: string): Promise<void> {
     const { error } = await this.supabase
       .from('semantic_rules')
-      .update({ is_active: false })
+      .update({ is_active: false, deleted_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('company_id', companyId);
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
 
     if (error) {
       throw new Error(

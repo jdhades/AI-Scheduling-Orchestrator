@@ -3,14 +3,21 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Inject,
   Logger,
+  NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import type {
+  IShiftTemplateRepository,
+  ShiftTemplatePatch,
+} from '../../domain/repositories/shift-template.repository';
 import { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
@@ -24,6 +31,19 @@ export class CreateShiftTemplateDto {
   requiredSkillId?: string | null;
   demandScore?: number;
   undesirableWeight?: number;
+  requiredEmployees?: number | null;
+}
+
+export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
+  name?: string;
+  dayOfWeek?: number | null;
+  startTime?: string;
+  endTime?: string;
+  requiredSkillId?: string | null;
+  demandScore?: number;
+  undesirableWeight?: number;
+  isActive?: boolean;
+  requiredEmployees?: number | null;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -79,6 +99,7 @@ export class ShiftTemplatesController {
       demandScore: DemandWeight.create(dto.demandScore ?? 1),
       undesirableWeight: UndesirableWeight.create(dto.undesirableWeight ?? 0),
       isActive: true,
+      requiredEmployees: dto.requiredEmployees ?? null,
     });
 
     await this.templateRepo.save(template);
@@ -86,8 +107,38 @@ export class ShiftTemplatesController {
   }
 
   /**
+   * GET /shift-templates/:id?companyId=...
+   */
+  @Get(':id')
+  async getById(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+  ): Promise<object> {
+    const t = await this.templateRepo.findById(id, companyId);
+    if (!t) throw new NotFoundException(`ShiftTemplate ${id} not found`);
+    return this.toDto(t);
+  }
+
+  /**
+   * PATCH /shift-templates/:id?companyId=...
+   * Partial update. Omitted fields stay; `null` en nullable = clear.
+   */
+  @Patch(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async update(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+    @Body() dto: UpdateShiftTemplateDto,
+  ): Promise<void> {
+    const existing = await this.templateRepo.findById(id, companyId);
+    if (!existing) throw new NotFoundException(`ShiftTemplate ${id} not found`);
+    await this.templateRepo.updatePartial(id, companyId, dto);
+  }
+
+  /**
    * DELETE /shift-templates/:id?companyId=...
-   * Removes a template (shifts already generated are preserved).
+   * Soft delete — is_active=false + deleted_at=NOW(). Assignments ya
+   * generados quedan intactos.
    */
   @Delete(':id')
   async remove(
@@ -109,6 +160,7 @@ export class ShiftTemplatesController {
       demandScore: t.demandScore.value,
       undesirableWeight: t.undesirableWeight.value,
       isActive: t.isActive,
+      requiredEmployees: t.requiredEmployees,
     };
   }
 }

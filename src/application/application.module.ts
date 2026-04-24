@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { RegisterEmployeeHandler } from './handlers/register-employee.handler';
+import { UpdateEmployeeHandler } from './handlers/update-employee.handler';
+import { DeleteEmployeeHandler } from './handlers/delete-employee.handler';
+import { GetEmployeeByIdHandler } from './handlers/get-employee-by-id.handler';
 import { GetEmployeeCalendarHandler } from './handlers/get-employee-calendar.handler';
 import { EmployeeRegisteredHandler } from './handlers/employee-registered.handler';
 import { InitiateHandshakeHandler } from './handlers/initiate-handshake.handler';
@@ -12,6 +15,9 @@ import { GetCompanyScheduleHandler } from './handlers/get-company-schedule.handl
 import { CreateSemanticRuleHandler } from './handlers/create-semantic-rule.handler';
 import { DeleteSemanticRuleHandler } from './handlers/delete-semantic-rule.handler';
 import { GetSemanticRulesHandler } from './handlers/get-semantic-rules.handler';
+import { GetSemanticRuleByIdHandler } from './handlers/get-semantic-rule-by-id.handler';
+import { UpdateSemanticRuleMetadataHandler } from './handlers/update-semantic-rule-metadata.handler';
+import { UpdateSemanticRuleTextHandler } from './handlers/update-semantic-rule-text.handler';
 import { SwapShiftHandler } from './handlers/swap-shift.handler';
 import { TakeOpenShiftHandler } from './handlers/take-open-shift.handler';
 import { ReportAbsenceHandler } from './handlers/report-absence.handler';
@@ -46,10 +52,14 @@ import { LLMLineProposerService } from '../domain/services/llm-line-proposer.ser
  */
 const CommandHandlers = [
   RegisterEmployeeHandler,
+  UpdateEmployeeHandler,
+  DeleteEmployeeHandler,
   InitiateHandshakeHandler,
   VerifyHandshakeHandler,
   GenerateHybridScheduleHandler,
   CreateSemanticRuleHandler,
+  UpdateSemanticRuleMetadataHandler,
+  UpdateSemanticRuleTextHandler,
   DeleteSemanticRuleHandler,
   // E4 — Conversational
   SwapShiftHandler,
@@ -58,10 +68,12 @@ const CommandHandlers = [
   RequestDayOffHandler,
 ];
 const QueryHandlers = [
+  GetEmployeeByIdHandler,
   GetEmployeeCalendarHandler,
   GetCompanyScheduleHandler,
   GetCompanyEmployeesHandler,
   GetSemanticRulesHandler,
+  GetSemanticRuleByIdHandler,
   GetMyScheduleHandler,
   GetUpcomingShiftsHandler,
 ];

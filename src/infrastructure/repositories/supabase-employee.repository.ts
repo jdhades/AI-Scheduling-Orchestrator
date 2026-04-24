@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { IEmployeeRepository } from '../../domain/repositories/employee.repository';
+import {
+  IEmployeeRepository,
+  type EmployeePatch,
+} from '../../domain/repositories/employee.repository';
 import { Employee } from '../../domain/aggregates/employee.aggregate';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo';
@@ -42,6 +45,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       .select('*')
       .eq('id', id)
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .single();
 
     if (error || !data) return null;
@@ -91,7 +95,8 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
                 )
             `,
       )
-      .eq('company_id', companyId);
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
 
     if (options?.departmentId) {
       query = query.eq('department_id', options.departmentId);
@@ -118,6 +123,51 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       throw new Error(
         `EmployeeRepository.markVerified failed: ${error.message}`,
       );
+  }
+
+  async updatePartial(
+    id: string,
+    companyId: string,
+    patch: EmployeePatch,
+  ): Promise<void> {
+    const row: Record<string, unknown> = {};
+    if (patch.name !== undefined) row.name = patch.name;
+    if (patch.role !== undefined) row.role = patch.role;
+    if (patch.phoneNumber !== undefined) row.phone_number = patch.phoneNumber;
+    if (patch.experienceMonths !== undefined)
+      row.experience_months = patch.experienceMonths;
+    if (patch.departmentId !== undefined) row.department_id = patch.departmentId;
+    if (patch.locale !== undefined) row.locale = patch.locale;
+    if (patch.contractType !== undefined) row.contract_type = patch.contractType;
+    if (patch.maxHoursPerDay !== undefined)
+      row.max_hours_per_day = patch.maxHoursPerDay;
+    if (patch.maxHoursPerWeek !== undefined)
+      row.max_hours_per_week = patch.maxHoursPerWeek;
+    if (patch.isActive !== undefined) row.is_active = patch.isActive;
+
+    if (Object.keys(row).length === 0) return;
+
+    const { error } = await this.supabase
+      .from('employees')
+      .update(row)
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
+
+    if (error)
+      throw new Error(`EmployeeRepository.updatePartial failed: ${error.message}`);
+  }
+
+  async softDelete(id: string, companyId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('employees')
+      .update({ is_active: false, deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
+
+    if (error)
+      throw new Error(`EmployeeRepository.softDelete failed: ${error.message}`);
   }
 
   private toDomain(row: Record<string, any>): Employee {

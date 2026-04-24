@@ -28,6 +28,7 @@ function makeMockRepository(): jest.Mocked<ISemanticRuleRepository> {
     findById: jest.fn(),
     findAllByCompany: jest.fn().mockResolvedValue([]),
     findRelevantRules: jest.fn().mockResolvedValue([]),
+    updateMetadata: jest.fn().mockResolvedValue(undefined),
     softDelete: jest.fn().mockResolvedValue(undefined),
   };
 }

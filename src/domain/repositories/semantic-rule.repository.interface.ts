@@ -11,6 +11,20 @@ export interface SemanticRuleWithDistance {
 }
 
 /**
+ * Patch para metadata de una SemanticRule — campos que NO requieren
+ * re-embedding ni re-extracción de estructura. Para cambiar `rule_text`
+ * usar el flujo dedicado (UpdateSemanticRuleTextCommand) que regenera
+ * embedding y structure.
+ */
+export interface SemanticRuleMetadataPatch {
+  priorityLevel?: number;
+  isActive?: boolean;
+  expiresAt?: Date | null;
+  branchId?: string | null;
+  departmentId?: string | null;
+}
+
+/**
  * ISemanticRuleRepository — Port (interface de dominio)
  *
  * Define el contrato de persistencia para reglas semánticas.
@@ -54,8 +68,19 @@ export interface ISemanticRuleRepository {
   ): Promise<SemanticRuleWithDistance[]>;
 
   /**
-   * Soft delete — marca la regla como inactiva.
-   * Las reglas inactivas no participan en findRelevantRules.
+   * Actualiza metadata (priority, is_active, expires_at, branch/department scope).
+   * NO toca rule_text ni embedding. Campos undefined no se tocan.
+   */
+  updateMetadata(
+    id: string,
+    companyId: string,
+    patch: SemanticRuleMetadataPatch,
+  ): Promise<void>;
+
+  /**
+   * Soft delete — marca la regla como inactiva + deleted_at=NOW().
+   * Las reglas con deleted_at!=null no participan en findRelevantRules
+   * ni listados.
    */
   softDelete(id: string, companyId: string): Promise<void>;
 }

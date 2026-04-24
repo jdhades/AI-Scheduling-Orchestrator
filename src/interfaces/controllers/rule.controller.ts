@@ -7,14 +7,22 @@ import {
   HttpStatus,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CreateSemanticRuleCommand } from '../../application/commands/create-semantic-rule.command';
 import { DeleteSemanticRuleCommand } from '../../application/commands/delete-semantic-rule.command';
+import { UpdateSemanticRuleMetadataCommand } from '../../application/commands/update-semantic-rule-metadata.command';
+import { UpdateSemanticRuleTextCommand } from '../../application/commands/update-semantic-rule-text.command';
 import { GetSemanticRulesQuery } from '../../application/queries/get-semantic-rules.query';
+import { GetSemanticRuleByIdQuery } from '../../application/queries/get-semantic-rule-by-id.query';
 import { CreateSemanticRuleDto } from '../dtos/create-semantic-rule.dto';
+import {
+  UpdateSemanticRuleMetadataDto,
+  UpdateSemanticRuleTextDto,
+} from '../dtos/update-semantic-rule.dto';
 import type { CreateSemanticRuleResult } from '../../application/handlers/create-semantic-rule.handler';
 import type { SemanticRuleDto } from '../../application/handlers/get-semantic-rules.handler';
 
@@ -82,10 +90,74 @@ export class RuleController {
   }
 
   /**
+   * GET /rules/semantic/:id?companyId=UUID
+   *
+   * Devuelve una regla puntual con su texto, metadata, structure y flags.
+   * 404 si no existe, pertenece a otra empresa, o fue soft-deleted.
+   */
+  @Get(':id')
+  async getById(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+  ): Promise<unknown> {
+    return this.queryBus.execute(new GetSemanticRuleByIdQuery(id, companyId));
+  }
+
+  /**
+   * PATCH /rules/semantic/:id?companyId=UUID
+   *
+   * Actualiza metadata (priority, is_active, expires_at, branch/department
+   * scope). Operación barata: NO re-genera embedding ni structure. Para
+   * cambiar el texto usar PATCH /rules/semantic/:id/text.
+   */
+  @Patch(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async updateMetadata(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+    @Body() dto: UpdateSemanticRuleMetadataDto,
+  ): Promise<void> {
+    const patch = {
+      priorityLevel: dto.priorityLevel,
+      isActive: dto.isActive,
+      branchId: dto.branchId,
+      departmentId: dto.departmentId,
+      // expiresAt: el DTO lo trae como string (ISO) o null; convertimos a Date.
+      expiresAt:
+        dto.expiresAt === undefined
+          ? undefined
+          : dto.expiresAt === null
+            ? null
+            : new Date(dto.expiresAt),
+    };
+    await this.commandBus.execute(
+      new UpdateSemanticRuleMetadataCommand(id, companyId, patch),
+    );
+  }
+
+  /**
+   * PATCH /rules/semantic/:id/text?companyId=UUID
+   *
+   * Cambia el texto de la regla. Operación CARA: re-genera embedding +
+   * re-extrae estructura con LLM. La UI debería mostrar un confirm
+   * ("esto reprocesa la regla con IA") antes de llamar.
+   */
+  @Patch(':id/text')
+  async updateText(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+    @Body() dto: UpdateSemanticRuleTextDto,
+  ): Promise<unknown> {
+    return this.commandBus.execute(
+      new UpdateSemanticRuleTextCommand(id, companyId, dto.ruleText),
+    );
+  }
+
+  /**
    * DELETE /rules/semantic/:id?companyId=UUID
    *
    * Soft-delete de una regla semántica.
-   * La regla permanece en DB con is_active=false para auditoría.
+   * La regla permanece en DB con is_active=false + deleted_at=NOW() para auditoría.
    * Retorna 404 si la regla no existe o pertenece a otra empresa.
    */
   @Delete(':id')
