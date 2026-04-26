@@ -11,6 +11,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { IsNotEmpty, IsOptional, IsString, Matches, ValidateIf } from 'class-validator';
 import { randomUUID } from 'crypto';
 import {
   SHIFT_MEMBERSHIP_REPOSITORY,
@@ -18,12 +19,29 @@ import {
 } from '../../domain/repositories/shift-membership.repository';
 import { ShiftMembership } from '../../domain/aggregates/shift-membership.aggregate';
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Nota: usamos @IsString() en vez de @IsUUID() porque la seed data del
+// proyecto usa IDs en formato UUID-shape pero no RFC 4122 estrictos
+// (versión/variant fuera de spec), y class-validator's @IsUUID los
+// rechazaría. Convención alineada con register-employee.dto.ts.
 export class CreateShiftMembershipDto {
+  @IsString()
+  @IsNotEmpty()
   employeeId!: string;
+
+  @IsString()
+  @IsNotEmpty()
   templateId!: string;
+
   /** YYYY-MM-DD */
+  @Matches(ISO_DATE, { message: 'effectiveFrom must be YYYY-MM-DD' })
   effectiveFrom!: string;
+
   /** YYYY-MM-DD o null/undefined = abierto */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @Matches(ISO_DATE, { message: 'effectiveUntil must be YYYY-MM-DD or null' })
   effectiveUntil?: string | null;
 }
 

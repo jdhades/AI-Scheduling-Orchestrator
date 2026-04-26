@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ICompanySkillRepository } from '../../domain/repositories/company-skill.repository';
 import { CompanySkill } from '../../domain/aggregates/company-skill.aggregate';
@@ -56,22 +56,59 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
       throw new Error(`CompanySkillRepository.create(catalog): ${upsertErr.message}`);
     const skill = (skillRows ?? [])[0];
     if (!skill) throw new Error('Failed to upsert skill in catalog');
+    const skillId = skill.id as string;
 
-    // 2. Intentar insert del link; si ya existe activo lo traemos.
-    const { data: linkRows, error: linkErr } = await this.supabase
+    // 2. Lookup explícito del link (puede no existir, existir activo o
+    //    existir soft-deleted). Hacemos esto en vez de un upsert porque el
+    //    UNIQUE de (company_id, skill_id) ahora es parcial (WHERE
+    //    deleted_at IS NULL) y Postgres no acepta ese índice como target
+    //    de ON CONFLICT sin replicar el predicado, lo cual el cliente JS
+    //    de Supabase no expone.
+    const { data: existing, error: findErr } = await this.supabase
       .from('company_skills')
-      .upsert(
-        { company_id: companyId, skill_id: skill.id as string, is_active: true, deleted_at: null },
-        { onConflict: 'company_id,skill_id' },
-      )
-      .select('id, company_id, skills ( id, name )')
-      .limit(1);
-    if (linkErr)
-      throw new Error(`CompanySkillRepository.create(link): ${linkErr.message}`);
-    const link = (linkRows ?? [])[0];
-    if (!link) throw new Error('Failed to upsert company_skill link');
+      .select('id, deleted_at')
+      .eq('company_id', companyId)
+      .eq('skill_id', skillId)
+      .limit(1)
+      .maybeSingle();
+    if (findErr)
+      throw new Error(`CompanySkillRepository.create(lookup): ${findErr.message}`);
 
-    return this.toDomain(link as Record<string, unknown>);
+    if (existing) {
+      if (existing.deleted_at !== null) {
+        // Revivir el link soft-deleted (silencioso, semánticamente "vuelve
+        // al catálogo"; el manager lo había eliminado y ahora lo reagrega).
+        const { data: revived, error: reviveErr } = await this.supabase
+          .from('company_skills')
+          .update({ is_active: true, deleted_at: null })
+          .eq('id', existing.id as string)
+          .select('id, company_id, skills ( id, name )')
+          .single();
+        if (reviveErr)
+          throw new Error(`CompanySkillRepository.create(revive): ${reviveErr.message}`);
+        return this.toDomain(revived as Record<string, unknown>);
+      }
+      // Ya existe activo: el manager intentó duplicar. Devolvemos 409 con
+      // un errorCode que el frontend traduce. El dialog queda abierto y
+      // muestra el mensaje en vez de cerrarse en silencio.
+      throw new ConflictException({
+        statusCode: 409,
+        errorCode: 'SKILL_DUPLICATE',
+        message: 'A skill with that name is already in the tenant catalog.',
+      });
+    }
+
+    // 3. INSERT nuevo. Si dos requests concurrentes pasan por el lookup,
+    //    el partial UNIQUE garantiza que solo una insertará — la otra
+    //    cae al filter como SKILL_DUPLICATE → 409.
+    const { data: inserted, error: insertErr } = await this.supabase
+      .from('company_skills')
+      .insert({ company_id: companyId, skill_id: skillId, is_active: true })
+      .select('id, company_id, skills ( id, name )')
+      .single();
+    if (insertErr)
+      throw new Error(`CompanySkillRepository.create(insert): ${insertErr.message}`);
+    return this.toDomain(inserted as Record<string, unknown>);
   }
 
   async delete(id: string, companyId: string): Promise<void> {

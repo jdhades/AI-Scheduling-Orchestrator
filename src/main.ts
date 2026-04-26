@@ -14,6 +14,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import * as express from 'express';
 import helmet from 'helmet';
 import { ValidationPipe } from '@nestjs/common';
+import { PostgresExceptionFilter } from './infrastructure/filters/postgres-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -23,6 +24,10 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
   );
+
+  // Traduce errores de Postgres / no-HTTP a respuestas con `errorCode`
+  // estable que el frontend resuelve via i18n.
+  app.useGlobalFilters(new PostgresExceptionFilter());
 
   // Twilio sends webhooks as application/x-www-form-urlencoded
   app.use(express.urlencoded({ extended: true }));

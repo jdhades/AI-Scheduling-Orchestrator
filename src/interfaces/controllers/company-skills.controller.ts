@@ -11,6 +11,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import {
   COMPANY_SKILL_REPOSITORY,
   type ICompanySkillRepository,
@@ -18,6 +19,9 @@ import {
 import { CompanySkill } from '../../domain/aggregates/company-skill.aggregate';
 
 export class CreateCompanySkillDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
   name!: string;
 }
 
