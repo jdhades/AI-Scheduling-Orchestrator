@@ -28,6 +28,11 @@ import {
   type ICompanyPolicyRepository,
 } from '../../domain/repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from '../../domain/services/policy-interpreter-registry';
+import {
+  RULE_REPHRASE_SERVICE,
+  type IRuleRephraseService,
+  type RephraseSuggestion,
+} from '../../domain/services/rule-rephrase.service.interface';
 import { PolicySeverity } from '../../domain/value-objects/policy-severity.vo';
 
 export class CreateCompanyPolicyDto {
@@ -84,14 +89,24 @@ interface CompanyPolicyResponse {
 }
 
 /**
- * Respuesta del POST /company-policies. En commit 4 sumamos la rama
- * 'needs_clarification' con suggestions[] del LLM cuando ningún
- * interpreter matchea Y el manager pidió strict-mode. Por ahora siempre
- * devuelve 'created' — si no hay interpreter, se persiste como
- * LLM-only (params={}, interpreterId=null).
+ * Respuesta del POST /company-policies. Discriminated union:
+ *
+ *   - 'created'              : la policy se persistió. Si interpreterId
+ *                              es null, queda como LLM-only (el solver
+ *                              la pasa al prompt de schedule generation).
+ *
+ *   - 'needs_clarification' : el sistema no encontró un patrón aplicable
+ *                              y el LLM propuso reformulaciones. La policy
+ *                              NO se persistió. El frontend muestra las
+ *                              sugerencias y el manager re-submitea.
  */
 type CreateCompanyPolicyResponse =
-  | { status: 'created'; policy: CompanyPolicyResponse };
+  | { status: 'created'; policy: CompanyPolicyResponse }
+  | {
+      status: 'needs_clarification';
+      reason: string;
+      suggestions: RephraseSuggestion[];
+    };
 
 /**
  * CompanyPoliciesController
@@ -109,6 +124,8 @@ export class CompanyPoliciesController {
     @Inject(COMPANY_POLICY_REPOSITORY)
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
+    @Inject(RULE_REPHRASE_SERVICE)
+    private readonly rephraseService: IRuleRephraseService,
   ) {}
 
   @Get()
@@ -137,23 +154,59 @@ export class CompanyPoliciesController {
     @Query('companyId') companyId: string,
     @Body() dto: CreateCompanyPolicyDto,
   ): Promise<CreateCompanyPolicyResponse> {
+    const text = dto.text.trim();
+
+    // Caso 1: el registry encuentra un interpreter → extrae params,
+    // adjunta y persiste. Camino feliz.
+    const interpreter = this.registry.findMatch(text);
+    if (interpreter) {
+      const policy = CompanyPolicy.create({
+        id: randomUUID(),
+        companyId,
+        text,
+        severity: PolicySeverity.create(dto.severity),
+        effectiveFrom: dto.effectiveFrom,
+        createdBy: dto.createdBy ?? null,
+      });
+      const params = await interpreter.extractParams(text);
+      policy.attachInterpreter(interpreter.id, params);
+      await this.policyRepo.save(policy);
+      return { status: 'created', policy: this.toDto(policy) };
+    }
+
+    // Caso 2: ningún interpreter matcheó. Pedimos sugerencias al LLM.
+    const interpreterHints = this.registry.getAvailableIds().map((id) => {
+      const itp = this.registry.getById(id);
+      return { id, description: itp?.description ?? '' };
+    });
+    const suggestions = await this.rephraseService.suggest({
+      originalText: text,
+      reason: 'no_interpreter_matched',
+      interpreters: interpreterHints,
+    });
+
+    if (suggestions.length > 0) {
+      // El manager elige una y el frontend re-submitea con el texto elegido.
+      // Nada se persiste todavía — evitamos orphan policies que el solver ignora.
+      return {
+        status: 'needs_clarification',
+        reason: 'no_interpreter_matched',
+        suggestions,
+      };
+    }
+
+    // Caso 3: ningún interpreter + el LLM no propuso nada aplicable.
+    // Persistimos como LLM-only para no bloquear al manager — el solver
+    // la pasa al prompt de schedule generation aunque no la pueda
+    // estructurar deterministicamente.
     const policy = CompanyPolicy.create({
       id: randomUUID(),
       companyId,
-      text: dto.text,
+      text,
       severity: PolicySeverity.create(dto.severity),
       effectiveFrom: dto.effectiveFrom,
       createdBy: dto.createdBy ?? null,
     });
-
-    // Match contra interpreters conocidos. Si encuentra → extrae params
-    // y enchufa al solver via interpreterId. Si no → queda LLM-only.
-    const interpreter = this.registry.findMatch(policy.getText());
-    if (interpreter) {
-      const params = await interpreter.extractParams(policy.getText());
-      policy.attachInterpreter(interpreter.id, params);
-    }
-
     await this.policyRepo.save(policy);
     return { status: 'created', policy: this.toDto(policy) };
   }

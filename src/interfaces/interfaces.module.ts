@@ -20,6 +20,8 @@ import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter-registry';
 import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
 import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
+import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
+import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
@@ -53,6 +55,14 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
       useFactory: (...interpreters) => interpreters,
     },
     PolicyInterpreterRegistry,
+    // Suggestion-loop: cuando ningún interpreter matchea, el LLM propone
+    // reformulaciones verificadas. Implementación llama al LLM_SERVICE
+    // ya provisto por RepositoriesModule (Qwen / Gemini / local según
+    // ai.activeProvider).
+    {
+      provide: RULE_REPHRASE_SERVICE,
+      useClass: LlmRuleRephraseService,
+    },
   ],
 })
 export class InterfacesModule {}
