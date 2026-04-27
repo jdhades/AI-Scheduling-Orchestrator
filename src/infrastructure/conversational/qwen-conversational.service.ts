@@ -122,7 +122,8 @@ INTENCIONES DISPONIBLES:
 - request_day_off: el empleado solicita un día libre
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana que viene")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
-- create_rule: el manager dicta una regla de negocio o restricción para la configuración de horarios (ej. "agrega una regla", "apunta esto", "los viernes ocupo 2 meseros", "se prohibe...", "por un mes...")
+- create_rule: el manager dicta una regla de negocio o restricción CASO PARTICULAR (menciona un empleado, fecha o turno específico). Ej. "Pablo no trabaja los lunes", "los viernes ocupo 2 meseros", "Sofía solo turnos de tarde", "el 25 es feriado"
+- create_policy: el manager dicta una política TENANT-WIDE que aplica a TODOS los empleados (no menciona a una persona específica; usa "cada empleado", "los empleados", "todo el staff", etc.). Ej. "los empleados descansan al menos 11h entre turnos", "cada empleado tiene 2 días libres por semana", "máximo 40h semanales para todos"
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -133,7 +134,7 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - weekStart: primer día de la semana (lunes) en formato YYYY-MM-DD si el usuario pregunta por una semana en particular
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
-- ruleText: texto de la regla que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule)
+- ruleText: texto de la regla / política que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule O create_policy)
 - expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo, calcula la fecha final partiendo de HOY ${today}. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
 
@@ -174,7 +175,8 @@ INTENCIONES DISPONIBLES:
 - request_day_off: el empleado solicita un día libre
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana que viene")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
-- create_rule: el manager dicta una regla de negocio o restricción para la configuración de horarios (ej. "agrega una regla", "apunta esto", "los viernes ocupo 2 meseros", "se prohibe...", "por un mes...")
+- create_rule: el manager dicta una regla de negocio o restricción CASO PARTICULAR (menciona un empleado, fecha o turno específico). Ej. "Pablo no trabaja los lunes", "los viernes ocupo 2 meseros", "Sofía solo turnos de tarde", "el 25 es feriado"
+- create_policy: el manager dicta una política TENANT-WIDE que aplica a TODOS los empleados (no menciona a una persona específica; usa "cada empleado", "los empleados", "todo el staff", etc.). Ej. "los empleados descansan al menos 11h entre turnos", "cada empleado tiene 2 días libres por semana", "máximo 40h semanales para todos"
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -185,7 +187,7 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - weekStart: primer día de la semana (lunes) en formato YYYY-MM-DD si el usuario pregunta por una semana en particular
 - timeOfDay: momento del día (ej. "morning", "afternoon", "night") si se menciona para la ausencia
 - selection: opción seleccionada (ej. "1", "2", "yes", "no") si la intención es select_option
-- ruleText: texto de la regla que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule)
+- ruleText: texto de la regla / política que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule O create_policy)
 - expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo, calcula la fecha final partiendo de HOY ${today}. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
 
@@ -351,7 +353,8 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
       const validIntents: string[] = [
         'swap_shift', 'report_absence', 'check_schedule',
         'request_day_off', 'generate_schedule', 'select_option',
-        'create_rule', 'system_unavailable', 'unknown',
+        'create_rule', 'create_policy',
+        'system_unavailable', 'unknown',
       ];
       if (!validIntents.includes(intent)) {
         return ConversationIntentVO.unknown(rawText);

@@ -16,6 +16,13 @@ export type IntentType =
    *  el MessageRouter lo setea via session.withIntent() para mantener
    *  contexto entre mensajes. */
   | 'create_rule_clarification'
+  /** El manager dicta una política tenant-wide (aplica a todos los
+   *  empleados), distinta de create_rule que es caso particular. */
+  | 'create_policy'
+  /** Análogo a create_rule_clarification pero para policies. Estado
+   *  interno seteado por el MessageRouter cuando hay una pending
+   *  WhatsappPendingClarification con target_kind='policy'. */
+  | 'create_policy_clarification'
   | 'system_unavailable'
   | 'unknown';
 
@@ -147,6 +154,8 @@ export class ConversationIntentVO {
       select_option: [],
       create_rule: ['ruleText'],
       create_rule_clarification: [],
+      create_policy: ['ruleText'],
+      create_policy_clarification: [],
       system_unavailable: [],
       unknown: [],
     };

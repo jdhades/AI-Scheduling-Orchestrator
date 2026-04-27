@@ -17,13 +17,6 @@ import { DayOffRequestsController } from './controllers/day-off-requests.control
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
-import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter-registry';
-import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
-import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
-import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
-import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
-import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
-import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
@@ -47,36 +40,9 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AbsenceReportsController,
     DayOffRequestsController,
   ],
-  providers: [
-    // CompanyPolicy interpreters (multi-injection bajo POLICY_INTERPRETERS_TOKEN).
-    // Sumar nuevos interpreters acá los enchufa al registry sin tocar nada más.
-    MinRestDaysPerWeekInterpreter,
-    MinRestHoursBetweenShiftsInterpreter,
-    {
-      provide: POLICY_INTERPRETERS_TOKEN,
-      inject: [
-        MinRestDaysPerWeekInterpreter,
-        MinRestHoursBetweenShiftsInterpreter,
-      ],
-      useFactory: (...interpreters) => interpreters,
-    },
-    PolicyInterpreterRegistry,
-    // Suggestion-loop: cuando ningún interpreter matchea, el LLM propone
-    // reformulaciones verificadas. Implementación llama al LLM_SERVICE
-    // ya provisto por RepositoriesModule (Qwen / Gemini / local según
-    // ai.activeProvider).
-    {
-      provide: RULE_REPHRASE_SERVICE,
-      useClass: LlmRuleRephraseService,
-    },
-    // Domain service que encapsula el create flow con suggestion-loop.
-    // Reusable por el controller (HTTP) y por el MessageRouter (WhatsApp).
-    CompanyPolicyCreator,
-  ],
-  exports: [
-    // Exportamos el creator para que el módulo de WhatsApp/MessageRouter
-    // lo pueda inyectar (commit P2).
-    CompanyPolicyCreator,
-  ],
+  // Los providers del subsistema CompanyPolicy (registry, interpreters,
+  // rephrase service, creator) viven en ApplicationModule junto al resto
+  // de DomainServices. Acá solo declaramos los controllers HTTP — los
+  // controllers reciben los servicios via el import de ApplicationModule.
 })
 export class InterfacesModule {}

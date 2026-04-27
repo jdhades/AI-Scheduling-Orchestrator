@@ -30,6 +30,7 @@ import { ReportAbsenceCommand } from '../../../src/application/commands/report-a
 import { GetMyScheduleQuery } from '../../../src/application/queries/get-my-schedule.query';
 import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../../src/domain/repositories/whatsapp-pending-clarification.repository';
 import { WhatsappPolicyPermissionService } from '../../../src/domain/services/whatsapp-policy-permission.service';
+import { CompanyPolicyCreator } from '../../../src/domain/services/company-policy-creator.service';
 
 describe('MessageRouterService', () => {
   let service: MessageRouterService;
@@ -148,6 +149,16 @@ describe('MessageRouterService', () => {
           useValue: {
             canCreatePolicy: jest.fn().mockResolvedValue(false),
             getAllowedRoles: jest.fn().mockResolvedValue(['manager']),
+          },
+        },
+        {
+          provide: CompanyPolicyCreator,
+          useValue: {
+            create: jest.fn().mockResolvedValue({
+              status: 'created',
+              mode: 'matched',
+              policy: { getText: () => 'mock policy' },
+            }),
           },
         },
       ],

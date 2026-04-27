@@ -44,6 +44,13 @@ import { ConflictResolutionEngine } from '../domain/services/conflict-resolution
 import { RuleStructureExtractor } from '../domain/services/rule-structure-extractor.service';
 import { LlmSemanticRuleRephraseService } from '../domain/services/llm-semantic-rule-rephrase.service';
 import { SEMANTIC_RULE_REPHRASE_SERVICE } from '../domain/services/semantic-rule-rephrase.service.interface';
+import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter-registry';
+import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
+import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
+import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
+import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
+import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
+import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
 import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
 import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
@@ -110,12 +117,36 @@ const DomainServices = [
   WeekScheduleBuilder,
   LLMLineProposerService,
   LlmSemanticRuleRephraseService,
+  // Subsistema CompanyPolicy (commits 1-9 + follow-up): registry +
+  // interpreters + rephrase service + creator. Antes vivían en
+  // InterfacesModule; los moví acá para que el MessageRouter (que
+  // está en ApplicationModule) los pueda inyectar sin cruzar a
+  // Interfaces (que ya importa Application — sería circular).
+  MinRestDaysPerWeekInterpreter,
+  MinRestHoursBetweenShiftsInterpreter,
+  PolicyInterpreterRegistry,
+  LlmRuleRephraseService,
+  CompanyPolicyCreator,
 ];
 
-// Suggestion-loop para SemanticRule (commit 6). El handler de
-// CreateSemanticRule lo inyecta para proponer reformulaciones cuando
-// intent=complex.
 const PolicyDomainProviders = [
+  // Multi-injection: el registry recibe la lista de interpreters via
+  // POLICY_INTERPRETERS_TOKEN. Sumar nuevos = sumar al inject array.
+  {
+    provide: POLICY_INTERPRETERS_TOKEN,
+    inject: [
+      MinRestDaysPerWeekInterpreter,
+      MinRestHoursBetweenShiftsInterpreter,
+    ],
+    useFactory: (...interpreters: unknown[]) => interpreters,
+  },
+  // Token-binding del rephrase service usado por CompanyPolicyCreator.
+  {
+    provide: RULE_REPHRASE_SERVICE,
+    useExisting: LlmRuleRephraseService,
+  },
+  // Suggestion-loop para SemanticRule (commit 6). El handler de
+  // CreateSemanticRule lo inyecta cuando intent=complex.
   {
     provide: SEMANTIC_RULE_REPHRASE_SERVICE,
     useExisting: LlmSemanticRuleRephraseService,
@@ -139,6 +170,15 @@ const PolicyDomainProviders = [
     ...DomainServices,
     ...PolicyDomainProviders,
   ],
-  exports: [CqrsModule, ...DomainServices, ...ConversationalServices],
+  exports: [
+    CqrsModule,
+    ...DomainServices,
+    ...ConversationalServices,
+    // Tokens del subsistema CompanyPolicy: el controller HTTP de
+    // /company-policies (en InterfacesModule) los inyecta.
+    POLICY_INTERPRETERS_TOKEN,
+    RULE_REPHRASE_SERVICE,
+    SEMANTIC_RULE_REPHRASE_SERVICE,
+  ],
 })
 export class ApplicationModule {}

@@ -31,6 +31,10 @@ import {
 } from '../../domain/repositories/whatsapp-pending-clarification.repository';
 import { WhatsappPendingClarification } from '../../domain/aggregates/whatsapp-pending-clarification.aggregate';
 import { WhatsappPolicyPermissionService } from '../../domain/services/whatsapp-policy-permission.service';
+import {
+  CompanyPolicyCreator,
+  type CreateCompanyPolicyInput,
+} from '../../domain/services/company-policy-creator.service';
 import { I18nService } from 'nestjs-i18n';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -81,6 +85,7 @@ export class MessageRouterService {
     @Inject(WHATSAPP_PENDING_CLARIFICATION_REPOSITORY)
     private readonly pendingClarificationRepo: IWhatsappPendingClarificationRepository,
     private readonly policyPermission: WhatsappPolicyPermissionService,
+    private readonly companyPolicyCreator: CompanyPolicyCreator,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -172,6 +177,40 @@ export class MessageRouterService {
           companyId,
           sessionEntities,
           intentEntities,
+          intent.getRawText(),
+          locale,
+        );
+        if (handled) return;
+      }
+
+      // Handle response to a pending suggestion-loop for policy creation.
+      // Mismo patrón que rule pero target_kind='policy'.
+      if (
+        (currentIntent === 'select_option' || currentIntent === 'unknown') &&
+        sessionEntities.pendingAction === 'create_policy_clarification'
+      ) {
+        const handled = await this._handlePolicyClarificationResponse(
+          from,
+          employeeId,
+          companyId,
+          sessionEntities,
+          intentEntities,
+          intent.getRawText(),
+          locale,
+        );
+        if (handled) return;
+      }
+
+      // Handle create_policy intent (tenant-wide policy via WhatsApp).
+      // Inline — no usa CommandMapper porque la lógica vive en
+      // CompanyPolicyCreator, accesible directamente.
+      if (currentIntent === 'create_policy') {
+        const handled = await this._handleCreatePolicy(
+          from,
+          employeeId,
+          companyId,
+          employee,
+          mergedEntities,
           intent.getRawText(),
           locale,
         );
@@ -1251,6 +1290,218 @@ export class MessageRouterService {
       from,
       `✅ Regla creada: "${pick.suggestedText}"`,
     );
+    return true;
+  }
+
+  /**
+   * Handler del intent create_policy (tenant-wide). Llama a
+   * CompanyPolicyCreator que se encarga del suggestion-loop. Tres
+   * resultados:
+   *   - 'created' + matched   → persistido con interpreter, reply ✓.
+   *   - 'created' + llm_only  → persistido sin interpreter, reply con
+   *                              warning honesto (el solver lo trata
+   *                              como contexto LLM, no como constraint
+   *                              hard).
+   *   - 'needs_clarification' → persiste pending + reply numerado.
+   */
+  private async _handleCreatePolicy(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    employee: { role: string } | null,
+    mergedEntities: Record<string, string>,
+    rawText: string,
+    locale: string,
+  ): Promise<boolean> {
+    // Permiso configurable por tenant — mismo flow que create_rule.
+    const allowed = employee
+      ? await this.policyPermission.canCreatePolicy({
+          employeeRole: employee.role,
+          companyId,
+        })
+      : false;
+    if (!allowed) {
+      this._reply(
+        from,
+        this.i18n.t('bot.general.unauthorized', {
+          lang: locale,
+          defaultValue: '⚠️ No tienes permisos para crear políticas de la empresa.',
+        }),
+      );
+      await this.sessionRepository.clearSession(from);
+      return true;
+    }
+
+    const text = mergedEntities.ruleText ?? rawText.trim();
+    if (!text || text.trim().length < 10) {
+      this._reply(
+        from,
+        '⚠️ La política tiene que tener al menos 10 caracteres. Probá ser más específico.',
+      );
+      return true;
+    }
+
+    const input: CreateCompanyPolicyInput = {
+      companyId,
+      text,
+      severity: 'hard',
+      createdBy: employeeId,
+    };
+    const result = await this.companyPolicyCreator.create(input);
+
+    if (result.status === 'needs_clarification') {
+      // Persistimos las sugerencias y replicamos el suggestion-loop por mensaje.
+      const persisted = result.suggestions.map((s) => ({
+        id: s.id,
+        suggestedText: s.suggestedText,
+        meta: {
+          matchedInterpreterId: s.matchedInterpreterId,
+          matchedParams: s.matchedParams,
+        },
+      }));
+      const pending = WhatsappPendingClarification.create({
+        employeeId,
+        companyId,
+        targetKind: 'policy',
+        originalText: text,
+        suggestions: persisted,
+      });
+      await this.pendingClarificationRepo.save(pending);
+
+      let session = await this.sessionRepository.getSession(from);
+      if (!session) {
+        session = ConversationSessionVO.create({ employeePhone: from, companyId });
+      }
+      session = session.withIntent('create_policy_clarification', {
+        pendingAction: 'create_policy_clarification',
+        policySeverity: 'hard',
+      });
+      await this.sessionRepository.saveSession(session);
+
+      let msg = '⚠️ Tu política es ambigua. Elegí una versión:\n\n';
+      result.suggestions.forEach((s, i) => {
+        msg += `${i + 1}. ${s.suggestedText}\n`;
+      });
+      msg += '\n_Respondé con el número (1, 2, 3...) o escribí una nueva política._';
+      this._reply(from, msg);
+      return true;
+    }
+
+    // status === 'created'
+    await this.sessionRepository.clearSession(from);
+    if (result.mode === 'matched') {
+      this._reply(
+        from,
+        `✅ Política creada y aplicable directamente: "${result.policy.getText()}"`,
+      );
+    } else {
+      // mode === 'llm_only' — guardamos pero el solver no la aplica
+      // determinísticamente; advertimos al manager.
+      this._reply(
+        from,
+        `⚠️ Política guardada como LLM-only: "${result.policy.getText()}". El scheduler determinístico no la aplica directo; solo la considera al pasarla al LLM. Si querés que se aplique automáticamente, reformulala matcheando un patrón estructurado.`,
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Procesa la respuesta del manager al suggestion-loop de policy.
+   * Espejo de _handleRuleClarificationResponse pero usando el
+   * CompanyPolicyCreator con el texto elegido.
+   */
+  private async _handlePolicyClarificationResponse(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    sessionEntities: Record<string, string>,
+    intentEntities: Record<string, string>,
+    rawText: string,
+    locale: string,
+  ): Promise<boolean> {
+    const pending = await this.pendingClarificationRepo.findActiveByEmployee(
+      employeeId,
+      companyId,
+    );
+    if (!pending || pending.getTargetKind() !== 'policy') {
+      this._reply(
+        from,
+        '⏰ Esa propuesta de política ya expiró. Volvé a escribirla cuando quieras.',
+      );
+      await this.sessionRepository.clearSession(from);
+      return true;
+    }
+
+    const selectionRaw = (intentEntities.selection ?? rawText).trim();
+    const n = parseInt(selectionRaw, 10);
+    if (Number.isNaN(n)) {
+      // Texto libre — el manager está reformulando manualmente.
+      // Cleanup + dejar que el flow normal lo procese.
+      await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+      await this.sessionRepository.clearSession(from);
+      return false;
+    }
+
+    const pick = pending.pickByNumber(n);
+    if (!pick) {
+      this._reply(
+        from,
+        `Número fuera de rango. Elegí entre 1 y ${pending.getSuggestions().length}, o escribí una política nueva.`,
+      );
+      return true;
+    }
+
+    await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+
+    const severity = (sessionEntities.policySeverity ?? 'hard') as 'hard' | 'soft';
+    const result = await this.companyPolicyCreator.create({
+      companyId,
+      text: pick.suggestedText,
+      severity,
+      createdBy: employeeId,
+    });
+
+    // Si la sugerencia elegida ALSO sale needs_clarification (improbable,
+    // estaban pre-verificadas), repetimos el loop.
+    if (result.status === 'needs_clarification') {
+      const persisted = result.suggestions.map((s) => ({
+        id: s.id,
+        suggestedText: s.suggestedText,
+        meta: {
+          matchedInterpreterId: s.matchedInterpreterId,
+          matchedParams: s.matchedParams,
+        },
+      }));
+      const newPending = WhatsappPendingClarification.create({
+        employeeId,
+        companyId,
+        targetKind: 'policy',
+        originalText: pick.suggestedText,
+        suggestions: persisted,
+      });
+      await this.pendingClarificationRepo.save(newPending);
+
+      let msg = '⚠️ La elección sigue siendo ambigua. Elegí otra:\n\n';
+      result.suggestions.forEach((s, i) => {
+        msg += `${i + 1}. ${s.suggestedText}\n`;
+      });
+      msg += '\n_Respondé con el número o escribí una nueva._';
+      this._reply(from, msg);
+      return true;
+    }
+
+    await this.sessionRepository.clearSession(from);
+    if (result.mode === 'matched') {
+      this._reply(
+        from,
+        `✅ Política creada: "${result.policy.getText()}"`,
+      );
+    } else {
+      this._reply(
+        from,
+        `⚠️ Política guardada como LLM-only: "${result.policy.getText()}". El scheduler la considera como contexto pero no la aplica determinísticamente.`,
+      );
+    }
     return true;
   }
 }
