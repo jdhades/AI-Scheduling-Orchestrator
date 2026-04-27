@@ -14,16 +14,21 @@ export class RegisterEmployeeHandler implements ICommandHandler<RegisterEmployee
   ) {}
 
   async execute(command: RegisterEmployeeCommand): Promise<void> {
-    const { employeeId, companyId, phone, experience } = command;
+    const { employeeId, companyId, name, phone, experience, externalId } = command;
 
     const employee = this.publisher.mergeObjectContext(
       Employee.create(
         employeeId,
         companyId,
-        'Desconocido',
+        name,
         'employee',
         phone,
         experience,
+        'es',
+        undefined,
+        undefined,
+        {},
+        externalId,
       ),
     );
 

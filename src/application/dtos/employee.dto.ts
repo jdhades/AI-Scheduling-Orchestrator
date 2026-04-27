@@ -6,6 +6,7 @@ export interface EmployeeDto {
   name: string;
   role: string;
   phone: string;
+  externalId: string | null;
   experienceMonths: number;
   experienceLevel: 'junior' | 'intermediate' | 'senior';
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
@@ -20,6 +21,7 @@ export function toEmployeeDto(emp: Employee): EmployeeDto {
     name: emp.name,
     role: emp.role,
     phone: emp.phone,
+    externalId: emp.externalId ?? null,
     experienceMonths: emp.experienceMonths,
     experienceLevel: emp.experienceLevel,
     availability: emp.getAvailability().map((a) => ({

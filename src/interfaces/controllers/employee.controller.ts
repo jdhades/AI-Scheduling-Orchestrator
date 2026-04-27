@@ -61,12 +61,20 @@ export class EmployeeController {
       dto.experienceMonths,
       DEFAULT_RANGES,
     );
+    const employeeId = dto.employeeId ?? crypto.randomUUID();
 
     await this.commandBus.execute(
-      new RegisterEmployeeCommand(dto.employeeId, companyId, phone, experience),
+      new RegisterEmployeeCommand(
+        employeeId,
+        companyId,
+        dto.name,
+        phone,
+        experience,
+        dto.externalId,
+      ),
     );
 
-    return { employeeId: dto.employeeId };
+    return { employeeId };
   }
 
   /**

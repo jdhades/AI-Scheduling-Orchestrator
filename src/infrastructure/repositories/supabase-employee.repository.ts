@@ -32,6 +32,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       phone_number: employee.phone,
       experience_months: employee.experienceMonths,
       locale: employee.locale,
+      external_id: employee.externalId ?? null,
       hire_date: new Date().toISOString().split('T')[0],
     });
 
@@ -144,6 +145,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     if (patch.maxHoursPerWeek !== undefined)
       row.max_hours_per_week = patch.maxHoursPerWeek;
     if (patch.isActive !== undefined) row.is_active = patch.isActive;
+    if (patch.externalId !== undefined) row.external_id = patch.externalId;
 
     if (Object.keys(row).length === 0) return;
 
@@ -210,6 +212,7 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
         maxHoursPerDay: row.max_hours_per_day != null ? Number(row.max_hours_per_day) : null,
         maxHoursPerWeek: row.max_hours_per_week != null ? Number(row.max_hours_per_week) : null,
       },
+      externalId: row.external_id ?? undefined,
     });
 
     // Hydrate skills

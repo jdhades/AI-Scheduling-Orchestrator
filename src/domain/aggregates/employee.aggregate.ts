@@ -24,6 +24,7 @@ export class Employee extends AggregateRoot {
     public readonly departmentId?: string,
     public readonly contractType?: string,
     public readonly workingTimeOverrides: WorkingTimePolicyOverrides = {},
+    public readonly externalId?: string,
   ) {
     super();
   }
@@ -39,8 +40,9 @@ export class Employee extends AggregateRoot {
     departmentId?: string,
     contractType?: string,
     workingTimeOverrides: WorkingTimePolicyOverrides = {},
+    externalId?: string,
   ): Employee {
-    const employee = new Employee(id, companyId, name, role, phone, experience, locale, departmentId, contractType, workingTimeOverrides);
+    const employee = new Employee(id, companyId, name, role, phone, experience, locale, departmentId, contractType, workingTimeOverrides, externalId);
     employee.apply(new EmployeeRegisteredEvent(id, companyId, phone.value));
     return employee;
   }
@@ -61,6 +63,7 @@ export class Employee extends AggregateRoot {
     departmentId?: string;
     contractType?: string;
     workingTimeOverrides?: WorkingTimePolicyOverrides;
+    externalId?: string;
   }): Employee {
     const emp = new Employee(
       data.id,
@@ -73,6 +76,7 @@ export class Employee extends AggregateRoot {
       data.departmentId,
       data.contractType,
       data.workingTimeOverrides ?? {},
+      data.externalId,
     );
     emp.availability = data.availability ?? [];
     emp.preferences = data.preferences ?? [];

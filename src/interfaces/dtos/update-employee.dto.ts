@@ -56,4 +56,9 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  externalId?: string | null;
 }

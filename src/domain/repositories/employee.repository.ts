@@ -27,6 +27,7 @@ export interface EmployeePatch {
   maxHoursPerDay?: number | null;
   maxHoursPerWeek?: number | null;
   isActive?: boolean;
+  externalId?: string | null;
 }
 
 export interface IEmployeeRepository {

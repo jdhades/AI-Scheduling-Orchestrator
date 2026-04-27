@@ -38,6 +38,7 @@ describe('RegisterEmployeeHandler', () => {
     const command = new RegisterEmployeeCommand(
       'employee-uuid-1',
       'company-uuid-1',
+      'Alice',
       PhoneNumber.create('+12025550100'),
       new ExperienceLevel(12, RANGES),
     );
@@ -57,6 +58,7 @@ describe('RegisterEmployeeHandler', () => {
     const command = new RegisterEmployeeCommand(
       'employee-uuid-2',
       'company-uuid-2',
+      'Bob',
       PhoneNumber.create('+12025550199'),
       new ExperienceLevel(36, RANGES),
     );
@@ -80,6 +82,7 @@ describe('RegisterEmployeeHandler', () => {
         new RegisterEmployeeCommand(
           'emp-1',
           'co-1',
+          'Carol',
           PhoneNumber.create('invalid-phone'),
           new ExperienceLevel(12, RANGES),
         ),
