@@ -32,8 +32,28 @@ async function bootstrap() {
   // Twilio sends webhooks as application/x-www-form-urlencoded
   app.use(express.urlencoded({ extended: true }));
 
+  // CORS:
+  //  - Si ALLOWED_ORIGIN está seteado → se usa tal cual (string o lista
+  //    separada por coma).
+  //  - Si no está, en development/test caemos a '*' (dev abierto).
+  //  - En producción sin ALLOWED_ORIGIN, fallamos cerrado (false) para
+  //    no exponer la API a cualquier origin por accidente de config.
+  const allowedOrigin = process.env.ALLOWED_ORIGIN;
+  const isProdLike =
+    process.env.APP_ENV !== 'development' &&
+    process.env.APP_ENV !== 'test' &&
+    process.env.NODE_ENV !== 'development' &&
+    process.env.NODE_ENV !== 'test';
+  let corsOrigin: string | string[] | boolean;
+  if (allowedOrigin) {
+    corsOrigin = allowedOrigin.includes(',')
+      ? allowedOrigin.split(',').map((o) => o.trim())
+      : allowedOrigin;
+  } else {
+    corsOrigin = isProdLike ? false : '*';
+  }
   app.enableCors({
-    origin: process.env.ALLOWED_ORIGIN || '*', // For local development, allow all origins
+    origin: corsOrigin,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
     allowedHeaders: 'Content-Type, Accept, Authorization, X-Company-Id',

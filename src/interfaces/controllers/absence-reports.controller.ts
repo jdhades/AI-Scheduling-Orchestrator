@@ -10,6 +10,13 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateIf,
+} from 'class-validator';
 import { randomUUID } from 'crypto';
 import {
   ABSENCE_REPORT_REPOSITORY,
@@ -17,10 +24,25 @@ import {
 } from '../../domain/repositories/absence-report.repository';
 import { AbsenceReport } from '../../domain/aggregates/absence-report.aggregate';
 
+// IDs validados como strings no vacíos (la seed data del proyecto usa
+// formato UUID-shape no estricto RFC 4122 — @IsUUID los rechazaría).
 export class CreateAbsenceReportDto {
+  @IsString()
+  @IsNotEmpty()
   employeeId!: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
   assignmentId?: string | null;
+
+  @IsString()
+  @IsNotEmpty()
   reason!: string;
+
+  @IsOptional()
+  @IsBoolean()
   isUrgent?: boolean;
 }
 

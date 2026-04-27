@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { IsNotEmpty, IsString, Matches } from 'class-validator';
 import { randomUUID } from 'crypto';
 import {
   DAY_OFF_REQUEST_REPOSITORY,
@@ -20,10 +21,19 @@ import {
   type DayOffRequestStatus,
 } from '../../domain/aggregates/day-off-request.aggregate';
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export class CreateDayOffRequestDto {
+  @IsString()
+  @IsNotEmpty()
   employeeId!: string;
+
   /** YYYY-MM-DD */
+  @Matches(ISO_DATE, { message: 'date must be YYYY-MM-DD' })
   date!: string;
+
+  @IsString()
+  @IsNotEmpty()
   reason!: string;
 }
 

@@ -10,6 +10,12 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateIf,
+} from 'class-validator';
 import { randomUUID } from 'crypto';
 import {
   SHIFT_SWAP_REQUEST_REPOSITORY,
@@ -21,8 +27,18 @@ import {
 } from '../../domain/aggregates/shift-swap-request.aggregate';
 
 export class CreateShiftSwapRequestDto {
+  @IsString()
+  @IsNotEmpty()
   requesterId!: string;
+
+  @IsString()
+  @IsNotEmpty()
   targetId!: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
   assignmentId?: string | null;
 }
 

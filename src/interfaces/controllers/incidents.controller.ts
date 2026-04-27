@@ -15,21 +15,34 @@ import { RejectIncidentCommand } from '../../application/commands/reject-inciden
 import { ResolveIncidentCommand } from '../../application/commands/resolve-incident.command';
 import { GetIncidentsQuery } from '../../application/queries/get-incidents.query';
 import { GetIncidentByIdQuery } from '../../application/queries/get-incident-by-id.query';
+import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 import type { IncidentStatus } from '../../domain/aggregates/incident.aggregate';
 
 export class CreateIncidentDto {
+  @IsString()
+  @IsNotEmpty()
   employeeId!: string;
+
   /** Mensaje libre del reportante; puede ir vacío. */
+  @IsOptional()
+  @IsString()
   message?: string;
+
   /** URL al archivo evidencia (imagen/PDF). Puede ir vacío en MVP. */
+  @IsOptional()
+  @IsUrl({ require_tld: false })
   mediaUrl?: string;
 }
 
 export class RejectIncidentDto {
+  @IsString()
+  @IsNotEmpty()
   reason!: string;
 }
 
 export class ResolveIncidentDto {
+  @IsString()
+  @IsNotEmpty()
   details!: string;
 }
 

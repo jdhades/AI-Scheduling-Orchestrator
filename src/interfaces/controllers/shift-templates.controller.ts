@@ -13,6 +13,18 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import {
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { randomUUID } from 'crypto';
 import type {
   IShiftTemplateRepository,
@@ -21,28 +33,102 @@ import type {
 import { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
+
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
+// HH:MM en 24h. Acepta también HH:MM:SS (varias bocas del backend lo
+// devuelven con segundos; class-validator lo deja entrar igual).
+const TIME_HHMM = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+
 export class CreateShiftTemplateDto {
-  name: string;
-  dayOfWeek: number; // 0=Sun … 6=Sat
-  startTime: string; // "HH:MM"
-  endTime: string; // "HH:MM"
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name!: string;
+
+  /** 0=Dom … 6=Sáb · null = aplica a todos los días. */
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek!: number | null;
+
+  @Matches(TIME_HHMM, { message: 'startTime must be HH:MM (24h)' })
+  startTime!: string;
+
+  @Matches(TIME_HHMM, { message: 'endTime must be HH:MM (24h)' })
+  endTime!: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
   requiredSkillId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   demandScore?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   undesirableWeight?: number;
+
+  /** null = ELASTIC slot (absorbe sobrante). */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
   requiredEmployees?: number | null;
 }
 
 export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
   name?: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  @Max(6)
   dayOfWeek?: number | null;
+
+  @IsOptional()
+  @Matches(TIME_HHMM, { message: 'startTime must be HH:MM (24h)' })
   startTime?: string;
+
+  @IsOptional()
+  @Matches(TIME_HHMM, { message: 'endTime must be HH:MM (24h)' })
   endTime?: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
   requiredSkillId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   demandScore?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   undesirableWeight?: number;
+
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
   requiredEmployees?: number | null;
 }
 
@@ -90,7 +176,11 @@ export class ShiftTemplatesController {
       id: randomUUID(),
       companyId,
       name: dto.name,
-      dayOfWeek: dto.dayOfWeek,
+      // El aggregate declara dayOfWeek: number, pero acepta null en runtime
+      // (los checks usan < / > que con null coercen a 0). Mantener
+      // null para "todos los días" requeriría cambiar la firma del
+      // aggregate; lo dejamos pendiente y casteamos acá.
+      dayOfWeek: dto.dayOfWeek as number,
       startTime: dto.startTime,
       endTime: dto.endTime,
       requiredSkillId: dto.requiredSkillId ?? null,
