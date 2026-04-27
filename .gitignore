@@ -57,3 +57,9 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Supabase IDE scratchpad — queries exploratorias autogeneradas
 supabase/snippets/Untitled*
+
+# Environment files con secrets (Supabase keys, Twilio tokens, Qwen API keys, DB URL)
+# Solo .env.example queda tracked (template documentado).
+.env
+.env.*
+!.env.example
