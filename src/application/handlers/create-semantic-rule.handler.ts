@@ -11,6 +11,21 @@ import type { ISemanticRuleRepository } from '../../domain/repositories/semantic
 import { EMBEDDING_SERVICE_TOKEN } from '../../domain/services/embedding.service.interface';
 import { SEMANTIC_RULE_REPOSITORY_TOKEN } from '../../domain/repositories/semantic-rule.repository.interface';
 import { RuleStructureExtractor } from '../../domain/services/rule-structure-extractor.service';
+import {
+  SEMANTIC_RULE_REPHRASE_SERVICE,
+  type ISemanticRuleRephraseService,
+} from '../../domain/services/semantic-rule-rephrase.service.interface';
+
+/** Sugerencia de reformulación cuando intent=complex y el LLM tiene
+ *  alternativas aplicables. Estructuralmente igual a la del policy
+ *  rephrase, pero generada por el LLM contra el matcher schema de
+ *  SemanticRule. */
+export interface CreateSemanticRuleSuggestion {
+  id: string;
+  suggestedText: string;
+  explanation: string;
+  previewIntent?: string;
+}
 
 export interface CreateSemanticRuleResult {
   id: string;
@@ -19,10 +34,18 @@ export interface CreateSemanticRuleResult {
   isDuplicate: boolean;
   /** UUID of the existing rule that is semantically equivalent (only set when isDuplicate=true) */
   duplicateOfId?: string;
-  /** true si el LLM pudo extraer estructura — falso si falló o la marcó como complex */
+  /** true si el LLM pudo extraer estructura aplicable (intent != 'complex'). */
   structureExtracted: boolean;
   /** Intent resuelto por el LLM (block, permit-multi-shift, preference, complex) o undefined */
   intent?: string;
+  /**
+   * Si intent='complex' Y el LLM logró proponer reformulaciones, la
+   * regla NO se persiste y `suggestions` trae las alternativas (el
+   * frontend muestra el suggestion-loop). Si el LLM falló o no pudo
+   * sugerir nada, la regla SE persiste como complex (comportamiento
+   * histórico) y `suggestions` queda undefined.
+   */
+  suggestions?: CreateSemanticRuleSuggestion[];
 }
 
 /**
@@ -58,6 +81,8 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     private readonly ruleRepository: ISemanticRuleRepository,
     private readonly eventBus: EventBus,
     private readonly structureExtractor: RuleStructureExtractor,
+    @Inject(SEMANTIC_RULE_REPHRASE_SERVICE)
+    private readonly rephraseService: ISemanticRuleRephraseService,
   ) {}
 
   async execute(
@@ -144,6 +169,36 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     } else {
       this.logger.warn(
         `CreateSemanticRuleHandler: structure extraction failed for "${command.ruleText.substring(0, 60)}" — rule saved without structure. Manager debe revisar si se aplica bien.`,
+      );
+    }
+
+    // 2.7 Suggestion-loop: si el LLM marcó la regla como complex pero
+    // structure existe, intentamos proponer reformulaciones aplicables.
+    // Si el LLM logra sugerencias, NO persistimos — devolvemos las
+    // suggestions y el manager re-submitea con el texto elegido.
+    // Si el rephrase falla, fallback al comportamiento histórico
+    // (persiste como complex con warning visible en la UI).
+    if (structure && structure.intent === 'complex') {
+      const suggestions = await this.rephraseService.suggest({
+        originalText: command.ruleText,
+        complexReason:
+          structure.complexReason ?? 'La regla no se puede estructurar.',
+      });
+      if (suggestions.length > 0) {
+        this.logger.log(
+          `CreateSemanticRuleHandler: complex rule, returning ${suggestions.length} suggestions without persisting.`,
+        );
+        return {
+          id,
+          embeddingGenerated,
+          isDuplicate: false,
+          structureExtracted: false,
+          intent: 'complex',
+          suggestions,
+        };
+      }
+      this.logger.warn(
+        `CreateSemanticRuleHandler: rule complex y rephrase no propuso alternativas; persiste como complex.`,
       );
     }
 

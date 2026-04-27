@@ -67,6 +67,7 @@ describe('CreateSemanticRuleHandler', () => {
       repository,
       eventBus,
       { extract: jest.fn().mockResolvedValue(null) } as any,
+      { suggest: jest.fn().mockResolvedValue([]) } as any,
     );
   });
 
@@ -150,6 +151,7 @@ describe('CreateSemanticRuleHandler — deduplication', () => {
       repository,
       eventBus,
       { extract: jest.fn().mockResolvedValue(null) } as any,
+      { suggest: jest.fn().mockResolvedValue([]) } as any,
     );
   });
 

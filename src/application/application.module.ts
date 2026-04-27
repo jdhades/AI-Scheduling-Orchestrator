@@ -42,6 +42,8 @@ import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.service';
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
 import { RuleStructureExtractor } from '../domain/services/rule-structure-extractor.service';
+import { LlmSemanticRuleRephraseService } from '../domain/services/llm-semantic-rule-rephrase.service';
+import { SEMANTIC_RULE_REPHRASE_SERVICE } from '../domain/services/semantic-rule-rephrase.service.interface';
 import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
 import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
@@ -107,6 +109,17 @@ const DomainServices = [
   ShiftSlotGeneratorService,
   WeekScheduleBuilder,
   LLMLineProposerService,
+  LlmSemanticRuleRephraseService,
+];
+
+// Suggestion-loop para SemanticRule (commit 6). El handler de
+// CreateSemanticRule lo inyecta para proponer reformulaciones cuando
+// intent=complex.
+const PolicyDomainProviders = [
+  {
+    provide: SEMANTIC_RULE_REPHRASE_SERVICE,
+    useExisting: LlmSemanticRuleRephraseService,
+  },
 ];
 
 @Module({
@@ -124,6 +137,7 @@ const DomainServices = [
     ...EventHandlers,
     ...ConversationalServices,
     ...DomainServices,
+    ...PolicyDomainProviders,
   ],
   exports: [CqrsModule, ...DomainServices, ...ConversationalServices],
 })
