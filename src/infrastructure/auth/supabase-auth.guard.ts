@@ -29,6 +29,17 @@ export class SupabaseAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
 
+    // DEV bypass: cuando DEV_AUTH_BYPASS=true y la request trae X-Company-Id
+    // (el patrón "internal/tests" que ya documenta TenantMiddleware), saltamos
+    // la verificación JWT. Deuda HIGH conocida — se quita cuando exista login real.
+    if (
+      process.env.DEV_AUTH_BYPASS === 'true' &&
+      request.headers['x-company-id']
+    ) {
+      request.user = { company_id: request.headers['x-company-id'] };
+      return true;
+    }
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new UnauthorizedException(
         'Missing or invalid Authorization header',
