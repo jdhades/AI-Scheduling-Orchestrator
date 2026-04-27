@@ -178,10 +178,10 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       id: row.id as string,
       company_id: row.company_id as string,
       rule_text: row.rule_text as string,
-      // pgvector retorna el vector como array de números en la respuesta JSON
-      embedding: Array.isArray(row.embedding)
-        ? (row.embedding as number[])
-        : null,
+      // pgvector via Supabase REST puede llegar como array nativo o como
+      // string serializado "[0.1,0.2,...]". Aceptamos ambos para que
+      // hasEmbedding() refleje el estado real persistido.
+      embedding: parseEmbedding(row.embedding),
       priority_level: row.priority_level as number,
       rule_type: row.rule_type as string,
       created_by: (row.created_by as string) ?? null,
@@ -194,4 +194,22 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
       department_id: (row.department_id as string) ?? null,
     });
   }
+}
+
+/** Acepta el vector como array nativo o como string serializado por
+ *  pgvector (`"[0.1,0.2,...]"`). Devuelve null si no hay vector válido. */
+function parseEmbedding(raw: unknown): number[] | null {
+  if (raw == null) return null;
+  if (Array.isArray(raw)) return raw as number[];
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'number')) {
+        return parsed as number[];
+      }
+    } catch {
+      // No es JSON parseable — el embedding quedará como null.
+    }
+  }
+  return null;
 }

@@ -165,11 +165,15 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     this.logger.log(
       `Semantic rule created — id=${id} embeddingGenerated=${embeddingGenerated} structureExtracted=${structure !== null} intent=${structure?.intent ?? 'n/a'}`,
     );
+    // structureExtracted = "el scheduler puede aplicarla". Si el LLM
+    // devolvió intent=complex, la columna no es null pero la regla no
+    // se aplica — para el manager eso equivale a "no extracted".
+    const applicable = structure !== null && structure.intent !== 'complex';
     return {
       id,
       embeddingGenerated,
       isDuplicate: false,
-      structureExtracted: structure !== null,
+      structureExtracted: applicable,
       intent: structure?.intent,
     };
   }
