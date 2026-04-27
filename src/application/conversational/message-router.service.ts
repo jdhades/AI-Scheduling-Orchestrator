@@ -24,6 +24,13 @@ import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
+import type { CreateSemanticRuleResult } from '../handlers/create-semantic-rule.handler';
+import {
+  WHATSAPP_PENDING_CLARIFICATION_REPOSITORY,
+  type IWhatsappPendingClarificationRepository,
+} from '../../domain/repositories/whatsapp-pending-clarification.repository';
+import { WhatsappPendingClarification } from '../../domain/aggregates/whatsapp-pending-clarification.aggregate';
+import { WhatsappPolicyPermissionService } from '../../domain/services/whatsapp-policy-permission.service';
 import { I18nService } from 'nestjs-i18n';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -71,6 +78,9 @@ export class MessageRouterService {
     private readonly queryBus: QueryBus,
     private readonly i18n: I18nService,
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    @Inject(WHATSAPP_PENDING_CLARIFICATION_REPOSITORY)
+    private readonly pendingClarificationRepo: IWhatsappPendingClarificationRepository,
+    private readonly policyPermission: WhatsappPolicyPermissionService,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -147,6 +157,25 @@ export class MessageRouterService {
           );
           return;
         }
+      }
+
+      // Handle response to a pending suggestion-loop for rule creation.
+      // El manager ya recibió las opciones numeradas y ahora elige una
+      // (o escribe texto libre que reinicia el flow desde el extractor).
+      if (
+        (currentIntent === 'select_option' || currentIntent === 'unknown') &&
+        sessionEntities.pendingAction === 'create_rule_clarification'
+      ) {
+        const handled = await this._handleRuleClarificationResponse(
+          from,
+          employeeId,
+          companyId,
+          sessionEntities,
+          intentEntities,
+          intent.getRawText(),
+          locale,
+        );
+        if (handled) return;
       }
 
       // Handle Option Selection for rule creation
@@ -243,7 +272,16 @@ export class MessageRouterService {
       );
 
       if (mapResult.command?.constructor.name === 'CreateSemanticRuleCommand') {
-        if (employee?.role !== 'manager') {
+        // Permiso configurable por tenant (commits 9 / follow-up). Antes
+        // estaba hardcodeado a role==='manager'; ahora cada tenant
+        // ajusta companies.whatsapp_policy_creator_roles.
+        const allowed = employee
+          ? await this.policyPermission.canCreatePolicy({
+              employeeRole: employee.role,
+              companyId,
+            })
+          : false;
+        if (!allowed) {
           this._reply(from, this.i18n.t('bot.general.unauthorized', { lang: locale, defaultValue: '⚠️ No tienes permisos para crear reglas de negocio.' }));
           await this.sessionRepository.clearSession(from);
           return;
@@ -470,6 +508,34 @@ export class MessageRouterService {
 
       // 6. Execute command/query
       const result = await this._execute(command);
+
+      // 6.5 Suggestion-loop interception: si CreateSemanticRuleHandler
+      // marcó la regla como complex y devolvió suggestions, NO se persistió.
+      // Persistimos una WhatsappPendingClarification y replicamos el
+      // suggestion-loop de la web por mensaje. La sesión queda con
+      // pendingAction='create_rule_clarification' a la espera de la
+      // elección del manager.
+      if (
+        command instanceof CreateSemanticRuleCommand &&
+        result &&
+        typeof result === 'object'
+      ) {
+        const ruleResult = result as CreateSemanticRuleResult;
+        if (
+          Array.isArray(ruleResult.suggestions) &&
+          ruleResult.suggestions.length > 0
+        ) {
+          await this._persistAndReplyRuleClarification(
+            from,
+            employeeId,
+            companyId,
+            command,
+            ruleResult.suggestions,
+          );
+          return;
+        }
+      }
+
       await this.sessionRepository.clearSession(from);
 
       let reply = this.i18n.t('bot.general.success', { lang: locale });
@@ -1035,5 +1101,156 @@ export class MessageRouterService {
         this.logger.error(`Failed to send reply to ${to}: ${err.message}`);
       });
     });
+  }
+
+  /**
+   * Persiste la WhatsappPendingClarification y le contesta al manager
+   * la lista numerada de sugerencias. La sesión queda con
+   * pendingAction='create_rule_clarification' + memoria de
+   * priority/ruleType/branch para reconstruir el comando cuando el
+   * manager elija una opción.
+   */
+  private async _persistAndReplyRuleClarification(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    cmd: CreateSemanticRuleCommand,
+    suggestions: NonNullable<CreateSemanticRuleResult['suggestions']>,
+  ): Promise<void> {
+    const persisted = suggestions.map((s) => ({
+      id: s.id,
+      suggestedText: s.suggestedText,
+      meta: { previewIntent: s.previewIntent ?? null },
+    }));
+
+    const pending = WhatsappPendingClarification.create({
+      employeeId,
+      companyId,
+      targetKind: 'rule',
+      originalText: cmd.ruleText,
+      suggestions: persisted,
+    });
+    await this.pendingClarificationRepo.save(pending);
+
+    // Memoria en la sesión para reconstruir el comando cuando el
+    // manager elija. Stringificamos porque las entities son
+    // Record<string, string>.
+    let session = await this.sessionRepository.getSession(from);
+    if (!session) {
+      session = ConversationSessionVO.create({ employeePhone: from, companyId });
+    }
+    session = session.withIntent('create_rule_clarification', {
+      pendingAction: 'create_rule_clarification',
+      rulePriority: String(cmd.priorityLevel),
+      ruleType: cmd.ruleType,
+      branchId: cmd.branchId ?? '',
+    });
+    await this.sessionRepository.saveSession(session);
+
+    let msg = '⚠️ Tu regla es ambigua. Elegí una versión:\n\n';
+    suggestions.forEach((s, i) => {
+      msg += `${i + 1}. ${s.suggestedText}\n`;
+    });
+    msg += '\n_Respondé con el número (1, 2, 3...) o escribí una nueva regla._';
+    this._reply(from, msg);
+  }
+
+  /**
+   * Procesa la respuesta del manager al suggestion-loop. Devuelve true
+   * si la respuesta fue manejada (la sesión ya quedó cerrada o lista
+   * para el siguiente paso); false si el caller debe seguir el flow
+   * normal.
+   */
+  private async _handleRuleClarificationResponse(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    sessionEntities: Record<string, string>,
+    intentEntities: Record<string, string>,
+    rawText: string,
+    locale: string,
+  ): Promise<boolean> {
+    const pending = await this.pendingClarificationRepo.findActiveByEmployee(
+      employeeId,
+      companyId,
+    );
+    if (!pending) {
+      this._reply(
+        from,
+        '⏰ Esa propuesta ya expiró. Volvé a escribir la regla cuando quieras.',
+      );
+      await this.sessionRepository.clearSession(from);
+      return true;
+    }
+
+    const selectionRaw = (intentEntities.selection ?? rawText).trim();
+    const n = parseInt(selectionRaw, 10);
+    if (Number.isNaN(n)) {
+      // Texto libre — el manager está reformulando manualmente.
+      // Marcamos la pending como resuelta para no dejar fantasmas y
+      // dejamos que el flow normal procese el nuevo texto como una
+      // creación fresh. Limpiamos la sesión para que no se mezcle.
+      await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+      await this.sessionRepository.clearSession(from);
+      return false; // que el flow normal haga su trabajo
+    }
+
+    const pick = pending.pickByNumber(n);
+    if (!pick) {
+      this._reply(
+        from,
+        `Número fuera de rango. Elegí entre 1 y ${pending.getSuggestions().length}, o escribí una regla nueva.`,
+      );
+      return true; // sesión sigue
+    }
+
+    await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+
+    const priority = parseInt(sessionEntities.rulePriority ?? '3', 10) as 1 | 2 | 3;
+    const ruleType = (sessionEntities.ruleType ?? 'preference') as
+      | 'restriction'
+      | 'preference'
+      | 'requirement';
+    const branchId = sessionEntities.branchId
+      ? sessionEntities.branchId
+      : null;
+
+    const cmd = new CreateSemanticRuleCommand(
+      companyId,
+      pick.suggestedText,
+      priority,
+      ruleType,
+      employeeId,
+      undefined,
+      null,
+      branchId,
+    );
+
+    const result = (await this._execute(cmd)) as unknown as CreateSemanticRuleResult;
+
+    // Si la sugerencia elegida ALSO sale complex (improbable pero
+    // posible — el LLM puede fallar en verificar), repetimos el loop.
+    if (
+      result &&
+      typeof result === 'object' &&
+      Array.isArray(result.suggestions) &&
+      result.suggestions.length > 0
+    ) {
+      await this._persistAndReplyRuleClarification(
+        from,
+        employeeId,
+        companyId,
+        cmd,
+        result.suggestions,
+      );
+      return true;
+    }
+
+    await this.sessionRepository.clearSession(from);
+    this._reply(
+      from,
+      `✅ Regla creada: "${pick.suggestedText}"`,
+    );
+    return true;
   }
 }

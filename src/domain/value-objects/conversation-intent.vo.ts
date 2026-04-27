@@ -10,6 +10,12 @@ export type IntentType =
   | 'generate_schedule'
   | 'select_option'
   | 'create_rule'
+  /** Estado interno: el manager está respondiendo a una lista numerada
+   *  de sugerencias generadas por el LLM tras un intento de create_rule
+   *  que dio intent=complex. No lo emite el clasificador externo —
+   *  el MessageRouter lo setea via session.withIntent() para mantener
+   *  contexto entre mensajes. */
+  | 'create_rule_clarification'
   | 'system_unavailable'
   | 'unknown';
 
@@ -140,6 +146,7 @@ export class ConversationIntentVO {
       generate_schedule: ['weekStart'],
       select_option: [],
       create_rule: ['ruleText'],
+      create_rule_clarification: [],
       system_unavailable: [],
       unknown: [],
     };

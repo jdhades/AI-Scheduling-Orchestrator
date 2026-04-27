@@ -28,6 +28,8 @@ import { ConversationIntentVO } from '../../../src/domain/value-objects/conversa
 import { ConversationSessionVO } from '../../../src/domain/value-objects/conversation-session.vo';
 import { ReportAbsenceCommand } from '../../../src/application/commands/report-absence.command';
 import { GetMyScheduleQuery } from '../../../src/application/queries/get-my-schedule.query';
+import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../../src/domain/repositories/whatsapp-pending-clarification.repository';
+import { WhatsappPolicyPermissionService } from '../../../src/domain/services/whatsapp-policy-permission.service';
 
 describe('MessageRouterService', () => {
   let service: MessageRouterService;
@@ -127,6 +129,27 @@ describe('MessageRouterService', () => {
         { provide: I18nService, useValue: mockI18nService },
         { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockShiftTemplateRepo },
         { provide: 'SUPABASE_CLIENT', useValue: { from: jest.fn().mockReturnThis(), select: jest.fn().mockReturnValue({ data: [], error: null }) } },
+        // Suggestion-loop por WhatsApp (commit 9 follow-up): mocks que no
+        // disparan el flow (canCreatePolicy=false bloquea el camino de
+        // create_rule, findActiveByEmployee=null evita branchear al
+        // clarification handler). Tests específicos del suggestion-loop
+        // van en su propio archivo.
+        {
+          provide: WHATSAPP_PENDING_CLARIFICATION_REPOSITORY,
+          useValue: {
+            save: jest.fn(),
+            findActiveByEmployee: jest.fn().mockResolvedValue(null),
+            findById: jest.fn(),
+            markResolved: jest.fn(),
+          },
+        },
+        {
+          provide: WhatsappPolicyPermissionService,
+          useValue: {
+            canCreatePolicy: jest.fn().mockResolvedValue(false),
+            getAllowedRoles: jest.fn().mockResolvedValue(['manager']),
+          },
+        },
       ],
     }).compile();
 
