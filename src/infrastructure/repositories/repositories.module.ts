@@ -10,6 +10,7 @@ import { SupabaseShiftTemplateRepository } from './supabase-shift-template.repos
 import { SupabaseShiftAssignmentRepository } from './supabase-shift-assignment.repository';
 import { SupabaseShiftMembershipRepository } from './supabase-shift-membership.repository';
 import { SupabaseCompanySkillRepository } from './supabase-company-skill.repository';
+import { SupabaseCompanyPolicyRepository } from './supabase-company-policy.repository';
 import { IncidentRepository } from '../database/incident.repository';
 import { SupabaseShiftSwapRequestRepository } from './supabase-shift-swap-request.repository';
 import { SupabaseAbsenceReportRepository } from './supabase-absence-report.repository';
@@ -17,6 +18,7 @@ import { SupabaseDayOffRequestRepository } from './supabase-day-off-request.repo
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
 import { COMPANY_SKILL_REPOSITORY } from '../../domain/repositories/company-skill.repository';
+import { COMPANY_POLICY_REPOSITORY } from '../../domain/repositories/company-policy.repository';
 import { SHIFT_SWAP_REQUEST_REPOSITORY } from '../../domain/repositories/shift-swap-request.repository';
 import { ABSENCE_REPORT_REPOSITORY } from '../../domain/repositories/absence-report.repository';
 import { DAY_OFF_REQUEST_REPOSITORY } from '../../domain/repositories/day-off-request.repository';
@@ -118,6 +120,10 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: COMPANY_SKILL_REPOSITORY,
       useClass: SupabaseCompanySkillRepository,
     },
+    {
+      provide: COMPANY_POLICY_REPOSITORY,
+      useClass: SupabaseCompanyPolicyRepository,
+    },
     // Incident: repositorio Supabase-backed (reemplaza el stub in-memory)
     IncidentRepository,
     {
@@ -145,6 +151,7 @@ import { TenantModule } from '../tenant/tenant.module';
     SHIFT_ASSIGNMENT_REPOSITORY,
     SHIFT_MEMBERSHIP_REPOSITORY,
     COMPANY_SKILL_REPOSITORY,
+    COMPANY_POLICY_REPOSITORY,
     IncidentRepository,
     SHIFT_SWAP_REQUEST_REPOSITORY,
     ABSENCE_REPORT_REPOSITORY,
