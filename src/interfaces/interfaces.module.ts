@@ -23,6 +23,7 @@ import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpr
 import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
 import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
 import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
+import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
@@ -68,6 +69,14 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
       provide: RULE_REPHRASE_SERVICE,
       useClass: LlmRuleRephraseService,
     },
+    // Domain service que encapsula el create flow con suggestion-loop.
+    // Reusable por el controller (HTTP) y por el MessageRouter (WhatsApp).
+    CompanyPolicyCreator,
+  ],
+  exports: [
+    // Exportamos el creator para que el módulo de WhatsApp/MessageRouter
+    // lo pueda inyectar (commit P2).
+    CompanyPolicyCreator,
   ],
 })
 export class InterfacesModule {}

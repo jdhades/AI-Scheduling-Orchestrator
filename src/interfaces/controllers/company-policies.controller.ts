@@ -21,19 +21,14 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
-import { randomUUID } from 'crypto';
 import { CompanyPolicy } from '../../domain/aggregates/company-policy.aggregate';
 import {
   COMPANY_POLICY_REPOSITORY,
   type ICompanyPolicyRepository,
 } from '../../domain/repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from '../../domain/services/policy-interpreter-registry';
-import {
-  RULE_REPHRASE_SERVICE,
-  type IRuleRephraseService,
-  type RephraseSuggestion,
-} from '../../domain/services/rule-rephrase.service.interface';
-import { PolicySeverity } from '../../domain/value-objects/policy-severity.vo';
+import { CompanyPolicyCreator } from '../../domain/services/company-policy-creator.service';
+import type { RephraseSuggestion } from '../../domain/services/rule-rephrase.service.interface';
 
 export class CreateCompanyPolicyDto {
   @IsString()
@@ -124,8 +119,7 @@ export class CompanyPoliciesController {
     @Inject(COMPANY_POLICY_REPOSITORY)
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
-    @Inject(RULE_REPHRASE_SERVICE)
-    private readonly rephraseService: IRuleRephraseService,
+    private readonly creator: CompanyPolicyCreator,
   ) {}
 
   @Get()
@@ -154,61 +148,25 @@ export class CompanyPoliciesController {
     @Query('companyId') companyId: string,
     @Body() dto: CreateCompanyPolicyDto,
   ): Promise<CreateCompanyPolicyResponse> {
-    const text = dto.text.trim();
-
-    // Caso 1: el registry encuentra un interpreter → extrae params,
-    // adjunta y persiste. Camino feliz.
-    const interpreter = this.registry.findMatch(text);
-    if (interpreter) {
-      const policy = CompanyPolicy.create({
-        id: randomUUID(),
-        companyId,
-        text,
-        severity: PolicySeverity.create(dto.severity),
-        effectiveFrom: dto.effectiveFrom,
-        createdBy: dto.createdBy ?? null,
-      });
-      const params = await interpreter.extractParams(text);
-      policy.attachInterpreter(interpreter.id, params);
-      await this.policyRepo.save(policy);
-      return { status: 'created', policy: this.toDto(policy) };
-    }
-
-    // Caso 2: ningún interpreter matcheó. Pedimos sugerencias al LLM.
-    const interpreterHints = this.registry.getAvailableIds().map((id) => {
-      const itp = this.registry.getById(id);
-      return { id, description: itp?.description ?? '' };
-    });
-    const suggestions = await this.rephraseService.suggest({
-      originalText: text,
-      reason: 'no_interpreter_matched',
-      interpreters: interpreterHints,
-    });
-
-    if (suggestions.length > 0) {
-      // El manager elige una y el frontend re-submitea con el texto elegido.
-      // Nada se persiste todavía — evitamos orphan policies que el solver ignora.
-      return {
-        status: 'needs_clarification',
-        reason: 'no_interpreter_matched',
-        suggestions,
-      };
-    }
-
-    // Caso 3: ningún interpreter + el LLM no propuso nada aplicable.
-    // Persistimos como LLM-only para no bloquear al manager — el solver
-    // la pasa al prompt de schedule generation aunque no la pueda
-    // estructurar deterministicamente.
-    const policy = CompanyPolicy.create({
-      id: randomUUID(),
+    // Toda la lógica vive en CompanyPolicyCreator (commit P1) — el
+    // controller solo traduce DTO ↔ resultado HTTP. Eso permite que el
+    // MessageRouter de WhatsApp reuse el mismo flow sin duplicación.
+    const result = await this.creator.create({
       companyId,
-      text,
-      severity: PolicySeverity.create(dto.severity),
+      text: dto.text,
+      severity: dto.severity,
       effectiveFrom: dto.effectiveFrom,
       createdBy: dto.createdBy ?? null,
     });
-    await this.policyRepo.save(policy);
-    return { status: 'created', policy: this.toDto(policy) };
+
+    if (result.status === 'needs_clarification') {
+      return {
+        status: 'needs_clarification',
+        reason: result.reason,
+        suggestions: result.suggestions,
+      };
+    }
+    return { status: 'created', policy: this.toDto(result.policy) };
   }
 
   @Patch(':id')
