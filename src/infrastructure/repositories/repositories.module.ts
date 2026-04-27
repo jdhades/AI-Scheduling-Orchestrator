@@ -11,6 +11,8 @@ import { SupabaseShiftAssignmentRepository } from './supabase-shift-assignment.r
 import { SupabaseShiftMembershipRepository } from './supabase-shift-membership.repository';
 import { SupabaseCompanySkillRepository } from './supabase-company-skill.repository';
 import { SupabaseCompanyPolicyRepository } from './supabase-company-policy.repository';
+import { SupabaseWhatsappPendingClarificationRepository } from './supabase-whatsapp-pending-clarification.repository';
+import { WhatsappPolicyPermissionService } from '../../domain/services/whatsapp-policy-permission.service';
 import { IncidentRepository } from '../database/incident.repository';
 import { SupabaseShiftSwapRequestRepository } from './supabase-shift-swap-request.repository';
 import { SupabaseAbsenceReportRepository } from './supabase-absence-report.repository';
@@ -19,6 +21,7 @@ import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-ass
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
 import { COMPANY_SKILL_REPOSITORY } from '../../domain/repositories/company-skill.repository';
 import { COMPANY_POLICY_REPOSITORY } from '../../domain/repositories/company-policy.repository';
+import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../domain/repositories/whatsapp-pending-clarification.repository';
 import { SHIFT_SWAP_REQUEST_REPOSITORY } from '../../domain/repositories/shift-swap-request.repository';
 import { ABSENCE_REPORT_REPOSITORY } from '../../domain/repositories/absence-report.repository';
 import { DAY_OFF_REQUEST_REPOSITORY } from '../../domain/repositories/day-off-request.repository';
@@ -124,6 +127,13 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: COMPANY_POLICY_REPOSITORY,
       useClass: SupabaseCompanyPolicyRepository,
     },
+    // WhatsApp suggestion-loop (commit 9): storage + permission service.
+    // El MessageRouter integration queda como follow-up.
+    {
+      provide: WHATSAPP_PENDING_CLARIFICATION_REPOSITORY,
+      useClass: SupabaseWhatsappPendingClarificationRepository,
+    },
+    WhatsappPolicyPermissionService,
     // Incident: repositorio Supabase-backed (reemplaza el stub in-memory)
     IncidentRepository,
     {
@@ -152,6 +162,8 @@ import { TenantModule } from '../tenant/tenant.module';
     SHIFT_MEMBERSHIP_REPOSITORY,
     COMPANY_SKILL_REPOSITORY,
     COMPANY_POLICY_REPOSITORY,
+    WHATSAPP_PENDING_CLARIFICATION_REPOSITORY,
+    WhatsappPolicyPermissionService,
     IncidentRepository,
     SHIFT_SWAP_REQUEST_REPOSITORY,
     ABSENCE_REPORT_REPOSITORY,
