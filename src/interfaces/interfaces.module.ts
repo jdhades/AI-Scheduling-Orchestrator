@@ -20,6 +20,7 @@ import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter-registry';
 import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
 import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
+import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
 import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
 import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
 
@@ -49,9 +50,13 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     // CompanyPolicy interpreters (multi-injection bajo POLICY_INTERPRETERS_TOKEN).
     // Sumar nuevos interpreters acá los enchufa al registry sin tocar nada más.
     MinRestDaysPerWeekInterpreter,
+    MinRestHoursBetweenShiftsInterpreter,
     {
       provide: POLICY_INTERPRETERS_TOKEN,
-      inject: [MinRestDaysPerWeekInterpreter],
+      inject: [
+        MinRestDaysPerWeekInterpreter,
+        MinRestHoursBetweenShiftsInterpreter,
+      ],
       useFactory: (...interpreters) => interpreters,
     },
     PolicyInterpreterRegistry,

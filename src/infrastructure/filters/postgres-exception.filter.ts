@@ -27,6 +27,7 @@ const CONSTRAINT_ERROR_CODES: Record<string, string> = {
   employees_external_id_per_company: 'EMPLOYEE_EXTERNAL_ID_DUPLICATE',
   shift_memberships_unique_active_per_emp_tpl_from: 'MEMBERSHIP_DUPLICATE',
   company_skills_unique_active_per_company_skill: 'SKILL_DUPLICATE',
+  company_policies_unique_active_per_interpreter: 'POLICY_INTERPRETER_DUPLICATE',
 };
 
 interface ErrorBody {
