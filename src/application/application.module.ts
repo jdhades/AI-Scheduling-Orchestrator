@@ -51,6 +51,7 @@ import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-
 import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
 import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
 import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
+import { PolicyEnforcementService } from '../domain/services/policy-enforcement.service';
 import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
 import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
@@ -127,6 +128,10 @@ const DomainServices = [
   PolicyInterpreterRegistry,
   LlmRuleRephraseService,
   CompanyPolicyCreator,
+  // MVP de integración solver: el WeekScheduleBuilder lo puede inyectar
+  // cuando esté listo para consumir policies activas (evaluate() para
+  // verificación post-generation, formatForPrompt() para el LLM repair).
+  PolicyEnforcementService,
 ];
 
 const PolicyDomainProviders = [
