@@ -88,8 +88,39 @@ into `LLMLineProposerService.proposeLines()`.
 2. RuleStructureExtractor (LLM) produces `structure` JSON (or null)
 3. Embedding generated via Gemini `text-embedding-004`
 4. Deduplication check: cosine distance < 0.12 ⇒ reject as duplicate
-5. Row persisted in `semantic_rules` with priority, rule_type, structure
+5a. Si structure.intent === 'complex' Y el LLM logra proponer
+    reformulaciones aplicables (LlmSemanticRuleRephraseService):
+    NO se persiste; el handler devuelve { suggestions: [...] }
+    para que el frontend (web o WhatsApp) muestre el suggestion-loop.
+5b. Caso normal: row persistido en `semantic_rules` con priority,
+    rule_type, structure. Si structure es null o intent='complex' sin
+    sugerencias del LLM, la regla queda como "Sin estructura" (badge
+    en la UI) y el scheduler la ignora hasta reformulación manual.
 ```
+
+> Suggestion-loop: ver `.agents/COMPANY-POLICIES.md` (sección 4) — el
+> mismo patrón se reusa para SemanticRule cuando el extractor marca
+> intent=complex. La diferencia es que para policies el LLM apunta
+> contra el catálogo de interpreters; para rules, contra el matcher
+> schema (employeeMatchers, dateMatchers, hourRangeMatchers,
+> shiftNameMatchers).
+
+---
+
+# COMPLEMENTO: COMPANY POLICIES
+
+> ⚠️ Subsistema separado pero relacionado. Antes había hardcodes tipo
+> `MIN_REST_HOURS = 11` en código muerto; ahora son `CompanyPolicy`
+> aplicables por interpreter (open + accelerator pattern). Bounded
+> context y scope distintos a SemanticRule. **Detalle completo en
+> `.agents/COMPANY-POLICIES.md`.**
+
+| | SemanticRule | CompanyPolicy |
+|---|---|---|
+| Alcance | Caso particular | Tenant-wide |
+| Schema | 4 matchers | Interpreter accelerators (registry) |
+| Tabla | `semantic_rules` + pgvector | `company_policies` |
+| Aplica al solver | Via prompt (con structure) | `PolicyEnforcementService.evaluate()` (MVP, no wireado) |
 
 ---
 

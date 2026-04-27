@@ -3,7 +3,7 @@
 > **MANDATORY LOAD ORDER**: This file MUST be read before any agent or skill file.
 > Priority: `docs/ > .agents/ > .agents/skills/`
 >
-> Generated: 2026-04-11 | Last update: 2026-04-20 | Strict mode: ON
+> Generated: 2026-04-11 | Last update: 2026-04-27 (Company Policies sprint) | Strict mode: ON
 
 ---
 
@@ -125,7 +125,8 @@ The 9-step strategy pipeline was replaced by an employee-first LLM-authoritative
 
 | Rule | Value | Source |
 |---|---|---|
-| Minimum gap between shifts | 11 hours | EU Anti-Clopening Directive |
+| Minimum gap between shifts | 11 hours (default) | `CompanyPolicy` con interpreter `min_rest_hours_between_shifts` — configurable por tenant. Antes era hardcode en `ConflictResolutionService` (código muerto). |
+| Min rest days per week | 2 days, holidays excluded (default) | `CompanyPolicy` con interpreter `min_rest_days_per_week`. |
 | Max hours per day | 8 h | Labor law |
 | Max hours per week | 40 h | Labor law |
 | Fairness score range | 0 – 1000 | Domain design |
@@ -142,12 +143,14 @@ The 9-step strategy pipeline was replaced by an employee-first LLM-authoritative
 
 ```
 Organization
-  └── Branch
-        └── Department
-              └── ShiftTemplate        (logical definition — recurrence, skill, demand, required_employees nullable=elastic)
-                    ├── ShiftMembership      (employee ↔ template with effective dates; stable relationship)
-                    └── VirtualShiftSlot     (in-memory value object, materialized on-demand: template × date)
-                          └── ShiftAssignment  (persisted: PK = own UUID; keyed by (templateId, date, origin, empId); requires actualStartTime/actualEndTime)
+  ├── Branch
+  │     └── Department
+  │           └── ShiftTemplate        (logical definition — recurrence, skill, demand, required_employees nullable=elastic)
+  │                 ├── ShiftMembership      (employee ↔ template with effective dates; stable relationship)
+  │                 └── VirtualShiftSlot     (in-memory value object, materialized on-demand: template × date)
+  │                       └── ShiftAssignment  (persisted: PK = own UUID; keyed by (templateId, date, origin, empId); requires actualStartTime/actualEndTime)
+  ├── SemanticRule[]    (caso particular: "Pablo no trabaja los lunes" — RAG-indexed)
+  └── CompanyPolicy[]   (tenant-wide: "11h descanso entre turnos", "2 días libres/semana" — open + interpreter accelerators; ver .agents/COMPANY-POLICIES.md)
 ```
 
 - `ShiftTemplate` is the scheduling unit.
@@ -171,21 +174,31 @@ Organization
 
 **Phase 3.5 closed**: the LLM is now authoritative over weekly lines (with verify-loop + deterministic fallback). Unstructured/complex rules travel to the prompt as raw text (previously dropped). `target_mode` was added and then removed in the same phase (migration `20260420000000_drop_shift_template_target_mode.sql`). `LLMUsageTracker` records per-generation token cost.
 
+**Company Policies sprint closed (2026-04-26 → 2026-04-27)**: subsystem nuevo para invariantes tenant-wide. Reemplaza hardcodes (11h descanso, 2 días libres por semana). Patrón **open + interpreter accelerators**: el manager escribe en NL; si un interpreter del registry matchea → constraint deterministic; si no → suggestion-loop LLM-backed que propone reformulaciones verificadas. Funciona vía web (`/policies`, `/rules`) y vía WhatsApp (intents `create_policy`, `create_rule`). El `PolicyEnforcementService` está listo para que el `WeekScheduleBuilder` lo invoque, pero la integración al solver activo queda para Phase 14. Detalle: `.agents/COMPANY-POLICIES.md`.
+
 ---
 
 ## 8. Known Security Debt
 
-🔴 **HIGH**
-- No JWT/Bearer Token auth — `X-Company-Id` header only; any UUID grants access
-- Cross-tenant phone lookup possible in WhatsApp webhook (phone not scoped to companyId)
+> Doc detallado: `docs/SECURITY-ARCHITECTURE.md`.
 
-🟡 **MEDIUM**
-- No rate limiting on Gemini API endpoints (cost + abuse risk)
-- Twilio HMAC-SHA1 validation skipped when `NODE_ENV=test`
-- `companyId` accepted as query param fallback (insecure)
-- No global `ValidationPipe`
+🔴 **HIGH** — bloquean producción
+- **JWT real pendiente**. El guard tiene un `DEV_AUTH_BYPASS=true` que cuando está activo + `X-Company-Id` header presente, salta la validación JWT y usa el header como tenant. Es **el modo actual de operación**. Defensa-en-profundidad: RLS Postgres (cuando se accede con anon_key) + middleware (cuando se accede con service-role).
+- **Secrets en historial git**. `.env.test` y `.env.test.twilio` estuvieron tracked desde el initial commit con secrets reales (Supabase service-role key, Twilio auth token, Qwen API key, DATABASE_URL). Hoy están untracked y `.env.example` documenta el template, pero el historial público sigue accesible. **Rotar todas las credenciales** que aparezcan en el historial.
 
-**Planned mitigations**: `@nestjs/throttler`, JWT middleware, `@CurrentTenant()` decorator, API versioning at `/api/v1/`.
+🟡 **MEDIUM** — antes de scaling
+- Rate limiting (`@nestjs/throttler`) en endpoints LLM (cost) y auth (brute force).
+- Cross-tenant phone lookup en WhatsApp webhook.
+- Twilio HMAC-SHA1 skip cuando `app.env` ∈ `test`/`development`.
+
+🟢 **DONE** (cerradas en sprint Company Policies)
+- ✅ ValidationPipe + class-validator en TODOS los controllers (rollout completo 2026-04-27).
+- ✅ CORS fail-closed default en prod (`ALLOWED_ORIGIN` requerido o `false`).
+- ✅ `PostgresExceptionFilter` global con `errorCode` estable que el frontend resuelve via i18n. Mensajes user-friendly sin filtrar info sensible.
+- ✅ Partial UNIQUE indexes para soft-delete (phone, external_id, membership, skill, policy interpreter) — re-crear tras delete funciona sin colisión.
+- ✅ `.env*` removidos del tracking; `.env.example` template sin valores.
+
+**Planned mitigations**: `@nestjs/throttler`, JWT real, `@CurrentTenant()` decorator, API versioning at `/api/v1/`.
 
 ---
 
@@ -211,6 +224,15 @@ Organization
 | Gemini LLM service | `src/infrastructure/services/gemini-llm.service.ts` |
 | Local LLM service (LM Studio / Ollama) | `src/infrastructure/services/local-llm.service.ts` |
 | LLM usage tracker | `src/infrastructure/observability/llm-usage-tracker.service.ts` |
+| **Postgres exception filter (errorCode mapping)** | `src/infrastructure/filters/postgres-exception.filter.ts` |
+| **CompanyPolicy aggregate** | `src/domain/aggregates/company-policy.aggregate.ts` |
+| **PolicyInterpreterRegistry** | `src/domain/services/policy-interpreter-registry.ts` |
+| **PolicyEnforcementService (MVP, no wireado al solver)** | `src/domain/services/policy-enforcement.service.ts` |
+| **CompanyPolicyCreator (controller + WhatsApp comparten)** | `src/domain/services/company-policy-creator.service.ts` |
+| **Suggestion-loop policies (LLM-backed)** | `src/domain/services/llm-rule-rephrase.service.ts` |
+| **Suggestion-loop semantic rules** | `src/domain/services/llm-semantic-rule-rephrase.service.ts` |
+| **WhatsApp pending clarifications (state machine)** | `src/domain/aggregates/whatsapp-pending-clarification.aggregate.ts` |
+| **Permiso configurable por tenant para crear policies vía WhatsApp** | `src/domain/services/whatsapp-policy-permission.service.ts` |
 
 ### Agent & skill references
 
@@ -225,6 +247,8 @@ Organization
 | Event flows (7 flows) | `.agents/EVENT-FLOWS.md` |
 | Backend security skill | `.agents/skills/backend-security-coder/SKILL.md` |
 | Git commit skill | `.agents/skills/git-commit/SKILL.md` |
+| **Company Policies subsystem** | `.agents/COMPANY-POLICIES.md` |
+| **Security architecture (estado real)** | `docs/SECURITY-ARCHITECTURE.md` |
 
 ### Antigravity knowledge base
 
