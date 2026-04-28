@@ -55,7 +55,19 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# Supabase IDE scratchpad — queries exploratorias autogeneradas
+# Editor backups
+*~
+
+# Documentos temporales
+*.docx
+
+# Entornos y config de agentes
+.agent/
+.gemini/
+
+# Supabase local (dev DB + IDE scratchpad)
+supabase/.temp/
+supabase/.branches/
 supabase/snippets/Untitled*
 
 # Environment files con secrets (Supabase keys, Twilio tokens, Qwen API keys, DB URL)
