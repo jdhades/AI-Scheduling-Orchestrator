@@ -6,112 +6,160 @@ import { SkillValidationPolicy } from '../policies/skill-validation.policy';
 import { EmployeeRegisteredEvent } from '../events/employee-registered.event';
 import { EmployeeAvailability } from '../value-objects/employee-availability.vo';
 import { EmployeePreference } from '../value-objects/employee-preference.vo';
+import type { WorkingTimePolicyOverrides } from '../value-objects/working-time-policy.vo';
 
 export class Employee extends AggregateRoot {
-    private skills: CompanySkill[] = [];
-    private availability: EmployeeAvailability[] = [];
-    private preferences: EmployeePreference[] = [];
+  private skills: CompanySkill[] = [];
+  private availability: EmployeeAvailability[] = [];
+  private preferences: EmployeePreference[] = [];
 
-    private constructor(
-        public readonly id: string,
-        public readonly companyId: string,
-        public readonly name: string,
-        public readonly role: string,
-        private phoneNumber: PhoneNumber,
-        private experience: ExperienceLevel
-    ) { super(); }
+  private constructor(
+    public readonly id: string,
+    public readonly companyId: string,
+    public readonly name: string,
+    public readonly role: string,
+    private phoneNumber: PhoneNumber,
+    private experience: ExperienceLevel,
+    public locale: string = 'es',
+    public readonly departmentId?: string,
+    public readonly contractType?: string,
+    public readonly workingTimeOverrides: WorkingTimePolicyOverrides = {},
+    public readonly externalId?: string,
+  ) {
+    super();
+  }
 
-    static create(id: string, companyId: string, name: string, role: string, phone: PhoneNumber, experience: ExperienceLevel): Employee {
-        const employee = new Employee(id, companyId, name, role, phone, experience);
-        employee.apply(new EmployeeRegisteredEvent(id, companyId, phone.value));
-        return employee;
+  static create(
+    id: string,
+    companyId: string,
+    name: string,
+    role: string,
+    phone: PhoneNumber,
+    experience: ExperienceLevel,
+    locale: string = 'es',
+    departmentId?: string,
+    contractType?: string,
+    workingTimeOverrides: WorkingTimePolicyOverrides = {},
+    externalId?: string,
+  ): Employee {
+    const employee = new Employee(id, companyId, name, role, phone, experience, locale, departmentId, contractType, workingTimeOverrides, externalId);
+    employee.apply(new EmployeeRegisteredEvent(id, companyId, phone.value));
+    return employee;
+  }
+
+  /**
+   * Reconstituye el aggregate desde persistencia SIN disparar eventos.
+   */
+  static fromPersistence(data: {
+    id: string;
+    companyId: string;
+    name: string;
+    role: string;
+    phoneNumber: PhoneNumber;
+    experience: ExperienceLevel;
+    locale?: string;
+    availability?: EmployeeAvailability[];
+    preferences?: EmployeePreference[];
+    departmentId?: string;
+    contractType?: string;
+    workingTimeOverrides?: WorkingTimePolicyOverrides;
+    externalId?: string;
+  }): Employee {
+    const emp = new Employee(
+      data.id,
+      data.companyId,
+      data.name,
+      data.role,
+      data.phoneNumber,
+      data.experience,
+      data.locale ?? 'es',
+      data.departmentId,
+      data.contractType,
+      data.workingTimeOverrides ?? {},
+      data.externalId,
+    );
+    emp.availability = data.availability ?? [];
+    emp.preferences = data.preferences ?? [];
+    return emp;
+  }
+
+  // ─── Locale ──────────────────────────────────────────────────────────────
+
+  updateLocale(newLocale: string): void {
+    if (newLocale && newLocale.length === 2) {
+      this.locale = newLocale.toLowerCase();
     }
+  }
 
-    /**
-     * Reconstituye el aggregate desde persistencia SIN disparar eventos.
-     */
-    static fromPersistence(data: {
-        id: string;
-        companyId: string;
-        name: string;
-        role: string;
-        phoneNumber: PhoneNumber;
-        experience: ExperienceLevel;
-        availability?: EmployeeAvailability[];
-        preferences?: EmployeePreference[];
-    }): Employee {
-        const emp = new Employee(data.id, data.companyId, data.name, data.role, data.phoneNumber, data.experience);
-        emp.availability = data.availability ?? [];
-        emp.preferences = data.preferences ?? [];
-        return emp;
-    }
+  // ─── Skills ──────────────────────────────────────────────────────────────
 
-    // ─── Skills ──────────────────────────────────────────────────────────────
+  assignSkill(skill: CompanySkill, policy: SkillValidationPolicy) {
+    policy.validateEmployee(this, skill);
+    if (!this.skills.find((s) => s.equals(skill))) this.skills.push(skill);
+  }
 
-    assignSkill(skill: CompanySkill, policy: SkillValidationPolicy) {
-        policy.validateEmployee(this, skill);
-        if (!this.skills.find(s => s.equals(skill))) this.skills.push(skill);
-    }
+  removeSkill(skillId: string) {
+    this.skills = this.skills.filter((s) => s.id !== skillId);
+  }
 
-    removeSkill(skillId: string) {
-        this.skills = this.skills.filter(s => s.id !== skillId);
-    }
+  getSkills(): CompanySkill[] {
+    return [...this.skills];
+  }
 
-    getSkills(): CompanySkill[] {
-        return [...this.skills];
-    }
+  // ─── Availability ─────────────────────────────────────────────────────────
 
-    // ─── Availability ─────────────────────────────────────────────────────────
+  loadAvailability(windows: EmployeeAvailability[]): void {
+    this.availability = windows;
+  }
 
-    loadAvailability(windows: EmployeeAvailability[]): void {
-        this.availability = windows;
-    }
+  getAvailability(): EmployeeAvailability[] {
+    return [...this.availability];
+  }
 
-    getAvailability(): EmployeeAvailability[] {
-        return [...this.availability];
-    }
+  /**
+   * Hard Constraint: returns true if the employee has no availability records
+   * (no restrictions defined → always available), OR if at least one availability
+   * window fully covers the proposed shift.
+   */
+  isAvailable(shiftStart: Date, shiftEnd: Date): boolean {
+    if (this.availability.length === 0) return true;
+    return this.availability.some((w) => w.coversShift(shiftStart, shiftEnd));
+  }
 
-    /**
-     * Hard Constraint: returns true if the employee has no availability records
-     * (no restrictions defined → always available), OR if at least one availability
-     * window fully covers the proposed shift.
-     */
-    isAvailable(shiftStart: Date, shiftEnd: Date): boolean {
-        if (this.availability.length === 0) return true;
-        return this.availability.some(w => w.coversShift(shiftStart, shiftEnd));
-    }
+  // ─── Preferences ─────────────────────────────────────────────────────────
 
-    // ─── Preferences ─────────────────────────────────────────────────────────
+  loadPreferences(prefs: EmployeePreference[]): void {
+    this.preferences = prefs;
+  }
 
-    loadPreferences(prefs: EmployeePreference[]): void {
-        this.preferences = prefs;
-    }
+  getPreferences(): EmployeePreference[] {
+    return [...this.preferences];
+  }
 
-    getPreferences(): EmployeePreference[] {
-        return [...this.preferences];
-    }
+  /**
+   * Soft Constraint: returns a combined cost multiplier for the given shift.
+   * All preference multipliers are multiplied together.
+   * e.g. PREFERS_MORNING + weight 3 → multiplier 0.85
+   */
+  getPreferenceMultiplier(shiftStart: Date): number {
+    if (this.preferences.length === 0) return 1.0;
+    return this.preferences.reduce(
+      (acc, pref) => acc * pref.getCostMultiplier(shiftStart),
+      1.0,
+    );
+  }
 
-    /**
-     * Soft Constraint: returns a combined cost multiplier for the given shift.
-     * All preference multipliers are multiplied together.
-     * e.g. PREFERS_MORNING + weight 3 → multiplier 0.85
-     */
-    getPreferenceMultiplier(shiftStart: Date): number {
-        if (this.preferences.length === 0) return 1.0;
-        return this.preferences.reduce((acc, pref) => acc * pref.getCostMultiplier(shiftStart), 1.0);
-    }
+  // ─── Accessors ────────────────────────────────────────────────────────────
 
-    // ─── Accessors ────────────────────────────────────────────────────────────
+  get phone(): string {
+    return this.phoneNumber.value;
+  }
 
-    get phone(): string {
-        return this.phoneNumber.value;
-    }
+  get experienceMonths(): number {
+    return this.experience.months;
+  }
 
-    get experienceMonths(): number {
-        return this.experience.months;
-    }
-
-    get experienceLevel(): 'junior' | 'intermediate' | 'senior' {
-        return this.experience.level;
-    }
+  get experienceLevel(): 'junior' | 'intermediate' | 'senior' {
+    return this.experience.level;
+  }
 }

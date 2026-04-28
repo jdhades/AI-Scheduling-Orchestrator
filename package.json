@@ -33,8 +33,12 @@
     "@supabase/supabase-js": "^2.98.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "helmet": "^8.1.0",
     "ioredis": "^5.10.0",
     "joi": "^18.0.2",
+    "nestjs-i18n": "^10.6.0",
     "nestjs-pino": "^4.6.0",
     "pg": "^8.19.0",
     "pino": "^10.3.1",
@@ -43,7 +47,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
-    "twilio": "^5.12.2",
+    "twilio": "^5.13.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
@@ -73,5 +77,8 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
+  },
+  "overrides": {
+    "axios": "1.13.6"
   }
 }

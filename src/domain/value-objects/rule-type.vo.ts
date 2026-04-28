@@ -13,64 +13,64 @@
 export type RuleTypeValue = 'restriction' | 'preference' | 'requirement';
 
 export class RuleType {
-    private static readonly VALID_VALUES: RuleTypeValue[] = [
-        'restriction',
-        'preference',
-        'requirement',
-    ];
+  private static readonly VALID_VALUES: RuleTypeValue[] = [
+    'restriction',
+    'preference',
+    'requirement',
+  ];
 
-    private constructor(private readonly value: RuleTypeValue) { }
+  private constructor(private readonly value: RuleTypeValue) {}
 
-    static restriction(): RuleType {
-        return new RuleType('restriction');
+  static restriction(): RuleType {
+    return new RuleType('restriction');
+  }
+
+  static preference(): RuleType {
+    return new RuleType('preference');
+  }
+
+  static requirement(): RuleType {
+    return new RuleType('requirement');
+  }
+
+  static create(value: string): RuleType {
+    if (!RuleType.VALID_VALUES.includes(value as RuleTypeValue)) {
+      throw new Error(
+        `Invalid RuleType: "${value}". Valid values: ${RuleType.VALID_VALUES.join(', ')}`,
+      );
     }
+    return new RuleType(value as RuleTypeValue);
+  }
 
-    static preference(): RuleType {
-        return new RuleType('preference');
-    }
+  /** True si la regla puede bloquear activamente una asignación */
+  isBlocking(): boolean {
+    return this.value === 'restriction' || this.value === 'requirement';
+  }
 
-    static requirement(): RuleType {
-        return new RuleType('requirement');
-    }
+  /** True específicamente si es una restricción (prohibición) */
+  isRestriction(): boolean {
+    return this.value === 'restriction';
+  }
 
-    static create(value: string): RuleType {
-        if (!RuleType.VALID_VALUES.includes(value as RuleTypeValue)) {
-            throw new Error(
-                `Invalid RuleType: "${value}". Valid values: ${RuleType.VALID_VALUES.join(', ')}`,
-            );
-        }
-        return new RuleType(value as RuleTypeValue);
-    }
+  /** True si es solo una preferencia (no bloquea) */
+  isPreference(): boolean {
+    return this.value === 'preference';
+  }
 
-    /** True si la regla puede bloquear activamente una asignación */
-    isBlocking(): boolean {
-        return this.value === 'restriction' || this.value === 'requirement';
-    }
+  /** True si es un requisito del turno */
+  isRequirement(): boolean {
+    return this.value === 'requirement';
+  }
 
-    /** True específicamente si es una restricción (prohibición) */
-    isRestriction(): boolean {
-        return this.value === 'restriction';
-    }
+  equals(other: RuleType): boolean {
+    return this.value === other.value;
+  }
 
-    /** True si es solo una preferencia (no bloquea) */
-    isPreference(): boolean {
-        return this.value === 'preference';
-    }
+  getValue(): RuleTypeValue {
+    return this.value;
+  }
 
-    /** True si es un requisito del turno */
-    isRequirement(): boolean {
-        return this.value === 'requirement';
-    }
-
-    equals(other: RuleType): boolean {
-        return this.value === other.value;
-    }
-
-    getValue(): RuleTypeValue {
-        return this.value;
-    }
-
-    toString(): string {
-        return `RuleType(${this.value})`;
-    }
+  toString(): string {
+    return `RuleType(${this.value})`;
+  }
 }

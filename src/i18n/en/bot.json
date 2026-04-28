@@ -1,0 +1,67 @@
+{
+
+  "swap": {
+    "need_clarification": "I didn't quite catch your shift swap request. I need to know:\n1️⃣ *Who* you want to swap with (e.g. 'with John' or their phone).\n2️⃣ *Which shift* (e.g. 'Monday's shift').",
+    "request_received": "✅ Your request was processed successfully.",
+    "select_own_shift": "🔄 *Shift Swap*\n\nWhich of your shifts do you want to swap? Reply with the option number:",
+    "no_upcoming_shifts": "You have no upcoming shifts to swap.",
+    "invalid_choice": "That option is invalid. Please reply with a number.",
+    "select_target_shift": "You selected your shift on {date}.\n\nHere are the available shifts from your colleagues for that week. Which one do you want?\nReply with the number:",
+    "no_target_shifts": "There are no other shifts available that week to swap.",
+    "open_shift_label": "Open Shift",
+    "confirm_open_prompt": "Please confirm:\nDo you want to drop your shift ({myShift}) and take the open shift ({targetShift})?\n\nReply Yes or No.",
+    "open_shift_success": "Done! You have successfully taken the open shift and have been unassigned from the previous one.",
+    "confirm_prompt": "Please confirm the swap:\n\n*Your shift:* {myShift}\n*Requested shift:* {targetShift} (from {targetName})\n\nReply with *Yes* to confirm or *No* to cancel.",
+    "swap_cancelled": "Swap cancelled.",
+    "select_swap_type": "What kind of shift do you want to swap it for?",
+    "swap_type_open": "For an Open Shift",
+    "swap_type_colleague": "For a Colleague's Shift",
+    "notification_target": "🔄 *Shift Swap Request*\n\n*{requesterName}* is asking to swap a shift with you.\n\nTo accept, reply: \"accept swap\"\nTo reject, reply: \"reject swap\"",
+    "notification_requester": "✉️ Your swap request was sent to *{targetName}*. We will notify you when they respond."
+  },
+  "absence": {
+    "missing_both": "⚠️ To report your absence I need:\n1️⃣ The ID of the shift you cannot attend?\n2️⃣ The reason for your absence?",
+    "missing_shift": "⚠️ What is the ID of the shift you cannot attend?",
+    "missing_reason": "⚠️ What is the reason for your absence?",
+    "success": "✅ We have recorded your absence.",
+    "cancelled": "Understood. Cancelling the report. To try again, tell me which shift you'll miss.",
+    "no_shifts": "I didn't find any upcoming shifts assigned to you.",
+    "confirm_single_shift": "I see you have a shift on *{shiftStr}*. Is this the shift you're reporting an absence for? (Reply Yes/No)\n{reasonPrompt}",
+    "reason_prompt": "(Also make sure to mention the reason for your absence)",
+    "select_shift": "You have multiple upcoming shifts that match. Reply with the shift number to report your absence:\n",
+    "reason_prompt_inline": "\n(Please also include the reason for your absence)."
+  },
+  "day_off": {
+    "missing_date": "Understood. For what *date* do you want to request a day off?"
+  },
+  "schedule": {
+    "none_that_week": "📅 You don't have any shifts assigned for the week of {date}.",
+    "none_this_week": "📅 You don't have any shifts assigned for this week.",
+    "title_that_week": "📅 *Your schedule for the week of {date}:*",
+    "title_this_week": "📅 *Your schedule for this week:*",
+    "anything_else": "Do you need anything else?",
+    "explanation_header": "📅 Schedule generated for the week of {date} ({total} shift(s) requested).",
+    "explanation_llm_ok": "The LLM analyzed and assigned {n} shifts respecting the rules.",
+    "explanation_llm_failed": "LLM could not generate proposals. The deterministic algorithm covered all shifts.",
+    "explanation_algorithm": "The deterministic algorithm covered {n} additional shift(s).",
+    "explanation_unfilled": "{n} shift(s) could not be filled due to unavailable candidates.",
+    "explanation_complete": "Full coverage: {covered}/{total} shifts assigned.",
+    "warnings_header": "⚠️ *Needs your review:*",
+    "warning_complex_rule": "Complex rule (requires manual supervision): \"{ruleText}\" — {reason}",
+    "warning_unstructured_rule": "Unanalyzed rule: \"{ruleText}\" — please re-edit the rule to retry",
+    "warning_unfilled_shift": "Unfilled shift: {date} {from}–{to} (no eligible candidates)",
+    "warning_no_day_off": "{name}: no day off this week (rotating day-off rule active)"
+  },
+  "rules": {
+    "missing_text": "⚠️ To create a rule, please state the restriction or preference. For example: 'On Fridays I need 2 cashiers'."
+  },
+  "general": {
+    "unknown_intent": "🤔 I didn't quite understand your request. I can help you to:\n• View your schedule\n• Report an absence\n• Request a shift swap\n• Request a day off\n• Generate the weekly schedule (managers)\n\nWhat do you need?",
+    "clarification": "❓ I couldn't understand your request. Can you rephrase it?",
+    "invalid_choice": "Invalid response. Please reply with the option number or 'yes'/'no'.",
+    "shift_not_found": "⚠️ I couldn't find a shift with ID '{shiftId}'. Please check the ID and try again.",
+    "success": "✅ Your request was processed successfully.",
+    "error": "⚠️ An error occurred processing your message. Please try again.",
+    "unauthorized": "⚠️ You do not have permissions to perform this action."
+  }
+}

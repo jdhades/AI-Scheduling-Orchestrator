@@ -1,6 +1,6 @@
 export class HandshakeVerifiedEvent {
-    constructor(
-        public readonly employeeId: string,
-        public readonly phone: string,
-    ) { }
+  constructor(
+    public readonly employeeId: string,
+    public readonly phone: string,
+  ) {}
 }

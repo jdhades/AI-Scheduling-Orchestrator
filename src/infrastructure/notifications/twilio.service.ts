@@ -22,42 +22,42 @@ const Twilio = require('twilio');
  */
 @Injectable()
 export class TwilioService implements INotificationService {
-    private readonly client: ReturnType<typeof Twilio>;
-    private readonly fromNumber: string;
-    private readonly logger = new Logger(TwilioService.name);
+  private readonly client: ReturnType<typeof Twilio>;
+  private readonly fromNumber: string;
+  private readonly logger = new Logger(TwilioService.name);
 
-    constructor(private readonly config: ConfigService) {
-        const accountSid = this.config.getOrThrow<string>('twilio.accountSid');
-        const authToken = this.config.getOrThrow<string>('twilio.authToken');
-        this.fromNumber = this.config.getOrThrow<string>('twilio.fromNumber');
+  constructor(private readonly config: ConfigService) {
+    const accountSid = this.config.getOrThrow<string>('twilio.accountSid');
+    const authToken = this.config.getOrThrow<string>('twilio.authToken');
+    this.fromNumber = this.config.getOrThrow<string>('twilio.fromNumber');
 
-        // Twilio CJS exports a callable function as the module default
-        this.client = Twilio(accountSid, authToken);
+    // Twilio CJS exports a callable function as the module default
+    this.client = Twilio(accountSid, authToken);
+  }
+
+  /**
+   * Envía un mensaje WhatsApp al número dado.
+   *
+   * Prefijo "whatsapp:" requerido por la Twilio WhatsApp API.
+   * Ejemplo: from = "whatsapp:+14155238886", to = "whatsapp:+34612345678"
+   */
+  async sendWhatsApp(to: string, body: string): Promise<void> {
+    const from = `whatsapp:${this.fromNumber}`;
+    const toFormatted = `whatsapp:${to}`;
+
+    try {
+      const message = await this.client.messages.create({
+        from,
+        to: toFormatted,
+        body,
+      });
+      this.logger.log(
+        `WhatsApp sent → ${to} | SID: ${message.sid} | Status: ${message.status}`,
+      );
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`TwilioService.sendWhatsApp failed → ${to}: ${msg}`);
+      throw new Error(`Notification failed: ${msg}`);
     }
-
-    /**
-     * Envía un mensaje WhatsApp al número dado.
-     *
-     * Prefijo "whatsapp:" requerido por la Twilio WhatsApp API.
-     * Ejemplo: from = "whatsapp:+14155238886", to = "whatsapp:+34612345678"
-     */
-    async sendWhatsApp(to: string, body: string): Promise<void> {
-        const from = `whatsapp:${this.fromNumber}`;
-        const toFormatted = `whatsapp:${to}`;
-
-        try {
-            const message = await this.client.messages.create({
-                from,
-                to: toFormatted,
-                body,
-            });
-            this.logger.log(
-                `WhatsApp sent → ${to} | SID: ${message.sid} | Status: ${message.status}`,
-            );
-        } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : String(error);
-            this.logger.error(`TwilioService.sendWhatsApp failed → ${to}: ${msg}`);
-            throw new Error(`Notification failed: ${msg}`);
-        }
-    }
+  }
 }

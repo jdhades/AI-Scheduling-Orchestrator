@@ -1,35 +1,135 @@
 import {
-    Body,
-    Controller,
-    Delete,
-    Get,
-    Inject,
-    Logger,
-    Param,
-    Post,
-    Query,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Logger,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
 } from '@nestjs/common';
+import {
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { randomUUID } from 'crypto';
-import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import type {
+  IShiftTemplateRepository,
+  ShiftTemplatePatch,
+} from '../../domain/repositories/shift-template.repository';
 import { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
-import { InstantiateWeekHandler } from '../../application/commands/instantiate-week/instantiate-week.handler';
 
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
+// HH:MM en 24h. Acepta también HH:MM:SS (varias bocas del backend lo
+// devuelven con segundos; class-validator lo deja entrar igual).
+const TIME_HHMM = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+
 export class CreateShiftTemplateDto {
-    name: string;
-    dayOfWeek: number;      // 0=Sun … 6=Sat
-    startTime: string;      // "HH:MM"
-    endTime: string;        // "HH:MM"
-    requiredSkillId?: string | null;
-    demandScore?: number;
-    undesirableWeight?: number;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name!: string;
+
+  /** 0=Dom … 6=Sáb · null = aplica a todos los días. */
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek!: number | null;
+
+  @Matches(TIME_HHMM, { message: 'startTime must be HH:MM (24h)' })
+  startTime!: string;
+
+  @Matches(TIME_HHMM, { message: 'endTime must be HH:MM (24h)' })
+  endTime!: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
+  requiredSkillId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  demandScore?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  undesirableWeight?: number;
+
+  /** null = ELASTIC slot (absorbe sobrante). */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  requiredEmployees?: number | null;
 }
 
-export class InstantiateWeekDto {
-    weekStart: string;      // "YYYY-MM-DD" (must be Monday)
+export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek?: number | null;
+
+  @IsOptional()
+  @Matches(TIME_HHMM, { message: 'startTime must be HH:MM (24h)' })
+  startTime?: string;
+
+  @IsOptional()
+  @Matches(TIME_HHMM, { message: 'endTime must be HH:MM (24h)' })
+  endTime?: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
+  requiredSkillId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  demandScore?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  undesirableWeight?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  requiredEmployees?: number | null;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -40,93 +140,117 @@ export class InstantiateWeekDto {
  * GET    /shift-templates                 — list active templates for company
  * POST   /shift-templates                 — create a new template
  * DELETE /shift-templates/:id             — remove a template
- * POST   /shift-templates/instantiate     — generate shifts for a week from templates
+ *
+ * NOTE: el endpoint POST /shift-templates/instantiate fue eliminado en el
+ * rework del modelo de shifts (instancias virtuales generadas en runtime).
  */
 @Controller('shift-templates')
 export class ShiftTemplatesController {
-    private readonly logger = new Logger(ShiftTemplatesController.name);
+  private readonly logger = new Logger(ShiftTemplatesController.name);
 
-    constructor(
-        @Inject('SHIFT_TEMPLATE_REPOSITORY')
-        private readonly templateRepo: IShiftTemplateRepository,
-        private readonly instantiateWeekHandler: InstantiateWeekHandler,
-    ) { }
+  constructor(
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly templateRepo: IShiftTemplateRepository,
+  ) {}
 
-    /**
-     * GET /shift-templates?companyId=...
-     * Returns all active templates for the company, sorted by day + time.
-     */
-    @Get()
-    async list(@Query('companyId') companyId: string): Promise<object[]> {
-        const templates = await this.templateRepo.findAllByCompany(companyId);
-        return templates.map(this.toDto);
-    }
+  /**
+   * GET /shift-templates?companyId=...
+   * Returns all active templates for the company, sorted by day + time.
+   */
+  @Get()
+  async list(@Query('companyId') companyId: string): Promise<object[]> {
+    const templates = await this.templateRepo.findAllByCompany(companyId);
+    return templates.map(this.toDto);
+  }
 
-    /**
-     * POST /shift-templates?companyId=...
-     * Creates a new shift template.
-     */
-    @Post()
-    async create(
-        @Query('companyId') companyId: string,
-        @Body() dto: CreateShiftTemplateDto,
-    ): Promise<object> {
-        const template = ShiftTemplate.create({
-            id: randomUUID(),
-            companyId,
-            name: dto.name,
-            dayOfWeek: dto.dayOfWeek,
-            startTime: dto.startTime,
-            endTime: dto.endTime,
-            requiredSkillId: dto.requiredSkillId ?? null,
-            requiredSkillLevel: 'junior',
-            requiredExperienceMonths: 0,
-            demandScore: DemandWeight.create(dto.demandScore ?? 1),
-            undesirableWeight: UndesirableWeight.create(dto.undesirableWeight ?? 0),
-            isActive: true,
-        });
+  /**
+   * POST /shift-templates?companyId=...
+   * Creates a new shift template.
+   */
+  @Post()
+  async create(
+    @Query('companyId') companyId: string,
+    @Body() dto: CreateShiftTemplateDto,
+  ): Promise<object> {
+    const template = ShiftTemplate.create({
+      id: randomUUID(),
+      companyId,
+      name: dto.name,
+      // El aggregate declara dayOfWeek: number, pero acepta null en runtime
+      // (los checks usan < / > que con null coercen a 0). Mantener
+      // null para "todos los días" requeriría cambiar la firma del
+      // aggregate; lo dejamos pendiente y casteamos acá.
+      dayOfWeek: dto.dayOfWeek as number,
+      startTime: dto.startTime,
+      endTime: dto.endTime,
+      requiredSkillId: dto.requiredSkillId ?? null,
+      requiredSkillLevel: 'junior',
+      requiredExperienceMonths: 0,
+      demandScore: DemandWeight.create(dto.demandScore ?? 1),
+      undesirableWeight: UndesirableWeight.create(dto.undesirableWeight ?? 0),
+      isActive: true,
+      requiredEmployees: dto.requiredEmployees ?? null,
+    });
 
-        await this.templateRepo.save(template);
-        return this.toDto(template);
-    }
+    await this.templateRepo.save(template);
+    return this.toDto(template);
+  }
 
-    /**
-     * DELETE /shift-templates/:id?companyId=...
-     * Removes a template (shifts already generated are preserved).
-     */
-    @Delete(':id')
-    async remove(
-        @Param('id') id: string,
-        @Query('companyId') companyId: string,
-    ): Promise<{ success: boolean }> {
-        await this.templateRepo.delete(id, companyId);
-        return { success: true };
-    }
+  /**
+   * GET /shift-templates/:id?companyId=...
+   */
+  @Get(':id')
+  async getById(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+  ): Promise<object> {
+    const t = await this.templateRepo.findById(id, companyId);
+    if (!t) throw new NotFoundException(`ShiftTemplate ${id} not found`);
+    return this.toDto(t);
+  }
 
-    /**
-     * POST /shift-templates/instantiate?companyId=...
-     * Generates concrete shifts for the given week from all active templates.
-     */
-    @Post('instantiate')
-    async instantiate(
-        @Query('companyId') companyId: string,
-        @Body() dto: InstantiateWeekDto,
-    ) {
-        this.logger.log(`Instantiating week ${dto.weekStart} for company ${companyId}`);
-        return this.instantiateWeekHandler.execute({ companyId, weekStart: dto.weekStart });
-    }
+  /**
+   * PATCH /shift-templates/:id?companyId=...
+   * Partial update. Omitted fields stay; `null` en nullable = clear.
+   */
+  @Patch(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async update(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+    @Body() dto: UpdateShiftTemplateDto,
+  ): Promise<void> {
+    const existing = await this.templateRepo.findById(id, companyId);
+    if (!existing) throw new NotFoundException(`ShiftTemplate ${id} not found`);
+    await this.templateRepo.updatePartial(id, companyId, dto);
+  }
 
-    private toDto(t: ShiftTemplate): object {
-        return {
-            id: t.id,
-            name: t.name,
-            dayOfWeek: t.dayOfWeek,
-            startTime: t.startTime,
-            endTime: t.endTime,
-            requiredSkillId: t.requiredSkillId,
-            demandScore: t.demandScore.value,
-            undesirableWeight: t.undesirableWeight.value,
-            isActive: t.isActive,
-        };
-    }
+  /**
+   * DELETE /shift-templates/:id?companyId=...
+   * Soft delete — is_active=false + deleted_at=NOW(). Assignments ya
+   * generados quedan intactos.
+   */
+  @Delete(':id')
+  async remove(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+  ): Promise<{ success: boolean }> {
+    await this.templateRepo.delete(id, companyId);
+    return { success: true };
+  }
+
+  private toDto(t: ShiftTemplate): object {
+    return {
+      id: t.id,
+      name: t.name,
+      dayOfWeek: t.dayOfWeek,
+      startTime: t.startTime,
+      endTime: t.endTime,
+      requiredSkillId: t.requiredSkillId,
+      demandScore: t.demandScore.value,
+      undesirableWeight: t.undesirableWeight.value,
+      isActive: t.isActive,
+      requiredEmployees: t.requiredEmployees,
+    };
+  }
 }

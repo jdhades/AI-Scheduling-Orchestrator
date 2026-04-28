@@ -7,11 +7,11 @@
  *   - isUrgent=false → standard notification to manager
  */
 export class AbsenceReportedEvent {
-    constructor(
-        readonly employeeId: string,
-        readonly shiftId: string,
-        readonly reason: string,
-        readonly companyId: string,
-        readonly isUrgent: boolean,
-    ) { }
+  constructor(
+    readonly employeeId: string,
+    readonly shiftId: string,
+    readonly reason: string,
+    readonly companyId: string,
+    readonly isUrgent: boolean,
+  ) {}
 }

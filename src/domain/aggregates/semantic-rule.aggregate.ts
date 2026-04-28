@@ -1,18 +1,23 @@
 import { RulePriority } from '../value-objects/rule-priority.vo';
 import { RuleType } from '../value-objects/rule-type.vo';
 import { RuleEmbedding } from '../value-objects/rule-embedding.vo';
+import type { RuleStructure } from '../value-objects/rule-structure.vo';
 
 export interface SemanticRulePersistenceRow {
-    id: string;
-    company_id: string;
-    rule_text: string;
-    embedding: number[] | null;
-    priority_level: number;
-    rule_type: string;
-    created_by: string | null;
-    is_active: boolean;
-    metadata: Record<string, unknown>;
-    created_at: string | Date;
+  id: string;
+  company_id: string;
+  rule_text: string;
+  embedding: number[] | null;
+  priority_level: number;
+  rule_type: string;
+  created_by: string | null;
+  is_active: boolean;
+  metadata: Record<string, unknown>;
+  structure: RuleStructure | null;
+  created_at: string | Date;
+  expires_at?: string | Date | null;
+  branch_id?: string | null;
+  department_id?: string | null;
 }
 
 /**
@@ -32,143 +37,206 @@ export interface SemanticRulePersistenceRow {
  *   → deactivate()                 → soft-deleted, excluida de recuperación RAG
  */
 export class SemanticRuleAggregate {
-    private static readonly MIN_TEXT_LENGTH = 10;
-    private static readonly MAX_TEXT_LENGTH = 1000;
+  private static readonly MIN_TEXT_LENGTH = 10;
+  private static readonly MAX_TEXT_LENGTH = 1000;
 
-    private constructor(
-        private readonly id: string,
-        private ruleText: string,
-        private priority: RulePriority,
-        private ruleType: RuleType,
-        private readonly companyId: string,
-        private embedding: RuleEmbedding | null,
-        private isActive: boolean,
-        private readonly createdBy: string | null,
-        private readonly metadata: Record<string, unknown>,
-        private readonly createdAt: Date,
-    ) { }
+  private constructor(
+    private readonly id: string,
+    private ruleText: string,
+    private priority: RulePriority,
+    private ruleType: RuleType,
+    private readonly companyId: string,
+    private embedding: RuleEmbedding | null,
+    private isActive: boolean,
+    private readonly createdBy: string | null,
+    private readonly metadata: Record<string, unknown>,
+    private structure: RuleStructure | null,
+    private readonly createdAt: Date,
+    private readonly expiresAt: Date | null,
+    private readonly branchId: string | null,
+    private readonly departmentId: string | null,
+  ) {}
 
-    /**
-     * Factory para crear una nueva regla semántica.
-     * El embedding no se genera aquí — se asigna después via setEmbedding().
-     */
-    static create(params: {
-        id: string;
-        ruleText: string;
-        priority: RulePriority;
-        ruleType: RuleType;
-        companyId: string;
-        createdBy?: string;
-        metadata?: Record<string, unknown>;
-    }): SemanticRuleAggregate {
-        SemanticRuleAggregate.validateRuleText(params.ruleText);
+  /**
+   * Factory para crear una nueva regla semántica.
+   * El embedding no se genera aquí — se asigna después via setEmbedding().
+   */
+  static create(params: {
+    id: string;
+    ruleText: string;
+    priority: RulePriority;
+    ruleType: RuleType;
+    companyId: string;
+    createdBy?: string;
+    metadata?: Record<string, unknown>;
+    expiresAt?: Date | null;
+    branchId?: string;
+    departmentId?: string;
+  }): SemanticRuleAggregate {
+    SemanticRuleAggregate.validateRuleText(params.ruleText);
 
-        return new SemanticRuleAggregate(
-            params.id,
-            params.ruleText.trim(),
-            params.priority,
-            params.ruleType,
-            params.companyId,
-            null,
-            true,
-            params.createdBy ?? null,
-            params.metadata ?? {},
-            new Date(),
-        );
+    return new SemanticRuleAggregate(
+      params.id,
+      params.ruleText.trim(),
+      params.priority,
+      params.ruleType,
+      params.companyId,
+      null,
+      true,
+      params.createdBy ?? null,
+      params.metadata ?? {},
+      null, // structure: extraída por LLM después via setStructure()
+      new Date(),
+      params.expiresAt ?? null,
+      params.branchId ?? null,
+      params.departmentId ?? null,
+    );
+  }
+
+  /**
+   * Factory para reconstruir desde persistencia.
+   * No dispara eventos de dominio (igual que en los aggregates del E2).
+   */
+  static fromPersistence(
+    row: SemanticRulePersistenceRow,
+  ): SemanticRuleAggregate {
+    return new SemanticRuleAggregate(
+      row.id,
+      row.rule_text,
+      RulePriority.create(row.priority_level),
+      RuleType.create(row.rule_type),
+      row.company_id,
+      row.embedding ? RuleEmbedding.create(row.embedding) : null,
+      row.is_active,
+      row.created_by,
+      row.metadata ?? {},
+      row.structure ?? null,
+      new Date(row.created_at),
+      row.expires_at ? new Date(row.expires_at) : null,
+      row.branch_id ?? null,
+      row.department_id ?? null,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Comportamientos del dominio
+  // -------------------------------------------------------------------------
+
+  /**
+   * Asigna el vector de embeddings generado por GeminiEmbeddingService.
+   * @throws Error si el vector no tiene 768 dimensiones
+   */
+  setEmbedding(vector: number[]): void {
+    this.embedding = RuleEmbedding.create(vector);
+  }
+
+  /**
+   * Actualiza el texto de la regla e invalida el embedding y la estructura.
+   * El servicio de aplicación deberá re-generar ambos después.
+   * @throws Error si el nuevo texto no cumple con los límites de longitud
+   */
+  updateText(newText: string): void {
+    SemanticRuleAggregate.validateRuleText(newText);
+    this.ruleText = newText.trim();
+    this.embedding = null; // invalidar — requiere re-embedding
+    this.structure = null; // invalidar — requiere re-extracción por LLM
+  }
+
+  /**
+   * Asigna la estructura extraída por el LLM. Se llama una vez después de create()
+   * o updateText().
+   */
+  setStructure(structure: RuleStructure | null): void {
+    this.structure = structure;
+  }
+
+  getStructure(): RuleStructure | null {
+    return this.structure;
+  }
+
+  hasStructure(): boolean {
+    return this.structure !== null;
+  }
+
+  /**
+   * Desactiva la regla (soft delete).
+   * Las reglas inactivas no participan en el SemanticRetrievalService.
+   */
+  deactivate(): void {
+    this.isActive = false;
+  }
+
+  // -------------------------------------------------------------------------
+  // Estado / queries
+  // -------------------------------------------------------------------------
+
+  hasEmbedding(): boolean {
+    return this.embedding !== null;
+  }
+
+  isReadyForRetrieval(): boolean {
+    return this.isActive && this.hasEmbedding();
+  }
+
+  // -------------------------------------------------------------------------
+  // Getters
+  // -------------------------------------------------------------------------
+
+  getId(): string {
+    return this.id;
+  }
+  getRuleText(): string {
+    return this.ruleText;
+  }
+  getPriority(): RulePriority {
+    return this.priority;
+  }
+  getRuleType(): RuleType {
+    return this.ruleType;
+  }
+  getCompanyId(): string {
+    return this.companyId;
+  }
+  getEmbedding(): RuleEmbedding | null {
+    return this.embedding;
+  }
+  getIsActive(): boolean {
+    return this.isActive;
+  }
+  getCreatedBy(): string | null {
+    return this.createdBy;
+  }
+  getMetadata(): Record<string, unknown> {
+    return { ...this.metadata };
+  }
+  getCreatedAt(): Date {
+    return this.createdAt;
+  }
+  getExpiresAt(): Date | null {
+    return this.expiresAt;
+  }
+  getBranchId(): string | null {
+    return this.branchId;
+  }
+  getDepartmentId(): string | null {
+    return this.departmentId;
+  }
+
+  // -------------------------------------------------------------------------
+  // Privados / helpers
+  // -------------------------------------------------------------------------
+
+  private static validateRuleText(text: string): void {
+    const trimmed = text?.trim() ?? '';
+    if (trimmed.length < SemanticRuleAggregate.MIN_TEXT_LENGTH) {
+      throw new Error(
+        `Rule text is too short: ${trimmed.length} chars. Minimum: ${SemanticRuleAggregate.MIN_TEXT_LENGTH}`,
+      );
     }
-
-    /**
-     * Factory para reconstruir desde persistencia.
-     * No dispara eventos de dominio (igual que en los aggregates del E2).
-     */
-    static fromPersistence(row: SemanticRulePersistenceRow): SemanticRuleAggregate {
-        return new SemanticRuleAggregate(
-            row.id,
-            row.rule_text,
-            RulePriority.create(row.priority_level),
-            RuleType.create(row.rule_type),
-            row.company_id,
-            row.embedding ? RuleEmbedding.create(row.embedding) : null,
-            row.is_active,
-            row.created_by,
-            row.metadata ?? {},
-            new Date(row.created_at),
-        );
+    if (trimmed.length > SemanticRuleAggregate.MAX_TEXT_LENGTH) {
+      throw new Error(
+        `Rule text is too long: ${trimmed.length} chars. Maximum: ${SemanticRuleAggregate.MAX_TEXT_LENGTH}`,
+      );
     }
-
-    // -------------------------------------------------------------------------
-    // Comportamientos del dominio
-    // -------------------------------------------------------------------------
-
-    /**
-     * Asigna el vector de embeddings generado por GeminiEmbeddingService.
-     * @throws Error si el vector no tiene 768 dimensiones
-     */
-    setEmbedding(vector: number[]): void {
-        this.embedding = RuleEmbedding.create(vector);
-    }
-
-    /**
-     * Actualiza el texto de la regla e invalida el embedding actual.
-     * El serivicio de aplicación deberá re-generar el embedding después.
-     * @throws Error si el nuevo texto no cumple con los límites de longitud
-     */
-    updateText(newText: string): void {
-        SemanticRuleAggregate.validateRuleText(newText);
-        this.ruleText = newText.trim();
-        this.embedding = null; // invalidar — requiere re-embedding
-    }
-
-    /**
-     * Desactiva la regla (soft delete).
-     * Las reglas inactivas no participan en el SemanticRetrievalService.
-     */
-    deactivate(): void {
-        this.isActive = false;
-    }
-
-    // -------------------------------------------------------------------------
-    // Estado / queries
-    // -------------------------------------------------------------------------
-
-    hasEmbedding(): boolean {
-        return this.embedding !== null;
-    }
-
-    isReadyForRetrieval(): boolean {
-        return this.isActive && this.hasEmbedding();
-    }
-
-    // -------------------------------------------------------------------------
-    // Getters
-    // -------------------------------------------------------------------------
-
-    getId(): string { return this.id; }
-    getRuleText(): string { return this.ruleText; }
-    getPriority(): RulePriority { return this.priority; }
-    getRuleType(): RuleType { return this.ruleType; }
-    getCompanyId(): string { return this.companyId; }
-    getEmbedding(): RuleEmbedding | null { return this.embedding; }
-    getIsActive(): boolean { return this.isActive; }
-    getCreatedBy(): string | null { return this.createdBy; }
-    getMetadata(): Record<string, unknown> { return { ...this.metadata }; }
-    getCreatedAt(): Date { return this.createdAt; }
-
-    // -------------------------------------------------------------------------
-    // Privados / helpers
-    // -------------------------------------------------------------------------
-
-    private static validateRuleText(text: string): void {
-        const trimmed = text?.trim() ?? '';
-        if (trimmed.length < SemanticRuleAggregate.MIN_TEXT_LENGTH) {
-            throw new Error(
-                `Rule text is too short: ${trimmed.length} chars. Minimum: ${SemanticRuleAggregate.MIN_TEXT_LENGTH}`,
-            );
-        }
-        if (trimmed.length > SemanticRuleAggregate.MAX_TEXT_LENGTH) {
-            throw new Error(
-                `Rule text is too long: ${trimmed.length} chars. Maximum: ${SemanticRuleAggregate.MAX_TEXT_LENGTH}`,
-            );
-        }
-    }
+  }
 }

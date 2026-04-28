@@ -1,53 +1,34 @@
-import type { Employee } from '../aggregates/employee.aggregate';
-import type { Shift } from '../aggregates/shift.aggregate';
-import type { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
-import type { FairnessHistoryVO } from '../value-objects/fairness-history.vo';
+/**
+ * Tipos compartidos de scheduling que sobreviven al retiro de las 3
+ * strategies (hybrid/cost/fairness). Se usan en:
+ *  - `ShiftAssignment.assignedByStrategy`     (persistencia auditable).
+ *  - `SemanticConstraintInterpreter`          (interpretación de reglas).
+ *  - `WeekScheduleBuilder`                    (filtro de reglas hard).
+ *
+ * El nombre `SchedulingStrategy` como contrato de algoritmo ya no existe:
+ * el motor único es el builder employee-first.
+ */
 
 export type StrategyType = 'cost' | 'fairness' | 'hybrid';
 
 /**
- * SemanticConstraint — contrato preparado para el Escenario 3 (RAG).
- *
- * En el Escenario 3, el SemanticRuleService llenará este array con reglas
- * extraídas del contexto semántico de la empresa (convenio colectivo, prefs, etc.)
- * Por ahora las estrategias lo reciben opccionalmente y lo ignoran.
+ * Sentinel que indica que TODOS los empleados están bloqueados para un turno.
+ * Usado por StructuredRuleResolver / SemanticConstraintInterpreter para
+ * reglas tipo "el 16 nadie trabaja".
  */
-export interface SemanticConstraint {
-    rule: string;
-    weight: number;
-    employeeId?: string;
-    shiftId?: string;
-}
+export const SEMANTIC_BLOCKED_ALL = '*';
 
 /**
- * SchedulingStrategy — Interface del Strategy Pattern
+ * SemanticConstraint — contrato entre el RAG/resolver y el motor.
  *
- * Cada estrategia recibe el mismo conjunto de datos y devuelve asignaciones.
- * El SchedulingEngine no sabe qué estrategia está usando — solo llama generate().
- *
- * Añadir una nueva estrategia = implementar esta interfaz + registrarla en el factory.
+ * weight:
+ *   3 = legal (hard, bloqueo absoluto)
+ *   2 = semántica (hard)
+ *   1 = preferencia (soft — el motor la mira pero no obliga)
  */
-export interface SchedulingStrategy {
-    readonly type: StrategyType;
-
-    /**
-     * Genera el conjunto de asignaciones para la semana.
-     *
-     * @param employees       Empleados disponibles para la semana
-     * @param shifts          Turnos a cubrir
-     * @param histories       Historial de fairness de la semana actual
-     * @param semanticRules   Reglas semánticas del RAG (vacío hasta Escenario 3)
-     * @returns               Asignaciones generadas + turnos sin cubrir
-     */
-    generate(
-        employees: Employee[],
-        shifts: Shift[],
-        histories: FairnessHistoryVO[],
-        semanticRules?: SemanticConstraint[],
-    ): StrategyResult;
-}
-
-export interface StrategyResult {
-    assignments: ShiftAssignment[];
-    unfilledShifts: Shift[];
+export interface SemanticConstraint {
+  rule: string;
+  weight: number;
+  employeeId?: string;
+  shiftId?: string;
 }

@@ -1,36 +1,61 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { RegisterEmployeeHandler } from './handlers/register-employee.handler';
+import { UpdateEmployeeHandler } from './handlers/update-employee.handler';
+import { DeleteEmployeeHandler } from './handlers/delete-employee.handler';
+import { GetEmployeeByIdHandler } from './handlers/get-employee-by-id.handler';
 import { GetEmployeeCalendarHandler } from './handlers/get-employee-calendar.handler';
 import { EmployeeRegisteredHandler } from './handlers/employee-registered.handler';
 import { InitiateHandshakeHandler } from './handlers/initiate-handshake.handler';
 import { VerifyHandshakeHandler } from './handlers/verify-handshake.handler';
 import { HandshakeInitiatedHandler } from './handlers/handshake-initiated.handler';
 import { HandshakeVerifiedHandler } from './handlers/handshake-verified.handler';
-import { GenerateScheduleHandler } from './handlers/generate-schedule.handler';
 import { GenerateHybridScheduleHandler } from './handlers/generate-hybrid-schedule.handler';
 import { GetCompanyScheduleHandler } from './handlers/get-company-schedule.handler';
 import { CreateSemanticRuleHandler } from './handlers/create-semantic-rule.handler';
 import { DeleteSemanticRuleHandler } from './handlers/delete-semantic-rule.handler';
 import { GetSemanticRulesHandler } from './handlers/get-semantic-rules.handler';
+import { GetSemanticRuleByIdHandler } from './handlers/get-semantic-rule-by-id.handler';
+import { UpdateSemanticRuleMetadataHandler } from './handlers/update-semantic-rule-metadata.handler';
+import { UpdateSemanticRuleTextHandler } from './handlers/update-semantic-rule-text.handler';
 import { SwapShiftHandler } from './handlers/swap-shift.handler';
+import { TakeOpenShiftHandler } from './handlers/take-open-shift.handler';
 import { ReportAbsenceHandler } from './handlers/report-absence.handler';
 import { RequestDayOffHandler } from './handlers/request-day-off.handler';
 import { GetMyScheduleHandler } from './handlers/get-my-schedule.handler';
+import { GetUpcomingShiftsHandler } from './handlers/get-upcoming-shifts.handler';
 import { GetCompanyEmployeesHandler } from './handlers/get-company-employees.handler';
 import { ShiftSwapRequestedHandler } from './handlers/shift-swap-requested.handler';
 import { AbsenceReportedHandler } from './handlers/absence-reported.handler';
+import { CreateIncidentHandler } from './handlers/create-incident.handler';
+import { RejectIncidentHandler } from './handlers/reject-incident.handler';
+import { ResolveIncidentHandler } from './handlers/resolve-incident.handler';
+import { GetIncidentsHandler } from './handlers/get-incidents.handler';
+import { GetIncidentByIdHandler } from './handlers/get-incident-by-id.handler';
 import { CommandMapperService } from './conversational/command-mapper.service';
 import { MessageRouterService } from './conversational/message-router.service';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { ConversationalModule } from '../infrastructure/conversational/conversational.module';
 import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
+import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { SemanticRetrievalService } from '../domain/services/semantic-retrieval.service';
 import { ConflictResolutionEngine } from '../domain/services/conflict-resolution.engine';
-import { PromptOrchestratorService } from '../domain/services/prompt-orchestrator.service';
-import { ScheduleValidatorService } from '../domain/services/schedule-validator.service';
-
+import { RuleStructureExtractor } from '../domain/services/rule-structure-extractor.service';
+import { LlmSemanticRuleRephraseService } from '../domain/services/llm-semantic-rule-rephrase.service';
+import { SEMANTIC_RULE_REPHRASE_SERVICE } from '../domain/services/semantic-rule-rephrase.service.interface';
+import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter-registry';
+import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
+import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
+import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
+import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
+import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
+import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
+import { PolicyEnforcementService } from '../domain/services/policy-enforcement.service';
+import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
+import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
+import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
+import { LLMLineProposerService } from '../domain/services/llm-line-proposer.service';
 
 /**
  * ApplicationModule
@@ -41,56 +66,124 @@ import { ScheduleValidatorService } from '../domain/services/schedule-validator.
  * Exporta CqrsModule para que la interfaces layer acceda al CommandBus/QueryBus.
  */
 const CommandHandlers = [
-    RegisterEmployeeHandler,
-    InitiateHandshakeHandler,
-    VerifyHandshakeHandler,
-    GenerateScheduleHandler,
-    GenerateHybridScheduleHandler,
-    CreateSemanticRuleHandler,
-    DeleteSemanticRuleHandler,
-    // E4 — Conversational
-    SwapShiftHandler,
-    ReportAbsenceHandler,
-    RequestDayOffHandler,
+  RegisterEmployeeHandler,
+  UpdateEmployeeHandler,
+  DeleteEmployeeHandler,
+  InitiateHandshakeHandler,
+  VerifyHandshakeHandler,
+  GenerateHybridScheduleHandler,
+  CreateSemanticRuleHandler,
+  UpdateSemanticRuleMetadataHandler,
+  UpdateSemanticRuleTextHandler,
+  DeleteSemanticRuleHandler,
+  // E4 — Conversational
+  SwapShiftHandler,
+  TakeOpenShiftHandler,
+  ReportAbsenceHandler,
+  RequestDayOffHandler,
+  // E5 — Incidents
+  CreateIncidentHandler,
+  RejectIncidentHandler,
+  ResolveIncidentHandler,
 ];
 const QueryHandlers = [
-    GetEmployeeCalendarHandler,
-    GetCompanyScheduleHandler,
-    GetCompanyEmployeesHandler,
-    GetSemanticRulesHandler,
-    GetMyScheduleHandler,
+  GetEmployeeByIdHandler,
+  GetEmployeeCalendarHandler,
+  GetIncidentsHandler,
+  GetIncidentByIdHandler,
+  GetCompanyScheduleHandler,
+  GetCompanyEmployeesHandler,
+  GetSemanticRulesHandler,
+  GetSemanticRuleByIdHandler,
+  GetMyScheduleHandler,
+  GetUpcomingShiftsHandler,
 ];
 const EventHandlers = [
-    EmployeeRegisteredHandler,
-    HandshakeInitiatedHandler,
-    HandshakeVerifiedHandler,
-    // E4 — Conversational events
-    ShiftSwapRequestedHandler,
-    AbsenceReportedHandler,
+  EmployeeRegisteredHandler,
+  HandshakeInitiatedHandler,
+  HandshakeVerifiedHandler,
+  // E4 — Conversational events
+  ShiftSwapRequestedHandler,
+  AbsenceReportedHandler,
 ];
 
-const ConversationalServices = [
-    MessageRouterService,
-    CommandMapperService,
-];
+const ConversationalServices = [MessageRouterService, CommandMapperService];
 
 const DomainServices = [
-    SemanticRetrievalService,
-    ConflictResolutionEngine,
-    PromptOrchestratorService,
-    ScheduleValidatorService,
+  SemanticRetrievalService,
+  ConflictResolutionEngine,
+  RuleStructureExtractor,
+  StructuredRuleResolver,
+  ShiftSlotGeneratorService,
+  WeekScheduleBuilder,
+  LLMLineProposerService,
+  LlmSemanticRuleRephraseService,
+  // Subsistema CompanyPolicy (commits 1-9 + follow-up): registry +
+  // interpreters + rephrase service + creator. Antes vivían en
+  // InterfacesModule; los moví acá para que el MessageRouter (que
+  // está en ApplicationModule) los pueda inyectar sin cruzar a
+  // Interfaces (que ya importa Application — sería circular).
+  MinRestDaysPerWeekInterpreter,
+  MinRestHoursBetweenShiftsInterpreter,
+  PolicyInterpreterRegistry,
+  LlmRuleRephraseService,
+  CompanyPolicyCreator,
+  // MVP de integración solver: el WeekScheduleBuilder lo puede inyectar
+  // cuando esté listo para consumir policies activas (evaluate() para
+  // verificación post-generation, formatForPrompt() para el LLM repair).
+  PolicyEnforcementService,
+];
+
+const PolicyDomainProviders = [
+  // Multi-injection: el registry recibe la lista de interpreters via
+  // POLICY_INTERPRETERS_TOKEN. Sumar nuevos = sumar al inject array.
+  {
+    provide: POLICY_INTERPRETERS_TOKEN,
+    inject: [
+      MinRestDaysPerWeekInterpreter,
+      MinRestHoursBetweenShiftsInterpreter,
+    ],
+    useFactory: (...interpreters: unknown[]) => interpreters,
+  },
+  // Token-binding del rephrase service usado por CompanyPolicyCreator.
+  {
+    provide: RULE_REPHRASE_SERVICE,
+    useExisting: LlmRuleRephraseService,
+  },
+  // Suggestion-loop para SemanticRule (commit 6). El handler de
+  // CreateSemanticRule lo inyecta cuando intent=complex.
+  {
+    provide: SEMANTIC_RULE_REPHRASE_SERVICE,
+    useExisting: LlmSemanticRuleRephraseService,
+  },
 ];
 
 @Module({
-    imports: [CqrsModule, RepositoriesModule, NotificationsModule, ConversationalModule, WebsocketModule],
-    providers: [
-        ...CommandHandlers,
-        ...QueryHandlers,
-        ...EventHandlers,
-        ...ConversationalServices,
-        ...DomainServices,
-    ],
-    exports: [CqrsModule, ...DomainServices, ...ConversationalServices],
+  imports: [
+    CqrsModule,
+    RepositoriesModule,
+    NotificationsModule,
+    ConversationalModule,
+    WebsocketModule,
+    SupabaseModule,
+  ],
+  providers: [
+    ...CommandHandlers,
+    ...QueryHandlers,
+    ...EventHandlers,
+    ...ConversationalServices,
+    ...DomainServices,
+    ...PolicyDomainProviders,
+  ],
+  exports: [
+    CqrsModule,
+    ...DomainServices,
+    ...ConversationalServices,
+    // Tokens del subsistema CompanyPolicy: el controller HTTP de
+    // /company-policies (en InterfacesModule) los inyecta.
+    POLICY_INTERPRETERS_TOKEN,
+    RULE_REPHRASE_SERVICE,
+    SEMANTIC_RULE_REPHRASE_SERVICE,
+  ],
 })
-export class ApplicationModule { }
-
+export class ApplicationModule {}

@@ -1,54 +1,59 @@
 import { GetEmployeeCalendarHandler } from '../../../src/application/handlers/get-employee-calendar.handler';
 import { GetEmployeeCalendarQuery } from '../../../src/application/queries/get-employee-calendar.query';
-import type { IShiftRepository } from '../../../src/domain/repositories/shift.repository';
+import type { IShiftAssignmentRepository } from '../../../src/domain/repositories/shift-assignment.repository';
 
-/**
- * 🧪 UNIT TEST: GetEmployeeCalendarHandler
- *
- * El handler devuelve las asignaciones del empleado para un rango de fechas.
- * Mockeamos IShiftRepository para verificar que se llama correctamente.
- */
 describe('GetEmployeeCalendarHandler', () => {
-    let handler: GetEmployeeCalendarHandler;
-    let mockShiftRepo: jest.Mocked<IShiftRepository>;
+  let handler: GetEmployeeCalendarHandler;
+  let mockRepo: jest.Mocked<IShiftAssignmentRepository>;
 
-    beforeEach(() => {
-        mockShiftRepo = {
-            save: jest.fn(),
-            findByCompanyAndWeek: jest.fn(),
-            saveAssignment: jest.fn(),
-            findAssignmentsByEmployee: jest.fn().mockResolvedValue([]),
-            findAssignmentsByCompanyAndWeek: jest.fn(),
-        };
-        handler = new GetEmployeeCalendarHandler(mockShiftRepo);
-    });
+  beforeEach(() => {
+    mockRepo = {
+      save: jest.fn(),
+      deleteById: jest.fn(),
+      deleteByDateRange: jest.fn(),
+      findById: jest.fn(),
+      findByEmployeeAndDateRange: jest.fn().mockResolvedValue([]),
+      findByCompanyAndDateRange: jest.fn(),
+      findBySlot: jest.fn(),
+      resolveShortId: jest.fn(),
+    } as any;
+    handler = new GetEmployeeCalendarHandler(mockRepo);
+  });
 
-    it('should return an array from the repository', async () => {
-        const query = new GetEmployeeCalendarQuery(
-            'employee-1',
-            'company-1',
-            new Date('2024-01-01'),
-            new Date('2024-01-31'),
-        );
+  it('returns an array from the repository and normalizes the date range', async () => {
+    const result = await handler.execute(
+      new GetEmployeeCalendarQuery(
+        'employee-1',
+        'company-1',
+        new Date('2024-01-01'),
+        new Date('2024-01-31'),
+      ),
+    );
 
-        const result = await handler.execute(query);
+    expect(Array.isArray(result)).toBe(true);
+    expect(mockRepo.findByEmployeeAndDateRange).toHaveBeenCalledWith(
+      'employee-1',
+      'company-1',
+      '2024-01-01',
+      '2024-01-31',
+    );
+  });
 
-        expect(Array.isArray(result)).toBe(true);
-        expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
-            'employee-1',
-            'company-1',
-            expect.any(Date),
-            expect.any(Date),
-        );
-    });
+  it('enforces tenant isolation via companyId', async () => {
+    await handler.execute(
+      new GetEmployeeCalendarQuery(
+        'emp-1',
+        'co-1',
+        new Date('2024-02-01'),
+        new Date('2024-02-28'),
+      ),
+    );
 
-    it('should pass companyId for multi-tenant isolation', async () => {
-        const query = new GetEmployeeCalendarQuery('emp-1', 'co-1', new Date(), new Date());
-
-        await handler.execute(query);
-
-        expect(mockShiftRepo.findAssignmentsByEmployee).toHaveBeenCalledWith(
-            'emp-1', 'co-1', expect.any(Date), expect.any(Date),
-        );
-    });
+    expect(mockRepo.findByEmployeeAndDateRange).toHaveBeenCalledWith(
+      'emp-1',
+      'co-1',
+      '2024-02-01',
+      '2024-02-28',
+    );
+  });
 });

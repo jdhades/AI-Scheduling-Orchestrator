@@ -1,0 +1,67 @@
+{
+
+  "swap": {
+    "need_clarification": "No entendí del todo tu solicitud de intercambio. Necesito saber:\n1️⃣ *A quién* le quieres cambiar el turno (ej. 'con Juan' o su teléfono).\n2️⃣ *Qué turno* (ej. 'el del lunes').",
+    "request_received": "✅ Tu solicitud fue procesada correctamente.",
+    "select_own_shift": "🔄 *Intercambio de turno*\n\n¿Cuál de tus turnos quieres cambiar? Responde con el número de la opción:",
+    "no_upcoming_shifts": "No tienes turnos próximos para intercambiar.",
+    "invalid_choice": "Esa opción no es válida. Por favor, responde con un número.",
+    "select_target_shift": "Has seleccionado tu turno del {date}.\n\nAquí tienes los turnos disponibles de tus compañeros para esa misma semana. ¿Cuál quieres?\nResponde con el número:",
+    "no_target_shifts": "No hay otros turnos disponibles esa semana para intercambiar.",
+    "open_shift_label": "Turno Libre",
+    "confirm_open_prompt": "Por favor confirma:\n¿Quieres soltar tu turno ({myShift}) y tomar el turno libre ({targetShift})?\n\nResponde Sí o No.",
+    "open_shift_success": "¡Listo! Has tomado el turno libre exitosamente y se te ha desasignado del anterior.",
+    "confirm_prompt": "Por favor confirma el intercambio:\n\n*Tu turno:* {myShift}\n*Turno que quieres:* {targetShift} (de {targetName})\n\nResponde *Sí* para confirmar o *No* para cancelar.",
+    "swap_cancelled": "Intercambio cancelado.",
+    "select_swap_type": "¿Por qué tipo de turno quieres cambiarlo?",
+    "swap_type_open": "Por un Turno Libre",
+    "swap_type_colleague": "Por el Turno de un Compañero",
+    "notification_target": "🔄 *Solicitud de intercambio de turno*\n\n*{requesterName}* te está pidiendo intercambiar un turno.\n\nPara aceptar responde: \"acepto el intercambio\"\nPara rechazar responde: \"rechazo el intercambio\"",
+    "notification_requester": "✉️ Tu solicitud de intercambio fue enviada a *{targetName}*. Te notificaremos cuando responda."
+  },
+  "absence": {
+    "missing_both": "⚠️ Para reportar tu ausencia necesito:\n1️⃣ ¿El ID del turno al que no puedes asistir?\n2️⃣ ¿Cuál es el motivo?",
+    "missing_shift": "⚠️ ¿Cuál es el ID del turno al que no puedes asistir?",
+    "missing_reason": "⚠️ ¿Cuál es el motivo de tu ausencia?",
+    "success": "✅ Hemos registrado tu ausencia.",
+    "cancelled": "Entendido. Cancelando el reporte. Para intentar de nuevo, dime qué turno faltarás.",
+    "no_shifts": "No encontré turnos asignados a ti en los próximos días.",
+    "confirm_single_shift": "Veo que tienes un turno el *{shiftStr}*. ¿Es para este turno que reportas tu ausencia? (Responde Sí/No)\n{reasonPrompt}",
+    "reason_prompt": "(También asegúrate de mencionar el motivo de tu ausencia)",
+    "select_shift": "Tienes varios turnos próximos que coinciden. Responde con el número del turno para reportar tu ausencia:\n",
+    "reason_prompt_inline": "\n(Por favor incluye también el motivo de tu ausencia)."
+  },
+  "day_off": {
+    "missing_date": "Entendido. ¿Para qué *fecha* quieres solicitar el día libre?"
+  },
+  "schedule": {
+    "none_that_week": "📅 No tienes turnos asignados para la semana del {date}.",
+    "none_this_week": "📅 No tienes turnos asignados esta semana.",
+    "title_that_week": "📅 *Tu horario para la semana del {date}:*",
+    "title_this_week": "📅 *Tu horario esta semana:*",
+    "anything_else": "¿Necesitas algo más?",
+    "explanation_header": "📅 Horario generado para la semana del {date} ({total} turno(s) solicitados).",
+    "explanation_llm_ok": "El LLM analizó y asignó {n} turnos bajo cumplimiento de reglas.",
+    "explanation_llm_failed": "LLM no pudo generar propuestas. El algoritmo determinístico cubrió todos los turnos.",
+    "explanation_algorithm": "El algoritmo determinístico cubrió {n} turno(s) adicional(es).",
+    "explanation_unfilled": "{n} turno(s) quedaron sin cubrir por falta de candidatos disponibles.",
+    "explanation_complete": "Cobertura completa: {covered}/{total} turnos asignados.",
+    "warnings_header": "⚠️ *Requieren tu revisión:*",
+    "warning_complex_rule": "Regla compleja (requiere supervisión manual): \"{ruleText}\" — {reason}",
+    "warning_unstructured_rule": "Regla sin analizar: \"{ruleText}\" — re-editá la regla para reintentar",
+    "warning_unfilled_shift": "Turno sin cubrir: {date} {from}–{to} (sin candidatos elegibles)",
+    "warning_no_day_off": "{name}: sin día libre en la semana (regla rotativa activa)"
+  },
+  "rules": {
+    "missing_text": "⚠️ Para crear una regla, por favor dime cuál es la restricción o preferencia. Por ejemplo: 'Los viernes necesito 2 cajeros'."
+  },
+  "general": {
+    "unknown_intent": "🤔 No entendí bien tu solicitud. Puedo ayudarte a:\n• Ver tu horario\n• Reportar una ausencia\n• Pedir intercambio de turno\n• Solicitar día libre\n• Generar el horario de la semana (managers)\n\n¿Qué necesitas?",
+    "clarification": "❓ No pude entender tu solicitud. ¿Puedes reformularla?",
+    "invalid_choice": "Respuesta no válida. Por favor responde con el número de la opción o 'sí'/'no'.",
+    "shift_not_found": "⚠️ No pude encontrar un turno con ID '{shiftId}'. Verifica el ID e inténtalo de nuevo.",
+    "success": "✅ Tu solicitud fue procesada correctamente.",
+    "error": "⚠️ Ocurrió un error procesando tu mensaje. Por favor inténtalo de nuevo.",
+    "unauthorized": "⚠️ No tienes permisos para realizar esta acción."
+  }
+}

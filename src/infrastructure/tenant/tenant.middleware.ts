@@ -1,4 +1,8 @@
-import { Injectable, NestMiddleware, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NestMiddleware,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { TenantContext } from './tenant.context';
 
@@ -21,25 +25,26 @@ import { TenantContext } from './tenant.context';
  */
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-    constructor(private readonly tenantContext: TenantContext) { }
+  constructor(private readonly tenantContext: TenantContext) {}
 
-    use(req: Request, _res: Response, next: NextFunction): void {
-        // Estrategia 1: header explícito (para llamadas internas/tests)
-        const headerTenantId = req.headers['x-company-id'] as string | undefined;
+  use(req: Request, _res: Response, next: NextFunction): void {
+    // Estrategia 1: header explícito (para llamadas internas/tests)
+    const headerTenantId = req.headers['x-company-id'] as string | undefined;
 
-        // Estrategia 2: JWT claims (cuando AuthGuard procesa el token)
-        // El AuthGuard de Supabase adjunta el usuario decodificado al request
-        const jwtTenantId = (req as any).user?.company_id as string | undefined;
+    // Estrategia 2: JWT claims (cuando AuthGuard procesa el token)
+    // El AuthGuard de Supabase adjunta el usuario decodificado al request
+    const jwtTenantId = (req as any).user?.company_id as string | undefined;
 
-        const tenantId = headerTenantId ?? jwtTenantId;
+    // PRIORIDAD: JWT validado DEBE tener precedencia sobre header no confiable
+    const tenantId = jwtTenantId ?? headerTenantId;
 
-        if (!tenantId) {
-            throw new UnauthorizedException(
-                'Missing tenant identifier: provide X-Company-Id header or a valid JWT with company_id',
-            );
-        }
-
-        this.tenantContext.set(tenantId);
-        next();
+    if (!tenantId) {
+      throw new UnauthorizedException(
+        'Missing tenant identifier: provide X-Company-Id header or a valid JWT with company_id',
+      );
     }
+
+    this.tenantContext.set(tenantId);
+    next();
+  }
 }

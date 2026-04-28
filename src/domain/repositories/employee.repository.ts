@@ -12,10 +12,30 @@ import { Employee } from '../aggregates/employee.aggregate';
  */
 export const EMPLOYEE_REPOSITORY = 'EMPLOYEE_REPOSITORY';
 
+/**
+ * Campos parcheables vía PATCH. Todos opcionales; los `undefined` no se
+ * tocan. `null` en campos opcionales significa "limpiar el valor".
+ */
+export interface EmployeePatch {
+  name?: string;
+  role?: string;
+  phoneNumber?: string;
+  experienceMonths?: number;
+  departmentId?: string | null;
+  locale?: string;
+  contractType?: string | null;
+  maxHoursPerDay?: number | null;
+  maxHoursPerWeek?: number | null;
+  isActive?: boolean;
+  externalId?: string | null;
+}
+
 export interface IEmployeeRepository {
-    save(employee: Employee): Promise<void>;
-    findById(id: string, companyId: string): Promise<Employee | null>;
-    findByPhone(phone: string, companyId: string): Promise<Employee | null>;
-    findAllByCompany(companyId: string): Promise<Employee[]>;
-    markWhatsappVerified(employeeId: string): Promise<void>;
+  save(employee: Employee): Promise<void>;
+  findById(id: string, companyId: string): Promise<Employee | null>;
+  findByPhone(phone: string, companyId: string): Promise<Employee | null>;
+  findAllByCompany(companyId: string, options?: { departmentId?: string; branchId?: string }): Promise<Employee[]>;
+  markWhatsappVerified(employeeId: string): Promise<void>;
+  updatePartial(id: string, companyId: string, patch: EmployeePatch): Promise<void>;
+  softDelete(id: string, companyId: string): Promise<void>;
 }

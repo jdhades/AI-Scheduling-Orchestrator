@@ -1,8 +1,25 @@
 # Escenario 3 — Semantic Rule Engine: Review Detallado
 
+> ⚠️ **FROZEN SNAPSHOT (Mar 2026) + updates through Phase 3.5 (Abr 2026).**
+> Cambios clave posteriores a este doc:
+> - LLM **autoritario** sobre las líneas semanales vía `LLMLineProposerService` +
+>   `WeekScheduleBuilder.verify()` con feedback-loop y fallback determinístico
+>   (no solo "guidance dentro del prompt").
+> - Reglas `unstructured` y `complex` ya no se descartan: se pasan al LLM como
+>   texto libre (`rawRuleTexts`) por el handler. Antes eran warnings al manager.
+> - Traducción de reglas a inglés (cacheada) previa al prompt del proposer.
+> - `target_mode` fue agregado y luego REMOVIDO en Phase 3.5
+>   (`supabase/migrations/20260420000000_drop_shift_template_target_mode.sql`).
+> - Providers LLM seleccionables vía `ACTIVE_AI_PROVIDER=qwen|gemini|local` —
+>   Qwen (`qwen3.6-plus`) default, Gemini 2.0 Flash, o LocalLLMService
+>   (LM Studio / Ollama / llama.cpp via OpenAI-compat).
+> - `LLMUsageTracker` registra tokens por generación.
+> Ver `.agents/RULES-ENGINE.md` y `.agents/SCHEDULER-ENGINE.md` para la
+> arquitectura vigente.
+
 > **Proyecto:** AI Scheduling Orchestrator  
 > **Fecha de implementación:** Marzo 2026  
-> **Stack:** NestJS · PostgreSQL + pgvector · Supabase · Gemini 1.5 Pro / text-embedding-004  
+> **Stack:** NestJS · PostgreSQL + pgvector · Supabase · LLM providers (Qwen/Gemini/Local) · `text-embedding-004`  
 > **Autor principal:** Jean Newman  
 > **Revisión técnica:** Antigravity (AI Agent)
 
@@ -39,8 +56,8 @@ La pregunta central que motiva este escenario es:
 La respuesta es una arquitectura **RAG (Retrieval-Augmented Generation)** completamente integrada en el pipeline de scheduling:
 
 1. Un manager escribe una regla en español natural.
-2. El sistema la convierte en un vector de 768 dimensiones usando `Gemini text-embedding-004`.
-3. Ese vector se almacena en PostgreSQL con la extensión `pgvector`.
+2. **Semantic Knowledge** — el sistema recupera reglas de negocio en tiempo real (RAG) para guiar el scheduling cognitivo.
+3. **Multi-Provider Architecture** — agnosticismo completo entre **Gemini 2.0 Flash** y **Qwen Plus/Max**.
 4. Cuando se va a generar un horario para un turno, el sistema recupera semánticamente las reglas más relevantes para ese contexto (RAG).
 5. Si hay contradicciones entre reglas, el `ConflictResolutionEngine` las resuelve jerárquicamente.
 6. Las reglas supervivientes se inyectan al motor de scheduling existente (Escenario 2) como `SemanticConstraint[]`.
@@ -762,9 +779,9 @@ $ npx jest test/unit --no-coverage
 ```
 
 ```
-Test Suites: 22 passed, 22 total
-Tests:       213 passed, 213 total
-Time:        ~2 s
+Test Suites: 45 passed, 45 total
+Tests:       366 passed, 366 total
+Time:        ~4 s
 ```
 
 ### Distribución de tests por área
@@ -778,11 +795,25 @@ Time:        ~2 s
 | Infrastructure | 8 | 0 | 8 |
 | Policies | 12 | 0 | 12 |
 | Application | 8 | 0 | 8 |
-| **Total** | **82** | **77** | **213** |
+| Demás suites acumuladas | 153 |
+| **Total Global** | **366** |
 
 > El Escenario 3 prácticamente **duplicó** la cobertura de tests del proyecto.
 
+
 ---
+
+## 14.5. Deduplicación Semántica de Reglas
+
+Para mantener la integridad y eficiencia del motor vectorial, se ha implementado un mecanismo de deduplicación semántica en el `CreateSemanticRuleHandler`:
+
+1. **Chequeo de Proximidad:** Antes de persistir una nueva regla, el sistema genera su embedding y consulta las reglas existentes más cercanas.
+2. **Umbral de Distancia (0.12):** Si se encuentra una regla con una distancia coseno menor a **0.12**, el sistema la identifica como un duplicado semántico (paráfrasis directa).
+3. **Prevención de Redundancia:** Las reglas detectadas como duplicadas no se persisten, retornando el ID de la regla original. Esto evita que el motor RAG recupere múltiples versiones de la misma instrucción, optimizando la ventana de contexto del LLM y previniendo conflictos innecesarios.
+4. **Resiliencia:** Si la API de embeddings falla durante el chequeo de duplicados, el sistema prioriza la persistencia de la nueva regla para evitar pérdida de datos, delegando la limpieza a procesos posteriores.
+
+---
+
 
 ## 15. Conclusiones
 
@@ -801,11 +832,11 @@ El Escenario 3 transformó el sistema de scheduling de un motor con reglas fijas
 | Decisión | Alternativa considerada | Razón de la elección |
 |----------|------------------------|----------------------|
 | `pgvector` con ivfflat | Pinecone, Weaviate | Evita dependencia externa; PostgreSQL ya en stack |
-| Gemini `text-embedding-004` | OpenAI ada-002 | Mejor calidad en español; coherencia con resto del sistema |
+| **768 Dimensiones** | 1536, 1024 | Espacio común compatible entre **text-embedding-004** y **text-embedding-v3** (Qwen) |
 | Soft delete para reglas | Hard delete | Auditabilidad; posibilidad de restaurar |
 | `ConflictResolutionEngine` determinístico | Dejar al LLM resolverlo | Predecibilidad y auditabilidad son requisitos de negocio |
-| Threshold 0.35 (distancia coseno) | Threshold más alto/bajo | Calibrado manualmente para balance precisión/recall |
-| Gemini 1.5 Flash (Orchestrator) | Gemini 1.5 Pro | Latencia: Flash 2-3x más rápido en prompts estructurados |
+| Threshold 0.12 (Deduplicación) | Threshold más alto | Calibrado para detectar paráfrasis directas en V2 |
+| **Active AI Provider Injected** | Hardcoded logic | Permite alternar entre **Gemini 2.0 Flash** y **Qwen Plus** según latencia/costo |
 | Resiliencia total (catch → `[]`) | Lanzar error en RAG failure | El scheduling nunca puede bloquearse por infra externa |
 
 ### Limitaciones conocidas
@@ -821,3 +852,49 @@ El Escenario 3 transformó el sistema de scheduling de un motor con reglas fijas
 - **Métricas de RAG**: loggear cuántas reglas se recuperan por turno, promedios de distancia, hit rate del umbral.
 - **A/B testing**: comparar schedules generados con/sin RAG para validar mejora de calidad.
 - **UI de gestión de reglas**: frontend para que los managers creen/editen reglas sin usar Postman.
+
+---
+
+## Delta — Sprint 2026-04 (Rules + Policies + Suggestion-Loop)
+
+Este sprint amplió el alcance semántico del sistema con una segunda dimensión paralela a las reglas: **políticas de empresa**. Y formalizó el patrón **suggestion-loop** que ya estaba implícito en rules-engine.
+
+**1. Subsistema CompanyPolicies (nuevo, paralelo a Rules)**
+
+- **Por qué dos subsistemas**: rules son reglas semánticas dirigidas a empleado/equipo/rol específico (RAG por turno: "los viernes por la noche queremos a alguien con primeros auxilios"). Policies son políticas globales de empresa con foco en compliance/operación ("11h de descanso entre turnos", "máx 5 días corridos"). Las primeras son contextuales y se recuperan por turno; las segundas son sistémicas y se aplican siempre.
+- **Open + interpreter accelerators (NO closed enum)**: el sistema es multi-tenant; un enum cerrado de "tipos de policy" no escala (médico, retail, seguridad tienen vocabularios distintos). En su lugar, `CompanyPolicy.text` es la fuente de verdad y los interpreters son aceleradores opcionales. Si removemos un interpreter, las policies sobreviven y se evalúan vía LLM.
+- **Componentes**: `CompanyPolicy` aggregate, `PolicyInterpreterRegistry`, `PolicyEnforcementService` (`evaluate` + `formatForPrompt` + variantes `*Loaded` sin DB), `CompanyPolicyCreator`. Dos interpreters listos: `min_rest_days_per_week`, `min_rest_hours_between_shifts`.
+- **Severity** (`hard` | `soft`) determina cómo se clasifican las violaciones: `hardViolations`, `softViolations`, `llmOnlyPolicies` (textos que se inyectan al prompt del LLM).
+- **Detalle completo en `.agents/COMPANY-POLICIES.md`**.
+
+**2. Suggestion-loop como patrón cross-cutting**
+
+- Antes vivía implícitamente en rules-engine cuando una regla no se podía estructurar; ahora es una abstracción explícita reutilizada por ambos subsistemas.
+- `IRuleRephraseService.suggest({ originalText, reason, interpreters })` devuelve 0..N reformulaciones verificadas.
+- Tres outcomes (discriminated union):
+  - `created` + `mode: 'matched'`     → interpreter encontrado, params extraídos, persiste.
+  - `needs_clarification`             → ningún interpreter; el LLM propuso reformulaciones; NO persiste; el caller decide.
+  - `created` + `mode: 'llm_only'`    → ningún interpreter ni sugerencias útiles; persiste como LLM-only para no bloquear.
+- `CompanyPolicyCreator` es el único domain service que implementa esto; lo reusan `CompanyPoliciesController` (HTTP) y el `MessageRouter` de WhatsApp (sin duplicación).
+
+**3. WhatsApp + suggestion-loop (state machine)**
+
+- Tabla nueva `whatsapp_pending_clarifications` que guarda la pregunta abierta por empleado (originalText, suggestions, expiresAt).
+- En cada mensaje entrante, ANTES de detectar intent, se chequea si hay un loop abierto para ese teléfono. Si lo hay, se resuelve (usuario contesta "1"/"2"/"3" o reescribe). Si no, sigue el flujo normal.
+- Permiso: `companies.whatsapp_policy_creator_roles TEXT[]` (default `['manager']`) gatea quién puede crear policies/rules vía WhatsApp.
+
+**4. Frontend (workforce + policies UI)**
+
+- `CompanyPoliciesPage` con severity selector y soporte de `needs_clarification` (renderiza las reformulaciones propuestas como tarjetas seleccionables).
+- DataTable rollout completo en listas (Skills, Memberships, Rules, Templates, Fairness, Absences, Incidents, Swaps, DayOffs, Employees).
+- `LanguageSwitcher` (EN/ES) + `describeApiError` que mapea `errorCode` del backend (vía `PostgresExceptionFilter`) a strings localizados.
+
+**5. Invariantes que NO cambian con este delta**
+
+- Cosine threshold 0.12 para deduplicación de rules (memoria de invariantes).
+- Embeddings 1536-dim, `text-embedding-004` de Gemini, búsqueda con `<=>`.
+- 11h descanso entre turnos sigue hardcoded en V3 (no se quita aunque haya un interpreter equivalente; el interpreter es opcional, el invariante es operativo).
+
+**6. Phase 14 (planeado, no implementado)**
+
+Conectar `PolicyEnforcementService` al `WeekScheduleBuilder` para policy-aware scheduling — detalle en `.agents/SCHEDULER-ENGINE.md`. Hasta que se haga, las policies se persisten y son evaluables, pero no bloquean al solver.

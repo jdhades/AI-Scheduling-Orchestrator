@@ -10,106 +10,161 @@ import { IntentEntities, IntentType } from './conversation-intent.vo';
  * Immutable — mutations return new instances.
  */
 export class ConversationSessionVO {
-    /** TTL in seconds — 10 minutes */
-    static readonly SESSION_TTL_SECONDS = 600;
+  /** TTL in seconds — 10 minutes */
+  static readonly SESSION_TTL_SECONDS = 600;
 
-    private constructor(
-        private readonly _sessionId: string,
-        private readonly _employeePhone: string,
-        private readonly _companyId: string,
-        private readonly _pendingIntent: IntentType | null,
-        private readonly _collectedEntities: IntentEntities,
-        private readonly _createdAt: Date,
-        private readonly _expiresAt: Date,
-    ) { }
+  private constructor(
+    private readonly _sessionId: string,
+    private readonly _employeePhone: string,
+    private readonly _companyId: string,
+    private readonly _pendingIntent: IntentType | null,
+    private readonly _collectedEntities: IntentEntities,
+    private readonly _createdAt: Date,
+    private readonly _expiresAt: Date,
+    private readonly _actionRequired: string | null = null,
+    private readonly _actionPayload: Record<string, any> | null = null,
+  ) {}
 
-    // ─── Factories ────────────────────────────────────────────────────────────
+  // ─── Factories ────────────────────────────────────────────────────────────
 
-    static create(params: {
-        employeePhone: string;
-        companyId: string;
-    }): ConversationSessionVO {
-        if (!params.employeePhone) throw new DomainError('employeePhone is required');
-        if (!params.companyId) throw new DomainError('companyId is required');
+  static create(params: {
+    employeePhone: string;
+    companyId: string;
+  }): ConversationSessionVO {
+    if (!params.employeePhone)
+      throw new DomainError('employeePhone is required');
+    if (!params.companyId) throw new DomainError('companyId is required');
 
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + ConversationSessionVO.SESSION_TTL_SECONDS * 1000);
-        const sessionId = `${params.employeePhone}-${now.getTime()}`;
+    const now = new Date();
+    const expiresAt = new Date(
+      now.getTime() + ConversationSessionVO.SESSION_TTL_SECONDS * 1000,
+    );
+    const sessionId = `${params.employeePhone}-${now.getTime()}`;
 
-        return new ConversationSessionVO(
-            sessionId,
-            params.employeePhone,
-            params.companyId,
-            null,
-            {},
-            now,
-            expiresAt,
-        );
-    }
+    return new ConversationSessionVO(
+      sessionId,
+      params.employeePhone,
+      params.companyId,
+      null,
+      {},
+      now,
+      expiresAt,
+      null,
+      null,
+    );
+  }
 
-    /** Reconstitutes from a Redis-persisted JSON snapshot. */
-    static fromSnapshot(data: {
-        sessionId: string;
-        employeePhone: string;
-        companyId: string;
-        pendingIntent: IntentType | null;
-        collectedEntities: IntentEntities;
-        createdAt: string;
-        expiresAt: string;
-    }): ConversationSessionVO {
-        return new ConversationSessionVO(
-            data.sessionId,
-            data.employeePhone,
-            data.companyId,
-            data.pendingIntent,
-            data.collectedEntities,
-            new Date(data.createdAt),
-            new Date(data.expiresAt),
-        );
-    }
+  /** Reconstitutes from a Redis-persisted JSON snapshot. */
+  static fromSnapshot(data: {
+    sessionId: string;
+    employeePhone: string;
+    companyId: string;
+    pendingIntent: IntentType | null;
+    collectedEntities: IntentEntities;
+    createdAt: string;
+    expiresAt: string;
+    actionRequired?: string | null;
+    actionPayload?: Record<string, any> | null;
+  }): ConversationSessionVO {
+    return new ConversationSessionVO(
+      data.sessionId,
+      data.employeePhone,
+      data.companyId,
+      data.pendingIntent,
+      data.collectedEntities,
+      new Date(data.createdAt),
+      new Date(data.expiresAt),
+      data.actionRequired ?? null,
+      data.actionPayload ?? null,
+    );
+  }
 
-    // ─── Accessors ────────────────────────────────────────────────────────────
+  // ─── Accessors ────────────────────────────────────────────────────────────
 
-    getSessionId(): string { return this._sessionId; }
-    getEmployeePhone(): string { return this._employeePhone; }
-    getCompanyId(): string { return this._companyId; }
-    getPendingIntent(): IntentType | null { return this._pendingIntent; }
-    getCollectedEntities(): Readonly<IntentEntities> { return { ...this._collectedEntities }; }
-    getCreatedAt(): Date { return this._createdAt; }
-    getExpiresAt(): Date { return this._expiresAt; }
+  getSessionId(): string {
+    return this._sessionId;
+  }
+  getEmployeePhone(): string {
+    return this._employeePhone;
+  }
+  getCompanyId(): string {
+    return this._companyId;
+  }
+  getPendingIntent(): IntentType | null {
+    return this._pendingIntent;
+  }
+  getCollectedEntities(): Readonly<IntentEntities> {
+    return { ...this._collectedEntities };
+  }
+  getCreatedAt(): Date {
+    return this._createdAt;
+  }
+  getExpiresAt(): Date {
+    return this._expiresAt;
+  }
+  getActionRequired(): string | null {
+    return this._actionRequired;
+  }
+  getActionPayload(): Record<string, any> | null {
+    return this._actionPayload;
+  }
 
-    // ─── Business logic ───────────────────────────────────────────────────────
+  // ─── Business logic ───────────────────────────────────────────────────────
 
-    isExpired(): boolean {
-        return new Date() > this._expiresAt;
-    }
+  isExpired(): boolean {
+    return new Date() > this._expiresAt;
+  }
 
-    /**
-     * Returns a new session instance with the given intent and merged entities.
-     * Entities from the new intent overwrite existing ones if both are present.
-     */
-    withIntent(intent: IntentType, entities: IntentEntities): ConversationSessionVO {
-        return new ConversationSessionVO(
-            this._sessionId,
-            this._employeePhone,
-            this._companyId,
-            intent,
-            { ...this._collectedEntities, ...entities },
-            this._createdAt,
-            this._expiresAt,
-        );
-    }
+  /**
+   * Returns a new session instance with the given intent and merged entities.
+   * Entities from the new intent overwrite existing ones if both are present.
+   */
+  withIntent(
+    intent: IntentType,
+    entities: IntentEntities,
+  ): ConversationSessionVO {
+    return new ConversationSessionVO(
+      this._sessionId,
+      this._employeePhone,
+      this._companyId,
+      intent,
+      { ...this._collectedEntities, ...entities },
+      this._createdAt,
+      this._expiresAt,
+      this._actionRequired,
+      this._actionPayload,
+    );
+  }
 
-    /** Serializes to a plain object for Redis storage. */
-    toSnapshot(): object {
-        return {
-            sessionId: this._sessionId,
-            employeePhone: this._employeePhone,
-            companyId: this._companyId,
-            pendingIntent: this._pendingIntent,
-            collectedEntities: this._collectedEntities,
-            createdAt: this._createdAt.toISOString(),
-            expiresAt: this._expiresAt.toISOString(),
-        };
-    }
+  withAction(
+    actionRequired: string | null,
+    actionPayload: Record<string, any> | null,
+  ): ConversationSessionVO {
+    return new ConversationSessionVO(
+      this._sessionId,
+      this._employeePhone,
+      this._companyId,
+      this._pendingIntent,
+      this._collectedEntities,
+      this._createdAt,
+      this._expiresAt,
+      actionRequired,
+      actionPayload,
+    );
+  }
+
+  /** Serializes to a plain object for Redis storage. */
+  toSnapshot(): object {
+    return {
+      sessionId: this._sessionId,
+      employeePhone: this._employeePhone,
+      companyId: this._companyId,
+      pendingIntent: this._pendingIntent,
+      collectedEntities: this._collectedEntities,
+      createdAt: this._createdAt.toISOString(),
+      expiresAt: this._expiresAt.toISOString(),
+      actionRequired: this._actionRequired,
+      actionPayload: this._actionPayload,
+    };
+  }
 }

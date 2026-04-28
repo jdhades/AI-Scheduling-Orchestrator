@@ -4,43 +4,62 @@ import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { AbsenceReportedEvent } from '../../domain/events/absence-reported.event';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
-import type { IShiftRepository } from '../../domain/repositories/shift.repository';
-import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
+import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
+import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
 @CommandHandler(ReportAbsenceCommand)
 export class ReportAbsenceHandler implements ICommandHandler<ReportAbsenceCommand> {
-    constructor(
-        @Inject(EMPLOYEE_REPOSITORY) private readonly employeeRepo: IEmployeeRepository,
-        @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
-        private readonly eventBus: EventBus,
-    ) { }
+  constructor(
+    @Inject(EMPLOYEE_REPOSITORY)
+    private readonly employeeRepo: IEmployeeRepository,
+    @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
+    private readonly assignmentRepo: IShiftAssignmentRepository,
+    @Inject('SHIFT_TEMPLATE_REPOSITORY')
+    private readonly templateRepo: IShiftTemplateRepository,
+    private readonly eventBus: EventBus,
+  ) {}
 
-    async execute(command: ReportAbsenceCommand): Promise<void> {
-        const { employeeId, shiftId, reason, companyId } = command;
+  async execute(command: ReportAbsenceCommand): Promise<void> {
+    const { employeeId, assignmentId, reason, companyId } = command;
 
-        // 1. Verify employee exists
-        const employee = await this.employeeRepo.findById(employeeId, companyId);
-        if (!employee) throw new Error('Employee not found');
+    const employee = await this.employeeRepo.findById(employeeId, companyId);
+    if (!employee) throw new Error('Employee not found');
 
-        // 2. Verify the shift is assigned to this employee
-        const assignments = await this.shiftRepo.findAssignmentsByEmployee(employeeId, companyId);
-        const assignment = assignments.find(a => a.shiftId === shiftId);
-        if (!assignment) {
-            throw new Error(`Shift ${shiftId} is not assigned to employee ${employeeId}`);
-        }
-
-        // 3. Determine urgency (shift starts within 2 hours)
-        const allShifts = await this.shiftRepo.findByCompanyAndWeek(companyId, new Date());
-        const shift = allShifts.find(s => s.id === shiftId);
-        const isUrgent = shift
-            ? (shift.startTime.getTime() - Date.now()) <= TWO_HOURS_MS
-            : false;
-
-        // 4. Emit domain event → handler persists absence + notifies manager
-        this.eventBus.publish(
-            new AbsenceReportedEvent(employeeId, shiftId, reason, companyId, isUrgent),
-        );
+    const assignment = await this.assignmentRepo.findById(
+      assignmentId,
+      companyId,
+    );
+    if (!assignment || assignment.employeeId !== employeeId) {
+      throw new Error(
+        `Assignment ${assignmentId} is not assigned to employee ${employeeId}`,
+      );
     }
+
+    await this.assignmentRepo.deleteById(assignmentId, companyId);
+
+    // Urgencia: se calcula contra la hora de inicio del template sobre la fecha
+    // de la assignment. Sin la tabla legacy `shifts`, derivamos el instante
+    // desde template.startTime + assignment.date.
+    let isUrgent = false;
+    const template = await this.templateRepo.findById(assignment.templateId, companyId);
+    if (template) {
+      const [h, m] = template.startTime.split(':').map((n) => parseInt(n, 10));
+      const slotStart = new Date(`${assignment.date}T00:00:00Z`);
+      slotStart.setUTCHours(h, m, 0, 0);
+      isUrgent = slotStart.getTime() - Date.now() <= TWO_HOURS_MS;
+    }
+
+    this.eventBus.publish(
+      new AbsenceReportedEvent(
+        employeeId,
+        assignmentId,
+        reason,
+        companyId,
+        isUrgent,
+      ),
+    );
+  }
 }

@@ -13,18 +13,18 @@ import { createClient } from '@supabase/supabase-js';
  *    RepositoriesModule, que a su vez lo importa AppModule.
  */
 @Module({
-    imports: [ConfigModule],
-    providers: [
-        {
-            provide: 'SUPABASE_CLIENT',
-            inject: [ConfigService],
-            useFactory: (config: ConfigService) =>
-                createClient(
-                    config.getOrThrow<string>('SUPABASE_URL'),
-                    config.getOrThrow<string>('SUPABASE_SERVICE_ROLE_KEY'),
-                ),
-        },
-    ],
-    exports: ['SUPABASE_CLIENT'],
+  imports: [ConfigModule],
+  providers: [
+    {
+      provide: 'SUPABASE_CLIENT',
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        createClient(
+          config.getOrThrow<string>('SUPABASE_URL'),
+          config.getOrThrow<string>('SUPABASE_SERVICE_ROLE_KEY'),
+        ),
+    },
+  ],
+  exports: ['SUPABASE_CLIENT'],
 })
-export class SupabaseModule { }
+export class SupabaseModule {}

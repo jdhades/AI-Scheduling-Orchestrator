@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "backend-security-coder": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "40ba13976f13a958f38bb34a89547b1bfaaa517785dd2f2738faaff3ed0c8cdb"
+    },
+    "git-commit": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "computedHash": "2607fc60629b82b257136dd2a7a373f0a4466c0b49df7746d845d59313c99b21"
+    }
+  }
+}

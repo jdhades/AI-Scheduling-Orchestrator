@@ -1,0 +1,1 @@
+select id,name,day_of_week,start_time,end_time,demand_score,undesirable_weight,required_employees from shift_templates

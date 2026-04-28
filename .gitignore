@@ -54,4 +54,24 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-\n# Editor backups\n*~\n\n# Documentos temporales\n*.docx\n\n# Entornos y config de agentes\n.agent/\n.gemini/\n\n# Variables de entorno extra\n.env.test.twilio\n\n# Docker y base de datos local\nsupabase/.temp/\nsupabase/.branches/
+
+# Editor backups
+*~
+
+# Documentos temporales
+*.docx
+
+# Entornos y config de agentes
+.agent/
+.gemini/
+
+# Supabase local (dev DB + IDE scratchpad)
+supabase/.temp/
+supabase/.branches/
+supabase/snippets/Untitled*
+
+# Environment files con secrets (Supabase keys, Twilio tokens, Qwen API keys, DB URL)
+# Solo .env.example queda tracked (template documentado).
+.env
+.env.*
+!.env.example

@@ -15,7 +15,6 @@ import { AppModule } from './../src/app.module';
  * - Las variables de entorno vienen de .env.test vía Jest setupFiles
  */
 describe('AppController (e2e)', () => {
-
   let app: INestApplication<App>;
 
   // ✅ beforeAll → levanta la app UNA sola vez para toda la suite

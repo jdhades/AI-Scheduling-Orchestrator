@@ -1,0 +1,1 @@
+select c.name empleado,a.date,b.name,a.actual_start_time,a.actual_end_time,b.start_time,b.end_time from shift_assignments a inner join shift_templates b on a.template_id = b.id inner join employees c on a.employee_id = c.id where EXTRACT(DAY FROM a.date) = 26 order by a.date 

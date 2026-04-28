@@ -16,19 +16,18 @@ import type { INotificationService } from '../../domain/services/notification.se
  *    al evento. El aggregate no sabe que Twilio existe — solo dispara el evento.
  */
 @EventsHandler(HandshakeInitiatedEvent)
-export class HandshakeInitiatedHandler
-    implements IEventHandler<HandshakeInitiatedEvent> {
-    constructor(
-        @Inject(NOTIFICATION_SERVICE)
-        private readonly notificationService: INotificationService,
-    ) { }
+export class HandshakeInitiatedHandler implements IEventHandler<HandshakeInitiatedEvent> {
+  constructor(
+    @Inject(NOTIFICATION_SERVICE)
+    private readonly notificationService: INotificationService,
+  ) {}
 
-    async handle(event: HandshakeInitiatedEvent): Promise<void> {
-        const message =
-            `🔐 Tu código de verificación de WhatsApp es:\n\n` +
-            `*${event.token}*\n\n` +
-            `Este código expira en 15 minutos. No lo compartas con nadie.`;
+  async handle(event: HandshakeInitiatedEvent): Promise<void> {
+    const message =
+      `🔐 Tu código de verificación de WhatsApp es:\n\n` +
+      `*${event.token}*\n\n` +
+      `Este código expira en 15 minutos. No lo compartas con nadie.`;
 
-        await this.notificationService.sendWhatsApp(event.phone, message);
-    }
+    await this.notificationService.sendWhatsApp(event.phone, message);
+  }
 }

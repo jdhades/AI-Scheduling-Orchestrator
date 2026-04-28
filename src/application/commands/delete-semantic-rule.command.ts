@@ -5,8 +5,8 @@
  * pero deja de participar en recuperaciones RAG.
  */
 export class DeleteSemanticRuleCommand {
-    constructor(
-        public readonly ruleId: string,
-        public readonly companyId: string,
-    ) { }
+  constructor(
+    public readonly ruleId: string,
+    public readonly companyId: string,
+  ) {}
 }

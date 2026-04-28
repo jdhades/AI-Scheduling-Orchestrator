@@ -1,0 +1,1 @@
+where EXTRACT(DAY FROM shifts.start_time) > 19 order by shifts.start_time selec

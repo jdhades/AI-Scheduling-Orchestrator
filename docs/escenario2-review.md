@@ -1,6 +1,14 @@
 # Escenario 2 — Review Detallado
 ## AI Scheduling Orchestrator: Scheduling Engine + Strategy Pattern + Fairness Algorithm
 
+> ⚠️ **FROZEN SNAPSHOT (Feb–Mar 2026).**
+> El motor descrito aquí (3 estrategias: cost / fairness / hybrid) fue **reworkeado en Phase 13
+> (Abr 2026)** y reemplazado por `WeekScheduleBuilder` (employee-first, LLM-authoritative
+> con verify-loop + fallback determinístico). La tabla `shifts` (instancias diarias)
+> está deprecada en favor de `shift_templates` + `shift_memberships` + `VirtualShiftSlot`
+> on-demand. Consultá `docs/00_root_context.md` §4–§6 y `.agents/SCHEDULER-ENGINE.md`
+> para la arquitectura vigente.
+
 > **Proyecto:** AI Scheduling Orchestrator  
 > **Fecha de implementación:** Febrero–Marzo 2026  
 > **Stack:** NestJS · PostgreSQL · Supabase · Strategy Pattern · CQRS  
@@ -39,6 +47,14 @@ La respuesta se construyó sobre tres pilares:
 1. **Strategy Pattern** — tres algoritmos intercambiables de asignación (`cost`, `fairness`, `hybrid`), seleccionable en tiempo de ejecución sin modificar código
 2. **Fairness Algorithm** — una fórmula determinística que cuantifica la carga de trabajo de cada empleado en una escala 0–1000, ponderando turnos nocturnos, fines de semana y cargas no deseables
 3. **Skill Matrix Validation** — garantía de que cada empleado tiene el skill, nivel de experiencia y certificación vigente requeridos por el turno antes de asignarlo
+
+### Modificaciones para Escalabilidad Industrial (V2)
+
+El motor ha sido actualizado para soportar demandas variables:
+- **Elastic Capacity (M:N)**: Los turnos ahora pueden tener capacidad indefinida (`required_employees = null`), permitiendo que el algoritmo llene el turno con tantos empleados como sea necesario para garantizar la cobertura equitativa.
+- **Regla Anti-Clopening**: Validación estricta de **11 horas de descanso mínimo** entre turnos consecutivos para el mismo empleado.
+- **Garantía de Feriados**: Integración con `ShiftCapacityPlannerService` para detectar feriados en lenguaje natural y limpiar asignaciones existentes mediante `deleteAssignmentsByWeek` si el día se marca con capacidad 0.
+
 
 El escenario fue diseñado siguiendo **DDD estricto**: la lógica de negocio vive exclusivamente en el dominio, la persistencia es un detalle de infraestructura, y los comandos/queries siguen **CQRS**.
 
@@ -541,19 +557,16 @@ El E2 introdujo constructores privados en varios aggregates. Los tests del E1 fu
 
 ## 13. Resultados de verificación
 
-```
 ┌─────────────────────────────────────────────┐
 │  Escenario 2 — Resultados Finales           │
 │                                             │
 │  TypeScript (tsc)   →    0 errores ✅      │
-│  Test Suites        →   20 / 20   ✅      │
-│  Tests totales      →  137 / 137  ✅      │
+│  Test Suites        →   45 / 45   ✅      │
+│  Tests totales      →  366 / 366  ✅      │
 │  Migración SQL      →  Aplicada   ✅      │
 │  POST /schedules/generate →   ✅          │
 │  GET  /schedules          →   ✅          │
-│                                             │
 └─────────────────────────────────────────────┘
-```
 
 ### Distribución de tests por área
 
@@ -564,10 +577,22 @@ El E2 introdujo constructores privados en varios aggregates. Los tests del E1 fu
 | Policies (SkillValidation, Fairness) | 10 |
 | Handlers CQRS nuevos | 8 |
 | Tests E1 actualizados para compatibilidad | 12 |
-| Demás suites del E1 sin cambios | 71 |
-| **Total** | **137** |
+| Demás suites acumuladas | 295 |
+| **Total Global** | **366** |
+
 
 ---
+
+## 13.5. Garantía de Respeto a Feriados y Elastic Capacity
+
+Se ha implementado una capa de seguridad crítica en el motor de scheduling para garantizar el cumplimiento de días feriados y cierres:
+
+1. **Limpieza Determinística (`deleteAssignmentsByWeek`):** Antes de iniciar cualquier generación híbrida (LLM + Algoritmo), el sistema ejecuta una limpieza total de las asignaciones existentes para la semana solicitada. Esto asegura que si la capacidad de un turno cambió a 0 (ej. por un feriado recién declarado), no queden asignaciones residuales de ejecuciones previas.
+2. **Entendimiento de Fechas Humanas:** El `ShiftCapacityPlannerService` ahora reconoce formatos de fecha naturales como "16 de abril" o "día 16", permitiendo que las reglas semánticas de feriados se mapeen correctamente a la capacidad 0.
+3. **Persistencia de Omisiones Intencionales:** Al borrar primero, garantizamos que si el LLM decide NO asignar a nadie a un turno (respetando la capacidad 0), el sistema no intente "rellenarlo" erróneamente con datos antiguos.
+
+---
+
 
 ## 14. Conclusiones
 
@@ -605,3 +630,40 @@ interface SemanticConstraint {
 ```
 
 El Escenario 3 conecta este contrato con embeddings de `text-embedding-004` de Gemini y búsquedas vectoriales en `pgvector`, permitiendo que managers escriban reglas en lenguaje natural como *"Los viernes por la noche siempre necesitamos a alguien con certificación de primeros auxilios"*.
+
+---
+
+## 15. Actualización Reciente: Enterprise SaaS Architecture (V2)
+
+El motor de scheduling fue refactorizado para soportar jerarquías organizacionales reales y turnos parciales:
+
+1. **Nuevo Modelo de Datos Jerárquico:** Introducidas las entidades `Branch` (Sucursales con zona horaria propia), `Department` y `ShiftTemplate`. Los agregados de `Employee` ahora pertenecen a un departamento específico.
+2. **Turnos Parciales (Partial Shift Coverage):** El `ShiftAssignment` fue modificado para rastrear `actual_start_time` y `actual_end_time`. Esto permite que un empleado cubra solo una fracción del bloque de tiempo definido por un `ShiftInstance`.
+3. **Validación Duck-Typed:** Las estrategias de programación y el `ScheduleValidatorService` fueron reescritos para utilizar comprobaciones de "duck typing" mediante bounding boxes. Al no depender de hidratar el objeto `Shift` completo de memoria, el algoritmo detecta exactamente las intersecciones precisas en fracciones de turnos sin penalizar la performance.
+4. **Protección Anti-Clopening (11h gap):** Se introdujo una regla inquebrantable de separación legal mínima de 11 horas de descanso entre turnos consecutivos evaluados matemáticamente sin fallos.
+
+---
+
+## 16. Delta — Sprint 2026-04 (Engine + Policies)
+
+El motor mismo no cambió en este sprint, pero se cerraron y abrieron piezas a su alrededor.
+
+**Recap de sprints previos (cerrado):**
+- **E2 reworkeado a `WeekScheduleBuilder` único** (sin Strategy Pattern): el LLM activo (Qwen `qwen3.6-plus` por defecto, Gemini 2.0 Flash, o `LocalLLMService` vía LM Studio/Ollama según `ACTIVE_AI_PROVIDER`) propone líneas semanales por empleado y el builder verifica/repara con heurística determinista como fallback.
+- **Verify-loop sobre la propuesta del LLM**: si la propuesta viola hard constraints, se reintenta; si tras N reintentos no converge, cae al builder determinista.
+- **Jerarquía V3** (`ShiftTemplate` + `ShiftMembership` + `VirtualShiftSlot` + `ShiftAssignment`) con invariante "11h descanso entre turnos" hardcodeado y testeado.
+- **Fairness 0–1000 post-hoc** (no es restricción del solver): 0.6 balance, 0.4 satisfacción de preferencias.
+- **Skill assignment a templates** (`feat(scheduling): asignación de skill a template (create + edit)`) — el solver consume templates con skill requerido alineado al tipo `Employee.skills`.
+
+**Nuevo en este sprint (preparación para Phase 14):**
+- **Subsistema CompanyPolicies** completo (open + interpreter accelerators, multi-tenant). Aggregate `CompanyPolicy`, repositorio, `PolicyInterpreterRegistry`, `PolicyEnforcementService`, `CompanyPolicyCreator` con suggestion-loop. Dos interpreters listos: `min_rest_days_per_week`, `min_rest_hours_between_shifts`. Tests en `test/unit/domain/services/policy-enforcement.service.spec.ts`.
+- **Suggestion-loop pattern reutilizado** desde HTTP (`CompanyPoliciesController`) y WhatsApp (`MessageRouter` con `whatsapp_pending_clarifications`). Permiso configurable vía `companies.whatsapp_policy_creator_roles TEXT[]` (default `['manager']`).
+- **Fairness sigue post-hoc**, sin cambios.
+
+**Phase 14 — Policy-aware scheduling (planeado, no implementado todavía):**
+- inyectar `policyEnforcement.formatForPrompt(companyId)` en el prompt del LLM antes de `WeekScheduleBuilder`.
+- correr `policyEnforcement.evaluate(companyId, { shifts })` después de cada propuesta como hard-gate (reusa el verify-loop existente).
+- soft violations se adjuntan al schedule para revisión del manager; las LLM-only quedan en el prompt.
+- Detalle de integración en `.agents/SCHEDULER-ENGINE.md` ("PHASE 14").
+
+**Por qué importa para E2**: el motor pasa de "respetar reglas hardcodeadas + reglas semánticas individuales" a "respetar reglas hardcodeadas + reglas semánticas individuales + políticas a nivel empresa con interpreters deterministas opcionales". Sin cambiar el contrato del builder.

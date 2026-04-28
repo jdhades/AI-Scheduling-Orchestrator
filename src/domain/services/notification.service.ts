@@ -12,10 +12,10 @@
 export const NOTIFICATION_SERVICE = 'NOTIFICATION_SERVICE';
 
 export interface INotificationService {
-    /**
-     * Envía un mensaje al número de WhatsApp indicado.
-     * @param to   Número E.164 del destinatario, ej. "+34612345678"
-     * @param body Texto del mensaje (max 1600 chars para WhatsApp)
-     */
-    sendWhatsApp(to: string, body: string): Promise<void>;
+  /**
+   * Envía un mensaje al número de WhatsApp indicado.
+   * @param to   Número E.164 del destinatario, ej. "+34612345678"
+   * @param body Texto del mensaje (max 1600 chars para WhatsApp)
+   */
+  sendWhatsApp(to: string, body: string): Promise<void>;
 }
