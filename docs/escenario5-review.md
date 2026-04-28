@@ -155,3 +155,31 @@ Esto crea un sistema de **self-healing workforce scheduling** de clase empresari
 ## 7. Conclusiones
 
 El **Escenario 5** solidificó el corazón inteligente del producto SaaS. Al combinar el Patrón CQRS con el motor asíncrono, hemos construido un gestor de reemplazos que es matemáticamente comprobable, resiliente frente a paradas de red de terceros (ej. Google Vision fallos) y fácilmente ampliable con nuevos filtros en el Auto-Repair (ej. algoritmos de coste salarial o IA generativa superior). Todo ello preparó el terreno definitivo para enlazar la experiencia del usuario (vía Twilio Webhooks ya integrados firmemente) y entregar un producto autoadministrado verdaderamente "Agentic".
+
+---
+
+## 8. Delta — Sprint 2026-04 (Incident UI + Provider abstraction + Error mapping)
+
+**1. Provider abstraction llega a Vision/JSON extraction**
+
+La extracción estructurada de los certificados médicos (raw OCR → JSON validado) ya no asume Gemini hardcodeado. Pasa por `ILLMService` y respeta `ACTIVE_AI_PROVIDER` (Qwen `qwen3.6-plus` default, Gemini 2.0 Flash, o `LocalLLMService`). Google Vision sigue siendo la fuente de OCR primaria; el LLM activo hace el structuring.
+
+**2. Frontend: gestión visual de incidentes**
+
+- Lista de incidentes migrada al `<DataTable>` reusable (TanStack Table) — search, sortable headers, filtro por estado (validated/pending/rejected), paginación con page-size selector (5/10/15/20, default 10).
+- Estados loading/empty/error obligatorios por design-system (`/preflight-ui`).
+- Errores del backend resueltos vía `describeApiError` (i18n EN/ES); ya no se exponen mensajes raw de Postgres ni textos de driver al manager.
+
+**3. Errores de backend ahora con `errorCode` estable**
+
+`PostgresExceptionFilter` (global `APP_FILTER`) mapea errores del driver a códigos: `unique_violation`, `foreign_key_violation`, `not_null_violation`, `invalid_input`, `value_too_long`. Combinado con UNIQUE parcial `WHERE deleted_at IS NULL` para tablas con soft-delete, ya no hay 23505 falsos al recrear entidades borradas (caso canónico: empleado por teléfono).
+
+**4. Deuda que NO se cerró todavía (intencional)**
+
+- `DEV_AUTH_BYPASS` + `X-Company-Id` (HIGH): el manager sigue pasando `companyId` por header sin JWT. Documentado como deuda separada en `.agents/SECURITY-ARCHITECTURE.md`. La migración a JWT se planifica como ítem propio; el usuario explícitamente pidió no mezclarla con limpieza de docs.
+- LLM cost tracking por empresa: `LLMUsageTracker` persiste datos por llamada, falta agregación visual en UI.
+- Re-embedding job para rules cuyo texto se actualiza: aún sin endpoint/cron.
+
+**5. Testing**
+
+381+ tests al cierre del sprint (memoria de escenarios). Los tests de `PolicyEnforcementService` viven en `test/unit/domain/services/policy-enforcement.service.spec.ts` y cubren: hard/soft classification, LLM-only policies, fallback cuando un `interpreterId` persistido fue removido del registry, schedule sin violaciones, `formatForPrompt` con secciones agrupadas.

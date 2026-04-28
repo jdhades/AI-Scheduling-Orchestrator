@@ -192,3 +192,37 @@ La interfaz en WhatsApp para el intercambio de turnos (`swap_shift`) fue mejorad
 1. **Visualización Agrupada (Grouped Options):** El `MessageRouterService` fue refactorizado para que las opciones devueltas a los empleados en el paso `SELECT_TARGET` ya no se muestren como una lista plana y confusa de horarios solapados. Ahora, los turnos de sus colegas se agrupan en tiempo real por el bloque base del `ShiftTemplate`.
 2. **Claridad del UX:** En vez de duplicados textuales (`1. Pedro - 08:00 a 16:00, 2. María - 08:00 a 16:00`), el trabajador observa el bloque titular unificado (`*08:00 - 16:00*`) y subordinada a éste, la enumeración corta de los compañeros elegibles y los puestos libres.
 3. **Optimización Cognitiva:** Este cambio reconcilia la mente humana del operario front-line con la base de datos (entendiendo el turno como un slot espacial, no como una asignación individual) reduciendo la ambigüedad en la selección y acortando los mensajes de WhatsApp para evitar colapsar la pantalla del dispositivo.
+
+---
+
+## 10. Delta — Sprint 2026-04 (Provider abstraction + Conversational Policy/Rule Creation)
+
+**1. Provider abstraction completa**
+
+`ACTIVE_AI_PROVIDER` selecciona en runtime entre tres implementaciones de `ILLMService`:
+- **Qwen `qwen3.6-plus`** (DashScope) — default. Multimodal: acepta audio Base64 directo.
+- **Gemini 2.0 Flash** — alternativo. Multimodal.
+- **`LocalLLMService`** (LM Studio / Ollama) — para entornos offline o pruebas locales. NO es multimodal: usa pipeline Whisper + LLM en dos pasos.
+
+El `MessageRouter` no conoce la implementación; delega a `ILLMService.processMultimodal(...)` o, si el provider activo es no-multimodal, a `ITranscriptionService.transcribe(...)` + `ILLMService.processText(...)`. Decisión documentada en `.agents/AGENTS.md` y memoria de configuración de IA.
+
+**2. WhatsApp como creador conversacional de policies y rules**
+
+Antes WhatsApp era solo para empleados (absences, swaps, queries). En este sprint se abrió el canal para que **managers** creen policies y rules conversacionalmente. Detalle:
+
+- **Intent nuevo `create_policy`** (y `create_rule`) que delega en `CompanyPolicyCreator` (mismo domain service que usa el HTTP controller — sin duplicación).
+- **State machine de suggestion-loop** vía tabla `whatsapp_pending_clarifications`. Cada empleado puede tener un loop abierto a la vez (originalText, suggestions, expiresAt).
+- **Resolución antes de intent detection**: cada mensaje entrante se chequea contra esta tabla ANTES de pasar al pipeline de NLP. Si hay loop abierto, el usuario puede responder "1", "2", "3" o reescribir; el router resuelve y persiste/descarta. Solo si no hay loop, sigue el flujo normal.
+- **Permiso configurable**: `companies.whatsapp_policy_creator_roles TEXT[]` (default `['manager']`). NO hay role hardcodeado; cada tenant decide.
+- **Three outcomes**:
+  - `created` + `mode: 'matched'`     → "Listo, política creada con interpreter X."
+  - `needs_clarification`             → "No estoy seguro de cómo estructurar eso. ¿Querés decir alguna de estas? 1) … 2) … 3) … (o reescribilo)"
+  - `created` + `mode: 'llm_only'`    → "Política creada como texto libre. Se aplicará vía LLM en el solver."
+
+Detalle de flow en `.agents/EVENT-FLOWS.md` (FLOW 7 + FLOW 8).
+
+**3. Otros cambios relevantes para E4**
+
+- **Provider-agnostic OCR** (E5) y **provider-agnostic NLP** (E4) ya comparten el mismo abstraction layer.
+- **Cost tracking** vía `LLMUsageTracker` (memoria de configuración de IA). Aún sin agregación por empresa en UI, pero el dato se persiste por llamada.
+- Twilio webhook sigue siendo la única puerta de entrada; el router se volvió más complejo pero sigue siendo síncrono al webhook (con publishing async vía Redis Streams).

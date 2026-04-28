@@ -641,3 +641,29 @@ El motor de scheduling fue refactorizado para soportar jerarquías organizaciona
 2. **Turnos Parciales (Partial Shift Coverage):** El `ShiftAssignment` fue modificado para rastrear `actual_start_time` y `actual_end_time`. Esto permite que un empleado cubra solo una fracción del bloque de tiempo definido por un `ShiftInstance`.
 3. **Validación Duck-Typed:** Las estrategias de programación y el `ScheduleValidatorService` fueron reescritos para utilizar comprobaciones de "duck typing" mediante bounding boxes. Al no depender de hidratar el objeto `Shift` completo de memoria, el algoritmo detecta exactamente las intersecciones precisas en fracciones de turnos sin penalizar la performance.
 4. **Protección Anti-Clopening (11h gap):** Se introdujo una regla inquebrantable de separación legal mínima de 11 horas de descanso entre turnos consecutivos evaluados matemáticamente sin fallos.
+
+---
+
+## 16. Delta — Sprint 2026-04 (Engine + Policies)
+
+El motor mismo no cambió en este sprint, pero se cerraron y abrieron piezas a su alrededor.
+
+**Recap de sprints previos (cerrado):**
+- **E2 reworkeado a `WeekScheduleBuilder` único** (sin Strategy Pattern): el LLM activo (Qwen `qwen3.6-plus` por defecto, Gemini 2.0 Flash, o `LocalLLMService` vía LM Studio/Ollama según `ACTIVE_AI_PROVIDER`) propone líneas semanales por empleado y el builder verifica/repara con heurística determinista como fallback.
+- **Verify-loop sobre la propuesta del LLM**: si la propuesta viola hard constraints, se reintenta; si tras N reintentos no converge, cae al builder determinista.
+- **Jerarquía V3** (`ShiftTemplate` + `ShiftMembership` + `VirtualShiftSlot` + `ShiftAssignment`) con invariante "11h descanso entre turnos" hardcodeado y testeado.
+- **Fairness 0–1000 post-hoc** (no es restricción del solver): 0.6 balance, 0.4 satisfacción de preferencias.
+- **Skill assignment a templates** (`feat(scheduling): asignación de skill a template (create + edit)`) — el solver consume templates con skill requerido alineado al tipo `Employee.skills`.
+
+**Nuevo en este sprint (preparación para Phase 14):**
+- **Subsistema CompanyPolicies** completo (open + interpreter accelerators, multi-tenant). Aggregate `CompanyPolicy`, repositorio, `PolicyInterpreterRegistry`, `PolicyEnforcementService`, `CompanyPolicyCreator` con suggestion-loop. Dos interpreters listos: `min_rest_days_per_week`, `min_rest_hours_between_shifts`. Tests en `test/unit/domain/services/policy-enforcement.service.spec.ts`.
+- **Suggestion-loop pattern reutilizado** desde HTTP (`CompanyPoliciesController`) y WhatsApp (`MessageRouter` con `whatsapp_pending_clarifications`). Permiso configurable vía `companies.whatsapp_policy_creator_roles TEXT[]` (default `['manager']`).
+- **Fairness sigue post-hoc**, sin cambios.
+
+**Phase 14 — Policy-aware scheduling (planeado, no implementado todavía):**
+- inyectar `policyEnforcement.formatForPrompt(companyId)` en el prompt del LLM antes de `WeekScheduleBuilder`.
+- correr `policyEnforcement.evaluate(companyId, { shifts })` después de cada propuesta como hard-gate (reusa el verify-loop existente).
+- soft violations se adjuntan al schedule para revisión del manager; las LLM-only quedan en el prompt.
+- Detalle de integración en `.agents/SCHEDULER-ENGINE.md` ("PHASE 14").
+
+**Por qué importa para E2**: el motor pasa de "respetar reglas hardcodeadas + reglas semánticas individuales" a "respetar reglas hardcodeadas + reglas semánticas individuales + políticas a nivel empresa con interpreters deterministas opcionales". Sin cambiar el contrato del builder.

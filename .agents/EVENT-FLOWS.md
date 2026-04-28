@@ -22,6 +22,10 @@ IncidentValidatedEvent
 ReplacementAssignedEvent
 IncidentResolvedEvent
 
+CompanyPolicyCreated (sprint 2026-04-27 — emitido cuando el manager crea una policy via web o WhatsApp)
+CompanyPolicyDeactivated (sprint 2026-04-27)
+WhatsappClarificationPending (sprint 2026-04-27 — opcional, para tracking de loops)
+
 ---
 
 # FLOW 1: Generate Schedule (LLM-authoritative, Phase 3.5)
@@ -115,6 +119,79 @@ Steps:
 
 ---
 
+# FLOW 6: Create Company Policy via Web (sprint 2026-04-27)
+
+Trigger:
+Manager creates a tenant-wide policy from `/policies` page.
+
+Steps:
+1 POST `/company-policies` with `{ text, severity, effectiveFrom?, createdBy? }`.
+2 Controller delegates to `CompanyPolicyCreator.create()`.
+3 `PolicyInterpreterRegistry.findMatch(text)`.
+4a If interpreter found → `interpreter.extractParams(text)` + persist policy with `interpreterId` populated. Reply `{ status: 'created', mode: 'matched', policy }`.
+4b If no interpreter → `LlmRuleRephraseService.suggest(...)` con catalog de interpreters disponibles como hint.
+   • Service rendera prompt + obtiene 2-3 reformulaciones del LLM.
+   • Service VERIFICA cada sugerencia: `registry.findMatch(suggestion.text)` — descarta hallucinations.
+   • Si quedan suggestions verificadas → reply `{ status: 'needs_clarification', suggestions }` (NO persiste).
+   • Si LLM falla / cero suggestions → persist as LLM-only, reply `{ status: 'created', mode: 'llm_only', policy }`.
+5 Frontend (`CompanyPolicyFormDialog`):
+   • `created/matched` → cierra dialog silencioso, lista refresca.
+   • `needs_clarification` → renderea picker. Click → re-submit con texto elegido (loop).
+   • `created/llm_only` → muestra warning "policy guardada pero el solver no la aplica directo".
+
+---
+
+# FLOW 7: Create Policy via WhatsApp (sprint 2026-04-27)
+
+Trigger:
+Manager dicta una policy por mensaje de WhatsApp.
+
+Steps:
+1 Twilio webhook → `WhatsAppController` → `MessageRouterService.route()`.
+2 LLM clasifica intent. Si reconoce `create_policy`:
+   2.1 Permission check: `WhatsappPolicyPermissionService.canCreatePolicy({ employeeRole, companyId })` consulta `companies.whatsapp_policy_creator_roles[]`.
+   2.2 Si denegado → reply "no tenés permisos" + clearSession. END.
+3 Extracción de texto: `ruleText` entity del LLM (o rawText si no la extrajo).
+4 `CompanyPolicyCreator.create({ text, severity: 'hard', createdBy: employeeId })`.
+5a `created/matched` → reply ✓ y limpia sesión. END.
+5b `created/llm_only` → reply con warning honesto (LLM-only, no determinístico). END.
+5c `needs_clarification`:
+   5.c.1 Persistir `WhatsappPendingClarification` (target_kind='policy', suggestions JSONB, expires_at NOW+10min).
+   5.c.2 `session.pendingAction = 'create_policy_clarification'`. Memoriza severity para reconstruir el comando.
+   5.c.3 Bot manda lista numerada con sugerencias.
+6 Manager responde:
+   6a Número en rango (1/2/3/...): `findActiveByEmployee` → `pickByNumber(n)` → `markResolved` → re-execute `CompanyPolicyCreator.create()` con texto elegido. Si vuelve `needs_clarification`, persist nuevo pending y vuelta al loop.
+   6b Número fuera de rango: reply "fuera de rango", session sigue.
+   6c Texto libre (NaN al parsear): markResolved del pending + clearSession + dejar que el flow normal procese el nuevo texto como create fresh.
+   6d Sin pending o expirado: reply "expiró".
+
+---
+
+# FLOW 8: Create Rule via WhatsApp con Suggestion-Loop al Complex (sprint 2026-04-27)
+
+Trigger:
+Manager dicta una regla particular (caso particular) por WhatsApp.
+
+Steps:
+1 Same as FLOW 2 (intent classification → `create_rule`).
+2 `CommandMapperService` mapea a `CreateSemanticRuleCommand`.
+3 `CommandBus.execute()` → `CreateSemanticRuleHandler`:
+   3.1 Crea aggregate.
+   3.2 Genera embedding via `IEmbeddingService`.
+   3.3 Dedup check via pgvector (cosine < 0.12).
+   3.4 `RuleStructureExtractor.extract()` → `structure JSON` con intent.
+   3.5 Si `structure.intent === 'complex'`:
+       • `LlmSemanticRuleRephraseService.suggest({ originalText, complexReason })`.
+       • Si suggestions.length > 0 → return result con suggestions, NO persiste.
+4 Si handler devolvió suggestions:
+   4.1 `MessageRouter` intercepta el `result` de `_execute(CreateSemanticRuleCommand)`.
+   4.2 Persist `WhatsappPendingClarification` (target_kind='rule', suggestions, meta con priority/ruleType para reconstruir).
+   4.3 `session.pendingAction = 'create_rule_clarification'`.
+   4.4 Bot manda lista numerada.
+5 Manager responde: same loop as FLOW 7 step 6.
+
+---
+
 # EVENT BUS & ASYNC JOBS
 
 All synchronous domain events published to NestJS CQRS `@nestjs/cqrs` EventBus.
@@ -127,3 +204,4 @@ Notification Service
 Vision Processing Consumer
 Auto-Repair Engine
 Audit Log (incident_events table)
+WhatsApp Clarification Resolver (cleanup de pending entries expiradas — TODO, hoy se filtra en query time)

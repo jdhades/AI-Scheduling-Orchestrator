@@ -852,3 +852,49 @@ El Escenario 3 transformó el sistema de scheduling de un motor con reglas fijas
 - **Métricas de RAG**: loggear cuántas reglas se recuperan por turno, promedios de distancia, hit rate del umbral.
 - **A/B testing**: comparar schedules generados con/sin RAG para validar mejora de calidad.
 - **UI de gestión de reglas**: frontend para que los managers creen/editen reglas sin usar Postman.
+
+---
+
+## Delta — Sprint 2026-04 (Rules + Policies + Suggestion-Loop)
+
+Este sprint amplió el alcance semántico del sistema con una segunda dimensión paralela a las reglas: **políticas de empresa**. Y formalizó el patrón **suggestion-loop** que ya estaba implícito en rules-engine.
+
+**1. Subsistema CompanyPolicies (nuevo, paralelo a Rules)**
+
+- **Por qué dos subsistemas**: rules son reglas semánticas dirigidas a empleado/equipo/rol específico (RAG por turno: "los viernes por la noche queremos a alguien con primeros auxilios"). Policies son políticas globales de empresa con foco en compliance/operación ("11h de descanso entre turnos", "máx 5 días corridos"). Las primeras son contextuales y se recuperan por turno; las segundas son sistémicas y se aplican siempre.
+- **Open + interpreter accelerators (NO closed enum)**: el sistema es multi-tenant; un enum cerrado de "tipos de policy" no escala (médico, retail, seguridad tienen vocabularios distintos). En su lugar, `CompanyPolicy.text` es la fuente de verdad y los interpreters son aceleradores opcionales. Si removemos un interpreter, las policies sobreviven y se evalúan vía LLM.
+- **Componentes**: `CompanyPolicy` aggregate, `PolicyInterpreterRegistry`, `PolicyEnforcementService` (`evaluate` + `formatForPrompt` + variantes `*Loaded` sin DB), `CompanyPolicyCreator`. Dos interpreters listos: `min_rest_days_per_week`, `min_rest_hours_between_shifts`.
+- **Severity** (`hard` | `soft`) determina cómo se clasifican las violaciones: `hardViolations`, `softViolations`, `llmOnlyPolicies` (textos que se inyectan al prompt del LLM).
+- **Detalle completo en `.agents/COMPANY-POLICIES.md`**.
+
+**2. Suggestion-loop como patrón cross-cutting**
+
+- Antes vivía implícitamente en rules-engine cuando una regla no se podía estructurar; ahora es una abstracción explícita reutilizada por ambos subsistemas.
+- `IRuleRephraseService.suggest({ originalText, reason, interpreters })` devuelve 0..N reformulaciones verificadas.
+- Tres outcomes (discriminated union):
+  - `created` + `mode: 'matched'`     → interpreter encontrado, params extraídos, persiste.
+  - `needs_clarification`             → ningún interpreter; el LLM propuso reformulaciones; NO persiste; el caller decide.
+  - `created` + `mode: 'llm_only'`    → ningún interpreter ni sugerencias útiles; persiste como LLM-only para no bloquear.
+- `CompanyPolicyCreator` es el único domain service que implementa esto; lo reusan `CompanyPoliciesController` (HTTP) y el `MessageRouter` de WhatsApp (sin duplicación).
+
+**3. WhatsApp + suggestion-loop (state machine)**
+
+- Tabla nueva `whatsapp_pending_clarifications` que guarda la pregunta abierta por empleado (originalText, suggestions, expiresAt).
+- En cada mensaje entrante, ANTES de detectar intent, se chequea si hay un loop abierto para ese teléfono. Si lo hay, se resuelve (usuario contesta "1"/"2"/"3" o reescribe). Si no, sigue el flujo normal.
+- Permiso: `companies.whatsapp_policy_creator_roles TEXT[]` (default `['manager']`) gatea quién puede crear policies/rules vía WhatsApp.
+
+**4. Frontend (workforce + policies UI)**
+
+- `CompanyPoliciesPage` con severity selector y soporte de `needs_clarification` (renderiza las reformulaciones propuestas como tarjetas seleccionables).
+- DataTable rollout completo en listas (Skills, Memberships, Rules, Templates, Fairness, Absences, Incidents, Swaps, DayOffs, Employees).
+- `LanguageSwitcher` (EN/ES) + `describeApiError` que mapea `errorCode` del backend (vía `PostgresExceptionFilter`) a strings localizados.
+
+**5. Invariantes que NO cambian con este delta**
+
+- Cosine threshold 0.12 para deduplicación de rules (memoria de invariantes).
+- Embeddings 1536-dim, `text-embedding-004` de Gemini, búsqueda con `<=>`.
+- 11h descanso entre turnos sigue hardcoded en V3 (no se quita aunque haya un interpreter equivalente; el interpreter es opcional, el invariante es operativo).
+
+**6. Phase 14 (planeado, no implementado)**
+
+Conectar `PolicyEnforcementService` al `WeekScheduleBuilder` para policy-aware scheduling — detalle en `.agents/SCHEDULER-ENGINE.md`. Hasta que se haga, las policies se persisten y son evaluables, pero no bloquean al solver.

@@ -18,6 +18,11 @@ solving happens post-hoc in `verify()`; the LLM proposes, the builder
 audits, retries with feedback, and only falls back to a deterministic
 employee-first engine if the LLM cannot converge in 2 attempts.
 
+> Sprint 2026-04-27: el subsistema **Company Policies** está listo
+> (`PolicyEnforcementService.evaluate()` + `formatForPrompt()`) pero el
+> WeekScheduleBuilder NO lo invoca aún. La integración queda planificada
+> para **Phase 14**. Ver sección "Future Improvements" al final.
+
 ---
 
 # DATA MODEL SHIFT (Phase 13)
@@ -53,10 +58,16 @@ Shift Memberships
 - employeeId ↔ templateId with effective date range
 
 Rules
-- semantic rules (pgvector, structured)
+- semantic rules (pgvector, structured) — caso particular ("Pablo no trabaja los lunes")
 - raw rule texts (unstructured + complex, passed as free text to the LLM)
 - multi-shift permits
 - holidays / vacation blocks (SEMANTIC_BLOCKED_ALL)
+
+Policies (sprint 2026-04-27 — listas pero NO consumidas todavía por el solver)
+- CompanyPolicy[] tenant-wide ("11h descanso entre turnos", "2 días libres por semana")
+- Cada policy con interpreter persiste params estructurados extraídos del NL.
+- Policies LLM-only (sin interpreter) viajarían al prompt como contexto.
+- Cuando se integre: `PolicyEnforcementService.evaluate()` post-generation para hard policies; `formatForPrompt()` rendea bloque NL para soft + LLM-only.
 
 Historical Data
 - previous assignments per employee
@@ -268,3 +279,43 @@ Unit tests in `test/unit/services/llm-line-proposer.spec.ts`:
 - Per-week prompt cache keyed by `(templateSet, ruleSet, weekStart)` for
   deterministic replay.
 - Per-tenant model selection via config, not env var.
+
+# PHASE 14: POLICY-AWARE SCHEDULING (planeado, no implementado)
+
+Sprint 2026-04-27 dejó listo el subsistema CompanyPolicy con
+`PolicyEnforcementService` ready-to-plug. El solver actual no lo
+invoca todavía. Pasos para integrar:
+
+```ts
+// Antes del primer attempt:
+const activePolicies = await policyRepo.findAllActiveByCompany(companyId);
+const policyContext = policyEnforcement.formatLoaded(activePolicies);
+
+// En LLMLineProposerService.buildPrompt():
+prompt += '\n\n' + policyContext; // Hard / Soft / LLM-only sections
+
+// Después de cada attempt, en verify():
+const policyResult = policyEnforcement.evaluateLoaded(activePolicies, { shifts });
+if (policyResult.hardViolations.length > 0) {
+  // Convertir a VerifyViolation[] y pasar al feedback de retry.
+}
+// Soft violations: log warning. LLM-only: ya están en el prompt.
+```
+
+Esto permitiría:
+- Eliminar el legacy `ConflictResolutionService` (código muerto con
+  `MIN_REST_HOURS = 11` hardcoded; reemplazado por `min_rest_hours_between_shifts`
+  interpreter).
+- Hacer todas las invariantes legales/empresariales **configurables por
+  tenant** sin nuevos despliegues.
+- Reusar el mismo `interpreter.format()` para mostrar al manager qué
+  reglas le aplicó al schedule generado.
+
+# OBSERVABILIDAD ACTUAL DEL SOLVER
+
+`LLMUsageTracker` mide tokens. No mide:
+- Tasa de éxito attempt-1 vs attempt-2 vs fallback
+- Tipos de violaciones más frecuentes en attempt-2
+- Tiempos de cada fase
+
+Phase 14 sería buen momento para sumar metrics + dashboard.

@@ -780,3 +780,19 @@ Con esta base, el sistema está listo para:
 - **Escenario 2** — Motor de Scheduling + Strategy Pattern + Fairness Algorithm
 - **Escenario 3** — Semantic Rule Engine con pgvector + RAG
 - **Escenario 4** — WhatsApp real + Whisper (speech-to-text) + Gemini (intent)
+
+---
+
+## 15. Delta — Sprint 2026-04 (Foundation hardening)
+
+Cambios en la base que afectan transversalmente al resto de escenarios:
+
+1. **ValidationPipe global** (`whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`) en `main.ts`. Cualquier controller que reciba un body sin DTO con decoradores devuelve 400 inmediato en lugar de 500 silencioso.
+2. **DTOs class-validator agregados a 5 controllers** que aún recibían args planos: `absence-reports`, `day-off-requests`, `incidents`, `shift-templates`, `shift-swap-requests`, además del nuevo `company-policies`. Detalle: los seeds usan UUIDs no-RFC-4122, así que se prefiere `@IsString @IsNotEmpty` sobre `@IsUUID` para no rechazar datos válidos del entorno de dev.
+3. **`PostgresExceptionFilter` global** (`APP_FILTER`) que mapea errores del driver a `errorCode` estables: `unique_violation` (23505), `foreign_key_violation` (23503), `not_null_violation` (23502), `invalid_input` (22P02), `value_too_long` (22001). El frontend resuelve estos códigos vía `describeApiError` (i18n EN/ES). Ya no se exponen mensajes de Postgres al usuario.
+4. **Soft-delete con UNIQUE parcial.** El bug de "no puedo recrear empleado con el mismo teléfono" se resolvió con `CREATE UNIQUE INDEX … WHERE deleted_at IS NULL`, no parcheando el código de creación. Patrón canónico para cualquier tabla con soft-delete.
+5. **`.env*` ignorado por git con excepción `!.env.example`.** `.env.test` y `.env.test.twilio` estaban tracked con secretos reales — remediación local + rotación de credenciales pendiente del usuario. Nuevo `.env.example` autodocumentado.
+6. **CORS fail-closed.** En dev `origin: '*'`. En producción se requiere `ALLOWED_ORIGIN` explícito; sin la variable, el backend NO acepta orígenes (no degradación silenciosa a `*`).
+7. **`DEV_AUTH_BYPASS`** sigue siendo deuda HIGH conocida (acepta `X-Company-Id` sin JWT). El usuario solicitó NO tocarla durante limpieza; la migración a JWT se planifica como ítem propio. Documentada en `SECURITY-ARCHITECTURE.md`.
+
+Docs/agents actualizados en este sprint: `00_root_context.md`, `SECURITY-ARCHITECTURE.md`, `.agents/AGENTS.md`, `.agents/SKILLS-CATALOG.md`, `.agents/ARCHITECTURE.md`, `.agents/SYSTEM-MAP.md`, `.agents/EVENT-FLOWS.md`, `.agents/COMPANY-POLICIES.md` (nuevo), `.agents/RULES-ENGINE.md`, `.agents/SCHEDULER-ENGINE.md`, README de orchestrator y frontend.
