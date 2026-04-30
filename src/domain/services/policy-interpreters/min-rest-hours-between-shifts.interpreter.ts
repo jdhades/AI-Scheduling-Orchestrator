@@ -85,10 +85,10 @@ export class MinRestHoursBetweenShiftsInterpreter
     return { hours };
   }
 
-  apply(
+  async apply(
     ctx: PolicyEvaluationContext,
     params: MinRestHoursParams,
-  ): PolicyViolation[] {
+  ): Promise<PolicyViolation[]> {
     const violations: PolicyViolation[] = [];
     // Agrupar shifts por empleado.
     const byEmployee = new Map<string, typeof ctx.shifts>();

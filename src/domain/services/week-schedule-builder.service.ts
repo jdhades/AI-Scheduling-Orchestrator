@@ -138,7 +138,7 @@ export class WeekScheduleBuilder {
     // Sin proposer inyectado → directo al determinístico.
     if (!this.proposer) {
       const result = this.build(params);
-      const softPolicyViolations = this.evaluatePolicies(result.assignments, params.slots, policies, params.employees).softViolations;
+      const softPolicyViolations = (await this.evaluatePolicies(result.assignments, params.slots, policies, params.employees)).softViolations;
       return { ...result, softPolicyViolations, attempts: 1, fellBackToDeterministic: true };
     }
 
@@ -173,7 +173,7 @@ export class WeekScheduleBuilder {
 
       // Phase 14: policy hard violations → al mismo bucket de violations
       // (el verify-loop reintenta con feedback unificado).
-      const policyEval = this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees);
+      const policyEval = await this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees);
       const policyHardAsVerify: VerifyViolation[] = policyEval.hardViolations.map((v) => ({
         kind: 'policy-hard-violation' as const,
         employeeId: v.employeeId,
@@ -211,7 +211,7 @@ export class WeekScheduleBuilder {
 
     // Fallback final: builder determinístico (sin llmLines).
     const deterministic = this.build({ ...params, llmLines: undefined });
-    const softPolicyViolations = this.evaluatePolicies(deterministic.assignments, params.slots, policies, params.employees).softViolations;
+    const softPolicyViolations = (await this.evaluatePolicies(deterministic.assignments, params.slots, policies, params.employees)).softViolations;
     return {
       ...deterministic,
       softPolicyViolations,
@@ -232,15 +232,15 @@ export class WeekScheduleBuilder {
    * `departmentId`; `branchId` queda null hasta que el handler precarge
    * la relación `department → branch` y la inyecte.
    */
-  private evaluatePolicies(
+  private async evaluatePolicies(
     assignments: ShiftAssignment[],
     slots: VirtualShiftSlot[],
     policies: CompanyPolicy[],
     employees: Employee[],
-  ): {
+  ): Promise<{
     hardViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
     softViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
-  } {
+  }> {
     if (!this.policyEnforcement || policies.length === 0) {
       return { hardViolations: [], softViolations: [] };
     }
@@ -265,7 +265,7 @@ export class WeekScheduleBuilder {
       });
     }
 
-    const result = this.policyEnforcement.evaluateLoaded(policies, {
+    const result = await this.policyEnforcement.evaluateLoaded(policies, {
       shifts: evalShifts,
       employeeMeta,
     });

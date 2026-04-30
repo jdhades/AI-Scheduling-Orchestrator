@@ -63,6 +63,14 @@ export interface PolicyInterpreter<TParams = Record<string, unknown>> {
   readonly description: string;
 
   /**
+   * Si true, el interpreter NO se ofrece como sugerencia del rephrase
+   * service (no tiene sentido proponerle al manager "reformulá hacia
+   * llm_runtime"). Sigue siendo invocable por id desde el registry, solo
+   * queda fuera de las listas públicas (`getAvailableIds()`).
+   */
+  readonly catchAll?: boolean;
+
+  /**
    * ¿Este interpreter puede manejar este texto en lenguaje natural?
    * Implementación típica: heurística regex/keyword. NO llamar al LLM acá
    * (esto se evalúa para CADA policy creada; el registry hace una pasada
@@ -82,8 +90,15 @@ export interface PolicyInterpreter<TParams = Record<string, unknown>> {
    * Aplica el constraint al schedule propuesto y devuelve la lista de
    * violaciones. Lista vacía = sin violaciones. La `severity` (hard/soft)
    * la maneja el solver, no el interpreter.
+   *
+   * Devuelve `Promise<>` para soportar interpreters que invocan al LLM en
+   * runtime (catch-all `llm_runtime`). Los interpreters deterministas
+   * pueden devolver con `Promise.resolve(...)` sin costo perceptible.
    */
-  apply(ctx: PolicyEvaluationContext, params: TParams): PolicyViolation[];
+  apply(
+    ctx: PolicyEvaluationContext,
+    params: TParams,
+  ): Promise<PolicyViolation[]>;
 
   /**
    * Renderiza la policy a una línea en lenguaje natural en inglés —

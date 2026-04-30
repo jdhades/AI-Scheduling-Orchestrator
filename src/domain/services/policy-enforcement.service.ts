@@ -75,10 +75,10 @@ export class PolicyEnforcementService {
    * lectura DB cuando se combina con formatForPrompt en la misma
    * generación).
    */
-  evaluateLoaded(
+  async evaluateLoaded(
     policies: CompanyPolicy[],
     ctx: PolicyEvaluationContext,
-  ): PolicyEvaluationResult {
+  ): Promise<PolicyEvaluationResult> {
     const result: PolicyEvaluationResult = {
       hardViolations: [],
       softViolations: [],
@@ -114,7 +114,7 @@ export class PolicyEnforcementService {
         ...ctx,
         shifts: scopedShifts,
       };
-      const violations = interpreter.apply(scopedCtx, policy.getParams() as never);
+      const violations = await interpreter.apply(scopedCtx, policy.getParams() as never);
       const tagged = violations.map((v) => ({ ...v, policyId: policy.getId() }));
       if (policy.getSeverity().isHard()) {
         result.hardViolations.push(...tagged);

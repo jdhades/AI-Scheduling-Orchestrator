@@ -49,6 +49,7 @@ import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter
 import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
 import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
 import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
+import { LLMRuntimeInterpreter } from '../domain/services/policy-interpreters/llm-runtime.interpreter';
 import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
 import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
 import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
@@ -126,6 +127,7 @@ const DomainServices = [
   // Interfaces (que ya importa Application — sería circular).
   MinRestDaysPerWeekInterpreter,
   MinRestHoursBetweenShiftsInterpreter,
+  LLMRuntimeInterpreter,
   PolicyInterpreterRegistry,
   LlmRuleRephraseService,
   CompanyPolicyCreator,
@@ -143,6 +145,7 @@ const PolicyDomainProviders = [
     inject: [
       MinRestDaysPerWeekInterpreter,
       MinRestHoursBetweenShiftsInterpreter,
+      LLMRuntimeInterpreter,
     ],
     useFactory: (...interpreters: unknown[]) => interpreters,
   },

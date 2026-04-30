@@ -104,6 +104,15 @@ export class CompanyPolicyCreator {
     }
 
     // Caso 3: fallback LLM-only.
+    //
+    // Si la policy es `hard`, enchufamos el catch-all `llm_runtime`
+    // para que igual el solver tenga enforcement en runtime (1 LLM call
+    // extra por evaluación). Eso transforma la policy de "viaja al
+    // prompt y rezamos" a "el verify-loop la chequea cada intento".
+    //
+    // Para `soft` mantenemos LLM-only puro (interpreterId=null): el
+    // texto viaja al prompt en la sección de natural-language, pero no
+    // pagamos calls extra por una preferencia que el solver puede ceder.
     const policy = CompanyPolicy.create({
       companyId: input.companyId,
       text,
@@ -112,6 +121,11 @@ export class CompanyPolicyCreator {
       effectiveFrom: input.effectiveFrom,
       createdBy: input.createdBy ?? null,
     });
+
+    if (input.severity === 'hard' && this.registry.getById('llm_runtime')) {
+      policy.attachInterpreter('llm_runtime', { originalText: text });
+    }
+
     await this.policyRepo.save(policy);
     return { status: 'created', policy, mode: 'llm_only' };
   }

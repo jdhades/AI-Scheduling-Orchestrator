@@ -59,8 +59,8 @@ describe('MinRestHoursBetweenShiftsInterpreter', () => {
       ),
     });
 
-    it('no viola cuando el gap entre turnos es ≥ minHours', () => {
-      const violations = interpreter.apply(
+    it('no viola cuando el gap entre turnos es ≥ minHours', async () => {
+      const violations = await interpreter.apply(
         {
           shifts: [
             // Lunes 8-16, martes 8-16 → gap = 16h (≥ 11h)
@@ -73,8 +73,8 @@ describe('MinRestHoursBetweenShiftsInterpreter', () => {
       expect(violations).toHaveLength(0);
     });
 
-    it('detecta violación cuando gap < minHours', () => {
-      const violations = interpreter.apply(
+    it('detecta violación cuando gap < minHours', async () => {
+      const violations = await interpreter.apply(
         {
           shifts: [
             shift('2026-04-20', 14, 8), // 14 → 22
@@ -90,8 +90,8 @@ describe('MinRestHoursBetweenShiftsInterpreter', () => {
       expect(violations[0].message).toMatch(/8\.0 hours/);
     });
 
-    it('agrupa por empleado: shifts de empleados distintos no se cruzan', () => {
-      const violations = interpreter.apply(
+    it('agrupa por empleado: shifts de empleados distintos no se cruzan', async () => {
+      const violations = await interpreter.apply(
         {
           shifts: [
             {
@@ -113,8 +113,8 @@ describe('MinRestHoursBetweenShiftsInterpreter', () => {
       expect(violations).toHaveLength(0);
     });
 
-    it('múltiples shifts ordenados por startTime aunque vengan desordenados', () => {
-      const violations = interpreter.apply(
+    it('múltiples shifts ordenados por startTime aunque vengan desordenados', async () => {
+      const violations = await interpreter.apply(
         {
           shifts: [
             shift('2026-04-22', 6, 8),
