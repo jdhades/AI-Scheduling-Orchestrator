@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CompanyPolicy,
   type PolicyScope,
@@ -14,6 +14,7 @@ import {
   type RephraseSuggestion,
 } from './rule-rephrase.service.interface';
 import { PolicySeverity } from '../value-objects/policy-severity.vo';
+import { LLM_SERVICE, type ILLMService } from './llm.service.interface';
 
 /**
  * CompanyPolicyCreator — Domain Service
@@ -54,12 +55,16 @@ export type CompanyPolicyCreationResult =
 
 @Injectable()
 export class CompanyPolicyCreator {
+  private readonly logger = new Logger(CompanyPolicyCreator.name);
+
   constructor(
     @Inject(COMPANY_POLICY_REPOSITORY)
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
     @Inject(RULE_REPHRASE_SERVICE)
     private readonly rephraseService: IRuleRephraseService,
+    @Inject(LLM_SERVICE)
+    private readonly llm: ILLMService,
   ) {}
 
   async create(
@@ -123,10 +128,39 @@ export class CompanyPolicyCreator {
     });
 
     if (input.severity === 'hard' && this.registry.getById('llm_runtime')) {
-      policy.attachInterpreter('llm_runtime', { originalText: text });
+      // Pre-traducimos al inglés para que el prompt del LLM-proposer
+      // quede consistente (el resto del prompt está en inglés). El
+      // texto original se preserva para auditoría / display.
+      const englishText = await this.translateToEnglish(text);
+      policy.attachInterpreter('llm_runtime', {
+        originalText: text,
+        englishText,
+      });
     }
 
     await this.policyRepo.save(policy);
     return { status: 'created', policy, mode: 'llm_only' };
+  }
+
+  /**
+   * Traduce el texto del manager a inglés. Si el LLM falla, devuelve el
+   * texto original (fail-open: la policy no se bloquea por un fallo de
+   * traducción; el prompt queda con texto mixto en el peor caso).
+   */
+  private async translateToEnglish(text: string): Promise<string> {
+    const prompt = `Translate the following workforce-scheduling policy to clear, concise English. Keep numbers, durations, names and shift-block patterns intact. Output ONLY the translated sentence, no quotes, no prose, no explanations.
+
+POLICY: ${text}`;
+    try {
+      const out = await this.llm.complete(prompt);
+      const trimmed = out.trim().replace(/^["']|["']$/g, '');
+      if (trimmed.length === 0) return text;
+      return trimmed;
+    } catch (err) {
+      this.logger.warn(
+        `translateToEnglish failed (${(err as Error).message}); using original`,
+      );
+      return text;
+    }
   }
 }

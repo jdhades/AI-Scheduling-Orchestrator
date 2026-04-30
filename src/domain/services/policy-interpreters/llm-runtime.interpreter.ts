@@ -31,6 +31,12 @@ import { LLM_SERVICE, type ILLMService } from '../llm.service.interface';
 interface LLMRuntimeParams {
   /** Texto crudo del manager. Lo pasamos al LLM en cada `apply`. */
   originalText: string;
+  /**
+   * Pre-traducción al inglés (opcional). Si está, se usa para el prompt
+   * del LLM-proposer y para la evaluación; el `originalText` queda
+   * solo para auditoría/display.
+   */
+  englishText?: string;
 }
 
 interface LLMViolationDTO {
@@ -78,7 +84,8 @@ export class LLMRuntimeInterpreter implements PolicyInterpreter<LLMRuntimeParams
       return [];
     }
 
-    const prompt = this.buildPrompt(params.originalText, ctx);
+    const policyText = params.englishText ?? params.originalText;
+    const prompt = this.buildPrompt(policyText, ctx);
     let raw: string;
     try {
       raw = await this.llm.complete(prompt);
@@ -96,7 +103,9 @@ export class LLMRuntimeInterpreter implements PolicyInterpreter<LLMRuntimeParams
   }
 
   format(params: LLMRuntimeParams): string {
-    return params.originalText;
+    // Phase 14 — el prompt del LLM-proposer está en inglés; preferimos
+    // la traducción si está, fallback al texto original.
+    return params.englishText ?? params.originalText;
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────

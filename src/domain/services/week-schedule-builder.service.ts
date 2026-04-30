@@ -124,13 +124,25 @@ export class WeekScheduleBuilder {
     multiShiftPermits?: Set<string>;
     weekStart: Date;
     companyId: string;
+    /**
+     * Si el run está acotado a un departamento (handler ya filtró
+     * employees + templates), las policies de OTROS departamentos
+     * se descartan del prompt y de la evaluación. Las de scope=company
+     * o employee dentro del run siguen aplicando.
+     */
+    runDepartmentId?: string;
   }): Promise<BuildWithRetriesResult> {
     // Phase 14: cargar policies UNA vez (1 read DB) y reusarlas durante
     // el verify-loop. Si no hay PolicyEnforcementService, todo el bloque
     // de policies queda neutro.
-    const policies: CompanyPolicy[] = this.policyEnforcement
+    const allPolicies: CompanyPolicy[] = this.policyEnforcement
       ? await this.policyEnforcement.loadActivePolicies(params.companyId)
       : [];
+    const policies = this.filterPoliciesForRun(
+      allPolicies,
+      params.runDepartmentId,
+      params.employees,
+    );
     const policyPromptBlock = this.policyEnforcement
       ? this.policyEnforcement.formatLoaded(policies)
       : '';
@@ -218,6 +230,38 @@ export class WeekScheduleBuilder {
       attempts: WeekScheduleBuilder.MAX_LLM_ATTEMPTS + 1,
       fellBackToDeterministic: true,
     };
+  }
+
+  /**
+   * Phase 14.1 — descarta policies que no aplican al alcance del run
+   * actual. Si el run está acotado a un departamento, las policies de
+   * OTROS departamentos se filtran (no aportan al prompt ni al verify).
+   * Las de scope=company siempre pasan; las de scope=employee solo si el
+   * empleado está en el set del run.
+   */
+  private filterPoliciesForRun(
+    policies: CompanyPolicy[],
+    runDepartmentId: string | undefined,
+    employees: Employee[],
+  ): CompanyPolicy[] {
+    if (!runDepartmentId && employees.length === 0) return policies;
+    const empIds = new Set(employees.map((e) => e.id));
+    return policies.filter((p) => {
+      const scope = p.getScope();
+      if (scope.type === 'company') return true;
+      if (scope.type === 'department') {
+        return runDepartmentId
+          ? scope.id === runDepartmentId
+          : true;
+      }
+      if (scope.type === 'employee') {
+        return scope.id !== null && empIds.has(scope.id);
+      }
+      // branch — sin meta de branch en el run hoy: lo dejamos pasar para
+      // no perder enforcement; el evaluator igual filtra shifts por
+      // branchId via employeeMeta cuando esté disponible.
+      return true;
+    });
   }
 
   /**

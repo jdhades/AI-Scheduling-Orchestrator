@@ -298,6 +298,7 @@ export class GenerateHybridScheduleHandler
       multiShiftPermits: resolved.multiShiftPermits,
       weekStart,
       companyId: command.companyId,
+      runDepartmentId: command.departmentId,
     });
 
     const allAssignments = buildResult.assignments;

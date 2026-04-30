@@ -207,8 +207,11 @@ Expected output format:
 
     const employeeBlock = employees
       .map((e) => {
-        const skills = e.getSkills().map((s) => s.name).join(', ') || 'ninguna';
-        return `  - ${empIdToName.get(e.id)} (skills: ${skills})`;
+        const skillNames = e.getSkills().map((s) => s.name);
+        const display = empIdToName.get(e.id);
+        return skillNames.length > 0
+          ? `  - ${display} (skills: ${skillNames.join(', ')})`
+          : `  - ${display}`;
       })
       .join('\n');
 
@@ -246,7 +249,7 @@ Every employee and shift identifier has the form \`Name-xxxxxx\`, where \`xxxxxx
 Use the FULL identifier (name + dash + suffix) EXACTLY as listed below in your JSON output. Do NOT drop, shorten, or omit the suffix — even if two identifiers share the same name.
 
 ## Employees
-Everyone has the same conditions (including the manager).
+All listed employees have the same conditions; only employees with a department are scheduled.
 ${employeeBlock}
 
 ## Shifts (valid every day of the week)
@@ -261,7 +264,7 @@ ${rulesBlock}
 ${policiesBlock}
 ## General rules
 - One shift per employee per day.
-- On holidays everyone rests (including the manager).
+- On holidays everyone rests.
 - Vacation days count as rest days.
 - Rests: spread them across different days across employees; do not concentrate rest days on the same day.
 - Balance: avoid any employee always doing only one type of shift; alternate shift types across days.
