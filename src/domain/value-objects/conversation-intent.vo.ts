@@ -56,6 +56,9 @@ export class ConversationIntentVO {
     'generate_schedule',
     'select_option',
     'create_rule',
+    'create_rule_clarification',
+    'create_policy',
+    'create_policy_clarification',
     'system_unavailable',
     'unknown',
   ];

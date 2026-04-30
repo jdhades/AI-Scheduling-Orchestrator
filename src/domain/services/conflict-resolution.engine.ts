@@ -17,18 +17,12 @@ export interface ConflictResolutionEngineResult {
 }
 
 /**
- * ConflictResolutionEngine — Domain Service (Escenario 3)
+ * ConflictResolutionEngine — Domain Service
  *
  * Resuelve contradicciones entre reglas semánticas recuperadas del motor RAG.
- * Extiende el ConflictResolutionService del Escenario 2 añadiendo la capa de
- * resolución específica para reglas semánticas (nivel 2 y 3 de la jerarquía).
- *
- * Jerarquía completa (5 capas en E3 vs 4 en E2):
- *   1. Legal (ConflictResolutionService E2)  — EU Working Time Directive
- *   2. Semántica-Restricción (este engine)   — restricciones en lenguaje natural
- *   3. Skill Matrix (ConflictResolutionService E2) — SkillValidationPolicy
- *   4. Semántica-Preferencia (este engine)   — preferencias en lenguaje natural
- *   5. Fairness Score (ConflictResolutionService E2) — FairnessThresholdGuard
+ * Opera puramente sobre `SemanticRuleAggregate` (prioridad + tipo); las capas
+ * legales / de skills / de fairness viven en otros servicios y no son
+ * responsabilidad de este engine.
  *
  * Reglas de resolución (deterministas y auditables):
  *   1. Mayor prioridad numérica (1 > 2 > 3) → gana
