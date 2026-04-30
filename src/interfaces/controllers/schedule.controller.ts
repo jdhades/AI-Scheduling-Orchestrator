@@ -32,7 +32,14 @@ export class ScheduleController {
     @Query('companyId') companyId: string,
   ): Promise<HybridScheduleResult> {
     return this.commandBus.execute(
-      new GenerateHybridScheduleCommand(companyId, dto.weekStart),
+      new GenerateHybridScheduleCommand(
+        companyId,
+        dto.weekStart,
+        dto.maxFairnessDeviation,
+        dto.shiftTemplateId,
+        undefined,
+        dto.departmentId,
+      ),
     );
   }
 

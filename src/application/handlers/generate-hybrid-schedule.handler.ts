@@ -309,13 +309,27 @@ export class GenerateHybridScheduleHandler
 
     const allAssignments = buildResult.assignments;
 
+    // Phase 14 — si el run está acotado (a un depto o a un template
+    // puntual), borramos SOLO las assignments de los templates que
+    // efectivamente vamos a regenerar. Eso preserva schedules de OTROS
+    // departamentos / templates de la misma semana.
+    const isScopedRun =
+      command.departmentId !== undefined ||
+      command.shiftTemplateId !== undefined;
+    const templateIdsToWipe = isScopedRun
+      ? templates.map((t) => t.id)
+      : undefined;
     const deletedCount = await this.assignmentRepository.deleteByDateRange(
       command.companyId,
       weekStartStr,
       weekEndStr,
+      templateIdsToWipe,
     );
     this.logger.log(
-      `Cleared ${deletedCount} previous assignments for week ${weekStartStr}–${weekEndStr}`,
+      `Cleared ${deletedCount} previous assignments for week ${weekStartStr}–${weekEndStr}` +
+        (isScopedRun
+          ? ` (scoped to ${templateIdsToWipe!.length} template(s))`
+          : ''),
     );
 
     await Promise.all(
