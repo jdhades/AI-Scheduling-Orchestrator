@@ -99,7 +99,22 @@ export class PolicyEnforcementService {
         continue;
       }
 
-      const violations = interpreter.apply(ctx, policy.getParams() as never);
+      // Phase 14.1 — filtrar shifts por scope antes de invocar el
+      // interpreter. company-wide pasa todos los shifts; el resto exige
+      // employeeMeta para resolver branch/department.
+      const scopedShifts = this.filterShiftsByScope(ctx, policy);
+      if (scopedShifts === null) {
+        // No teníamos employeeMeta para este scope — degradar a LLM-only
+        // antes que evaluar mal y bloquear schedules.
+        result.llmOnlyPolicies.push(policy);
+        continue;
+      }
+
+      const scopedCtx: PolicyEvaluationContext = {
+        ...ctx,
+        shifts: scopedShifts,
+      };
+      const violations = interpreter.apply(scopedCtx, policy.getParams() as never);
       const tagged = violations.map((v) => ({ ...v, policyId: policy.getId() }));
       if (policy.getSeverity().isHard()) {
         result.hardViolations.push(...tagged);
@@ -112,16 +127,54 @@ export class PolicyEnforcementService {
   }
 
   /**
+   * Phase 14.1 — devuelve los shifts a los que la policy aplica según su
+   * scope. Devuelve `null` si el scope requiere `employeeMeta` y no fue
+   * provisto (caller decide si degradar a LLM-only).
+   */
+  private filterShiftsByScope(
+    ctx: PolicyEvaluationContext,
+    policy: CompanyPolicy,
+  ): PolicyEvaluationContext['shifts'] | null {
+    const scope = policy.getScope();
+    if (scope.type === 'company') {
+      return ctx.shifts;
+    }
+    if (!ctx.employeeMeta) {
+      return null; // scope requiere meta, no la tenemos
+    }
+    return ctx.shifts.filter((s) => {
+      const meta = ctx.employeeMeta!.get(s.employeeId);
+      if (!meta) return false;
+      return policy.isApplicableTo({
+        id: s.employeeId,
+        branchId: meta.branchId,
+        departmentId: meta.departmentId,
+      });
+    });
+  }
+
+  /**
    * Renderiza las policies activas como bloque NL para el prompt del
    * LLM (fase repair). Las hard van primero, luego soft, luego LLM-only.
+   *
+   * Phase 14.1: si se pasa `scopeNames` (Map<scopeId, displayName>), el
+   * render incluye el nombre legible del branch/department/employee al
+   * que aplica la policy. Sin ese map se renderiza el id crudo (fallback
+   * para tests / callers que no necesitan UX).
    */
-  async formatForPrompt(companyId: string): Promise<string> {
+  async formatForPrompt(
+    companyId: string,
+    scopeNames?: ReadonlyMap<string, string>,
+  ): Promise<string> {
     const policies = await this.policyRepo.findAllActiveByCompany(companyId);
-    return this.formatLoaded(policies);
+    return this.formatLoaded(policies, scopeNames);
   }
 
   /** Variante sin lectura DB. Devuelve string vacío si no hay policies. */
-  formatLoaded(policies: CompanyPolicy[]): string {
+  formatLoaded(
+    policies: CompanyPolicy[],
+    scopeNames?: ReadonlyMap<string, string>,
+  ): string {
     const hardLines: string[] = [];
     const softLines: string[] = [];
     const llmOnlyLines: string[] = [];
@@ -129,14 +182,16 @@ export class PolicyEnforcementService {
     for (const policy of policies) {
       const line = this.renderPolicy(policy);
       if (!line) continue;
+      const scopePrefix = this.renderScopePrefix(policy, scopeNames);
+      const decorated = scopePrefix ? `${scopePrefix} ${line}` : line;
       const interpreterId = policy.getInterpreterId();
       const isStructured = interpreterId !== null && this.registry.getById(interpreterId) !== null;
       if (!isStructured) {
-        llmOnlyLines.push(line);
+        llmOnlyLines.push(decorated);
       } else if (policy.getSeverity().isHard()) {
-        hardLines.push(line);
+        hardLines.push(decorated);
       } else {
-        softLines.push(line);
+        softLines.push(decorated);
       }
     }
 
@@ -160,6 +215,22 @@ export class PolicyEnforcementService {
       );
     }
     return sections.join('\n\n');
+  }
+
+  /**
+   * Phase 14.1 — devuelve un prefijo legible para el scope (`[scope=...]`)
+   * o null si la policy aplica a toda la empresa (no hace falta
+   * decoración).
+   */
+  private renderScopePrefix(
+    policy: CompanyPolicy,
+    scopeNames?: ReadonlyMap<string, string>,
+  ): string | null {
+    const scope = policy.getScope();
+    if (scope.type === 'company') return null;
+    const id = scope.id!;
+    const name = scopeNames?.get(id) ?? id;
+    return `[applies to ${scope.type} "${name}"]`;
   }
 
   private renderPolicy(policy: CompanyPolicy): string | null {

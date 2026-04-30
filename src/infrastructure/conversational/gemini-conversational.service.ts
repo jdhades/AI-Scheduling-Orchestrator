@@ -113,7 +113,7 @@ INTENCIONES DISPONIBLES:
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana que viene")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
 - create_rule: el manager dicta una regla de negocio CASO PARTICULAR (menciona un empleado, fecha o turno específico). Ej. "Pablo no trabaja los lunes", "los viernes ocupo 2 meseros", "Sofía solo turnos de tarde", "el 25 es feriado"
-- create_policy: el manager dicta una política GENERAL (aplica a todos los empleados o a un departamento entero; usa "cada empleado", "los empleados", "todo el staff", "el departamento de X", etc.). Ej. "los empleados descansan al menos 11h entre turnos", "máximo 40h semanales para todos", "el departamento de seguridad trabaja 12 por 48"
+- create_policy: el manager dicta una política GENERAL que aplica a un grupo (toda la empresa, una sucursal, un departamento, o una persona). Ej. "los empleados descansan al menos 11h entre turnos" (empresa), "el departamento de seguridad trabaja 24 por 48" (departamento), "Pablo trabaja máximo 20 horas por semana" (persona). Detectá scopeType + scopeName del texto.
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -127,6 +127,8 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - ruleText: texto de la regla / política que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule O create_policy)
 - expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo (ej. "por un mes"), calcula la fecha. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
+- scopeType: SOLO si intent=create_policy. Uno de "company"|"branch"|"department"|"employee". Default "company".
+- scopeName: SOLO si scopeType≠"company". Nombre del target tal como lo dice el manager.
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional:
 {

@@ -34,6 +34,7 @@ import { GetIncidentsHandler } from './handlers/get-incidents.handler';
 import { GetIncidentByIdHandler } from './handlers/get-incident-by-id.handler';
 import { CommandMapperService } from './conversational/command-mapper.service';
 import { MessageRouterService } from './conversational/message-router.service';
+import { PolicyScopeResolver } from './conversational/policy-scope-resolver.service';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { ConversationalModule } from '../infrastructure/conversational/conversational.module';
@@ -107,7 +108,7 @@ const EventHandlers = [
   AbsenceReportedHandler,
 ];
 
-const ConversationalServices = [MessageRouterService, CommandMapperService];
+const ConversationalServices = [MessageRouterService, CommandMapperService, PolicyScopeResolver];
 
 const DomainServices = [
   SemanticRetrievalService,

@@ -32,6 +32,18 @@ export interface PolicyEvaluationContext {
    * descubre por sí mismo.
    */
   holidayDates?: ReadonlySet<string>;
+  /**
+   * Phase 14.1 — metadata por empleado para resolver el scope de una
+   * policy. Si está presente, `PolicyEnforcementService.evaluateLoaded`
+   * filtra `shifts` antes de pasarlos al interpreter usando
+   * `policy.isApplicableTo(meta)`. Si no está, una policy con scope !=
+   * 'company' NO se puede evaluar y se reporta como warning (vuelve a
+   * fiar al LLM en el prompt).
+   */
+  employeeMeta?: ReadonlyMap<
+    string,
+    { branchId: string | null; departmentId: string | null }
+  >;
 }
 
 /** Una violación detectada por un interpreter al evaluar el schedule. */

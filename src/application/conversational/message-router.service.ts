@@ -35,6 +35,8 @@ import {
   CompanyPolicyCreator,
   type CreateCompanyPolicyInput,
 } from '../../domain/services/company-policy-creator.service';
+import { PolicyScopeResolver } from './policy-scope-resolver.service';
+import type { PolicyScope } from '../../domain/aggregates/company-policy.aggregate';
 import { I18nService } from 'nestjs-i18n';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -86,6 +88,7 @@ export class MessageRouterService {
     private readonly pendingClarificationRepo: IWhatsappPendingClarificationRepository,
     private readonly policyPermission: WhatsappPolicyPermissionService,
     private readonly companyPolicyCreator: CompanyPolicyCreator,
+    private readonly policyScopeResolver: PolicyScopeResolver,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -1341,10 +1344,20 @@ export class MessageRouterService {
       return true;
     }
 
+    // Phase 14.2 — resolver scope si el LLM lo extrajo del texto.
+    const resolvedScope = await this.policyScopeResolver.resolve({
+      companyId,
+      scopeType: mergedEntities.scopeType as PolicyScope['type'] | undefined,
+      scopeName: mergedEntities.scopeName,
+    });
+    const scope = resolvedScope.scope;
+    const scopeLabel = this._formatScopeLabel(scope, resolvedScope.targetName);
+
     const input: CreateCompanyPolicyInput = {
       companyId,
       text,
       severity: 'hard',
+      scope,
       createdBy: employeeId,
     };
     const result = await this.companyPolicyCreator.create(input);
@@ -1375,6 +1388,10 @@ export class MessageRouterService {
       session = session.withIntent('create_policy_clarification', {
         pendingAction: 'create_policy_clarification',
         policySeverity: 'hard',
+        // Phase 14.2 — recordamos el scope resuelto para que la elección
+        // de la sugerencia (handler de clarification) lo pueda reusar.
+        policyScopeType: scope.type,
+        policyScopeId: scope.id ?? '',
       });
       await this.sessionRepository.saveSession(session);
 
@@ -1382,6 +1399,7 @@ export class MessageRouterService {
       result.suggestions.forEach((s, i) => {
         msg += `${i + 1}. ${s.suggestedText}\n`;
       });
+      msg += scopeLabel ? `\n_(Alcance detectado: ${scopeLabel})_\n` : '';
       msg += '\n_Respondé con el número (1, 2, 3...) o escribí una nueva política._';
       this._reply(from, msg);
       return true;
@@ -1389,20 +1407,36 @@ export class MessageRouterService {
 
     // status === 'created'
     await this.sessionRepository.clearSession(from);
+    const scopeSuffix = scopeLabel ? ` (alcance: ${scopeLabel})` : '';
     if (result.mode === 'matched') {
       this._reply(
         from,
-        `✅ Política creada y aplicable directamente: "${result.policy.getText()}"`,
+        `✅ Política creada y aplicable directamente${scopeSuffix}: "${result.policy.getText()}"`,
       );
     } else {
       // mode === 'llm_only' — guardamos pero el solver no la aplica
       // determinísticamente; advertimos al manager.
       this._reply(
         from,
-        `⚠️ Política guardada como LLM-only: "${result.policy.getText()}". El scheduler determinístico no la aplica directo; solo la considera al pasarla al LLM. Si querés que se aplique automáticamente, reformulala matcheando un patrón estructurado.`,
+        `⚠️ Política guardada como LLM-only${scopeSuffix}: "${result.policy.getText()}". El scheduler determinístico no la aplica directo; solo la considera al pasarla al LLM. Si querés que se aplique automáticamente, reformulala matcheando un patrón estructurado.`,
       );
     }
     return true;
+  }
+
+  /**
+   * Phase 14.2 — render legible del scope para el reply al manager.
+   * Devuelve null para scope=company (no hace falta decoración).
+   */
+  private _formatScopeLabel(scope: PolicyScope, targetName: string | null): string | null {
+    if (scope.type === 'company') return null;
+    const label =
+      scope.type === 'branch'
+        ? 'sucursal'
+        : scope.type === 'department'
+          ? 'departamento'
+          : 'empleado';
+    return targetName ? `${label} "${targetName}"` : label;
   }
 
   /**
@@ -1454,10 +1488,27 @@ export class MessageRouterService {
     await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
 
     const severity = (sessionEntities.policySeverity ?? 'hard') as 'hard' | 'soft';
+    // Phase 14.2 — recuperamos el scope decidido cuando se abrió el loop.
+    const persistedScopeType = sessionEntities.policyScopeType as
+      | PolicyScope['type']
+      | undefined;
+    const persistedScopeId = sessionEntities.policyScopeId;
+    const scope: PolicyScope | undefined = persistedScopeType
+      ? {
+          type: persistedScopeType,
+          id:
+            persistedScopeType === 'company'
+              ? null
+              : persistedScopeId && persistedScopeId.length > 0
+                ? persistedScopeId
+                : null,
+        }
+      : undefined;
     const result = await this.companyPolicyCreator.create({
       companyId,
       text: pick.suggestedText,
       severity,
+      scope,
       createdBy: employeeId,
     });
 

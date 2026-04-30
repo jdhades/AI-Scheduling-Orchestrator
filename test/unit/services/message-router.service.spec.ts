@@ -31,6 +31,7 @@ import { GetMyScheduleQuery } from '../../../src/application/queries/get-my-sche
 import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../../src/domain/repositories/whatsapp-pending-clarification.repository';
 import { WhatsappPolicyPermissionService } from '../../../src/domain/services/whatsapp-policy-permission.service';
 import { CompanyPolicyCreator } from '../../../src/domain/services/company-policy-creator.service';
+import { PolicyScopeResolver } from '../../../src/application/conversational/policy-scope-resolver.service';
 
 describe('MessageRouterService', () => {
   let service: MessageRouterService;
@@ -158,6 +159,15 @@ describe('MessageRouterService', () => {
               status: 'created',
               mode: 'matched',
               policy: { getText: () => 'mock policy' },
+            }),
+          },
+        },
+        {
+          provide: PolicyScopeResolver,
+          useValue: {
+            resolve: jest.fn().mockResolvedValue({
+              scope: { type: 'company', id: null },
+              targetName: null,
             }),
           },
         },

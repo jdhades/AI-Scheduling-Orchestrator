@@ -14,6 +14,7 @@ import { IncidentsController } from './controllers/incidents.controller';
 import { ShiftSwapRequestsController } from './controllers/shift-swap-requests.controller';
 import { AbsenceReportsController } from './controllers/absence-reports.controller';
 import { DayOffRequestsController } from './controllers/day-off-requests.controller';
+import { ScopeTargetsController } from './controllers/scope-targets.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
@@ -39,6 +40,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ShiftSwapRequestsController,
     AbsenceReportsController,
     DayOffRequestsController,
+    ScopeTargetsController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

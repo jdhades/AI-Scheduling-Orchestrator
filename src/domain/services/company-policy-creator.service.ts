@@ -1,5 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { CompanyPolicy } from '../aggregates/company-policy.aggregate';
+import {
+  CompanyPolicy,
+  type PolicyScope,
+} from '../aggregates/company-policy.aggregate';
 import {
   COMPANY_POLICY_REPOSITORY,
   type ICompanyPolicyRepository,
@@ -35,6 +38,8 @@ export interface CreateCompanyPolicyInput {
   companyId: string;
   text: string;
   severity: 'hard' | 'soft';
+  /** Phase 14.1 — alcance de la policy. Default: tenant-wide. */
+  scope?: PolicyScope;
   effectiveFrom?: string;
   createdBy?: string | null;
 }
@@ -69,6 +74,7 @@ export class CompanyPolicyCreator {
         companyId: input.companyId,
         text,
         severity: PolicySeverity.create(input.severity),
+        scope: input.scope,
         effectiveFrom: input.effectiveFrom,
         createdBy: input.createdBy ?? null,
       });
@@ -102,6 +108,7 @@ export class CompanyPolicyCreator {
       companyId: input.companyId,
       text,
       severity: PolicySeverity.create(input.severity),
+      scope: input.scope,
       effectiveFrom: input.effectiveFrom,
       createdBy: input.createdBy ?? null,
     });

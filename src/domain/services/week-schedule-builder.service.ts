@@ -138,7 +138,7 @@ export class WeekScheduleBuilder {
     // Sin proposer inyectado → directo al determinístico.
     if (!this.proposer) {
       const result = this.build(params);
-      const softPolicyViolations = this.evaluatePolicies(result.assignments, params.slots, policies).softViolations;
+      const softPolicyViolations = this.evaluatePolicies(result.assignments, params.slots, policies, params.employees).softViolations;
       return { ...result, softPolicyViolations, attempts: 1, fellBackToDeterministic: true };
     }
 
@@ -173,7 +173,7 @@ export class WeekScheduleBuilder {
 
       // Phase 14: policy hard violations → al mismo bucket de violations
       // (el verify-loop reintenta con feedback unificado).
-      const policyEval = this.evaluatePolicies(candidate.assignments, params.slots, policies);
+      const policyEval = this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees);
       const policyHardAsVerify: VerifyViolation[] = policyEval.hardViolations.map((v) => ({
         kind: 'policy-hard-violation' as const,
         employeeId: v.employeeId,
@@ -211,7 +211,7 @@ export class WeekScheduleBuilder {
 
     // Fallback final: builder determinístico (sin llmLines).
     const deterministic = this.build({ ...params, llmLines: undefined });
-    const softPolicyViolations = this.evaluatePolicies(deterministic.assignments, params.slots, policies).softViolations;
+    const softPolicyViolations = this.evaluatePolicies(deterministic.assignments, params.slots, policies, params.employees).softViolations;
     return {
       ...deterministic,
       softPolicyViolations,
@@ -225,11 +225,18 @@ export class WeekScheduleBuilder {
    * `ShiftAssignment[]` propuestas a `PolicyEvaluationShift[]` (employeeId
    * + startTime/endTime absolutos derivados del slot). Si no hay servicio
    * inyectado o no hay policies, devuelve un resultado vacío.
+   *
+   * Phase 14.1 — además construye `employeeMeta` (employeeId → branchId /
+   * departmentId) desde `employees` para que el evaluator filtre shifts
+   * según el scope de cada policy. Hoy `Employee` aggregate sólo expone
+   * `departmentId`; `branchId` queda null hasta que el handler precarge
+   * la relación `department → branch` y la inyecte.
    */
   private evaluatePolicies(
     assignments: ShiftAssignment[],
     slots: VirtualShiftSlot[],
     policies: CompanyPolicy[],
+    employees: Employee[],
   ): {
     hardViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
     softViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
@@ -250,7 +257,18 @@ export class WeekScheduleBuilder {
       })
       .filter((s): s is { employeeId: string; startTime: Date; endTime: Date } => s !== null);
 
-    const result = this.policyEnforcement.evaluateLoaded(policies, { shifts: evalShifts });
+    const employeeMeta = new Map<string, { branchId: string | null; departmentId: string | null }>();
+    for (const e of employees) {
+      employeeMeta.set(e.id, {
+        branchId: null, // TODO: enriquecer con dept→branch lookup en 14.3
+        departmentId: e.departmentId ?? null,
+      });
+    }
+
+    const result = this.policyEnforcement.evaluateLoaded(policies, {
+      shifts: evalShifts,
+      employeeMeta,
+    });
     return {
       hardViolations: result.hardViolations.map(({ policyId, employeeId, scope, message }) => ({
         policyId,
