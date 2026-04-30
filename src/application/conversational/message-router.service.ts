@@ -37,6 +37,7 @@ import {
 } from '../../domain/services/company-policy-creator.service';
 import { PolicyScopeResolver } from './policy-scope-resolver.service';
 import type { PolicyScope } from '../../domain/aggregates/company-policy.aggregate';
+import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
 import { I18nService } from 'nestjs-i18n';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -89,6 +90,7 @@ export class MessageRouterService {
     private readonly policyPermission: WhatsappPolicyPermissionService,
     private readonly companyPolicyCreator: CompanyPolicyCreator,
     private readonly policyScopeResolver: PolicyScopeResolver,
+    private readonly llmUsageTracker: LLMUsageTracker,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -124,6 +126,28 @@ export class MessageRouterService {
       let mergedEntities = { ...sessionEntities, ...intentEntities };
 
       let currentIntent = intent.getIntent();
+
+      // Phase 14 — durante el flow `generate_schedule` (o cuando el intent
+      // recién clasificado lo abre), acumulamos los tokens del classifier
+      // en la sesión para reportarlos en el reply final junto con los del
+      // schedule generation.
+      const isGenerateFlow =
+        sessionEntities.pendingAction === 'generate_schedule' ||
+        currentIntent === 'generate_schedule';
+      if (isGenerateFlow && this.lastClassifierUsage.calls > 0) {
+        mergedEntities.scheduleClassifierCalls =
+          (Number(sessionEntities.scheduleClassifierCalls) || 0) +
+          this.lastClassifierUsage.calls;
+        mergedEntities.scheduleClassifierPrompt =
+          (Number(sessionEntities.scheduleClassifierPrompt) || 0) +
+          this.lastClassifierUsage.prompt;
+        mergedEntities.scheduleClassifierCompletion =
+          (Number(sessionEntities.scheduleClassifierCompletion) || 0) +
+          this.lastClassifierUsage.completion;
+        mergedEntities.scheduleClassifierTotal =
+          (Number(sessionEntities.scheduleClassifierTotal) || 0) +
+          this.lastClassifierUsage.total;
+      }
 
       // Context Retention: If NLP loses context answering a clarification, inherit pending intent
       if ((currentIntent === 'unknown' || currentIntent === session.getPendingIntent()) && session.getPendingIntent()) {
@@ -760,8 +784,8 @@ export class MessageRouterService {
         );
       }
       const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
       await this.sessionRepository.clearSession(from);
-      this._reply(from, this._formatScheduleReply(result, locale));
       return true;
     }
 
@@ -798,8 +822,8 @@ export class MessageRouterService {
         departmentId ?? undefined,
       );
       const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
       await this.sessionRepository.clearSession(from);
-      this._reply(from, this._formatScheduleReply(result, locale));
       return;
     }
 
@@ -814,8 +838,8 @@ export class MessageRouterService {
         departmentId ?? undefined,
       );
       const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
       await this.sessionRepository.clearSession(from);
-      this._reply(from, this._formatScheduleReply(result, locale));
       return;
     }
 
@@ -872,8 +896,37 @@ export class MessageRouterService {
     }));
   }
 
-  /** Formatea la respuesta del hybrid schedule incluyendo explanation + warnings. */
-  private _formatScheduleReply(result: any, locale: string): string {
+  /**
+   * Formatea la respuesta del hybrid schedule incluyendo explanation +
+   * warnings + LLM usage (proposer + catch-all + classifier).
+   */
+  private _formatScheduleReply(
+    result: any,
+    locale: string,
+    sessionEntities?: Readonly<Record<string, any>>,
+  ): string {
+    // Phase 14 — sumar los tokens del classifier acumulados en la sesión
+    // (mensajes "generar horario" + "1" + "1" del flow jerárquico) al
+    // bloque del LLM usage para que el manager vea el costo total.
+    if (sessionEntities && result?.llmUsage) {
+      const cCalls = Number(sessionEntities.scheduleClassifierCalls) || 0;
+      const cPrompt = Number(sessionEntities.scheduleClassifierPrompt) || 0;
+      const cCompletion =
+        Number(sessionEntities.scheduleClassifierCompletion) || 0;
+      const cTotal = Number(sessionEntities.scheduleClassifierTotal) || 0;
+      if (cCalls > 0) {
+        result.llmUsage = {
+          calls: result.llmUsage.calls + cCalls,
+          prompt: result.llmUsage.prompt + cPrompt,
+          completion: result.llmUsage.completion + cCompletion,
+          total: result.llmUsage.total + cTotal,
+        };
+      }
+    }
+    return this._formatScheduleReplyInner(result, locale);
+  }
+
+  private _formatScheduleReplyInner(result: any, locale: string): string {
     let reply = this.i18n.t('bot.general.success', { lang: locale });
     if (result && typeof result === 'object' && result.explanation) {
       reply = result.explanation;
@@ -882,6 +935,23 @@ export class MessageRouterService {
       const header = this.i18n.t('bot.schedule.warnings_header', { lang: locale });
       reply += `\n\n${header}\n` +
         result.warnings.map((w: string) => `• ${w}`).join('\n');
+    }
+    // Phase 14 — incluir consumo de tokens del LLM en el reply al manager
+    // (cubre LLM-proposer + catch-all llm_runtime + traducción de reglas).
+    // No incluye los tokens del clasificador conversacional — ésos viven
+    // fuera del scope del handler.
+    if (
+      result &&
+      result.llmUsage &&
+      typeof result.llmUsage.total === 'number' &&
+      result.llmUsage.calls > 0
+    ) {
+      const u = result.llmUsage;
+      const fmt = (n: number) => n.toLocaleString('es-AR');
+      reply +=
+        `\n\n🧮 LLM: ${u.calls} llamada${u.calls === 1 ? '' : 's'} · ` +
+        `prompt ${fmt(u.prompt)} · completion ${fmt(u.completion)} · ` +
+        `total ${fmt(u.total)} tokens`;
     }
     return reply;
   }
@@ -1235,26 +1305,44 @@ export class MessageRouterService {
   // ─── Private helpers ──────────────────────────────────────────────────────
 
   private async _classifyMessage(msg: IncomingMessage) {
+    // Phase 14 — envolvemos la call del classifier con un scope del
+    // LLMUsageTracker para capturar tokens. Lo guardamos en
+    // `lastClassifierUsage` para que `route()` decida si acumularlos en
+    // sesión (solo cuando el flow del manager es generate_schedule, así
+    // el reply final puede mostrar el costo total incluyendo classifier).
     const isAudio = msg.mimeType?.startsWith('audio/') && msg.mediaUrl;
     const isText = !!msg.body && !msg.mediaUrl;
 
-    if (isText) {
-      return this.conversationalService.processText(msg.body!);
+    if (!isText && !isAudio) {
+      this.logger.warn(`Unsupported media type: ${msg.mimeType}`);
+      this.lastClassifierUsage = { calls: 0, prompt: 0, completion: 0, total: 0 };
+      return ConversationIntentVO.unknown('unsupported');
     }
 
-    if (isAudio) {
+    const { result, usage } = await this.llmUsageTracker.run(async () => {
+      if (isText) return this.conversationalService.processText(msg.body!);
       return this.conversationalService.processAudio(
         msg.mediaUrl!,
         msg.mimeType!,
         msg.twilioSid,
         msg.twilioToken,
       );
-    }
-
-    // Image, document, location — not supported
-    this.logger.warn(`Unsupported media type: ${msg.mimeType}`);
-    return ConversationIntentVO.unknown('unsupported');
+    });
+    this.lastClassifierUsage = usage;
+    return result;
   }
+
+  /**
+   * Tokens consumidos por el último call al classifier. Set por
+   * `_classifyMessage`, leído por `route()` para acumular en la sesión
+   * cuando el flow es `generate_schedule`.
+   */
+  private lastClassifierUsage: { calls: number; prompt: number; completion: number; total: number } = {
+    calls: 0,
+    prompt: 0,
+    completion: 0,
+    total: 0,
+  };
 
   private async _execute(command: object): Promise<string | void> {
     if (command instanceof GetMyScheduleQuery) {

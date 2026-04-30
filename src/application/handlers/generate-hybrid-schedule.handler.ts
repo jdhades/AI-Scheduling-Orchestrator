@@ -34,6 +34,12 @@ export interface HybridScheduleResult {
   algorithmCorrected: number;
   explanation: string;
   warnings: string[];
+  /**
+   * Tokens consumidos durante este run (LLM-proposer + catch-all
+   * llm_runtime + traducción de rules). NO incluye los del clasificador
+   * de WhatsApp (esos calls viven fuera del scope del handler).
+   */
+  llmUsage?: { calls: number; prompt: number; completion: number; total: number };
 }
 
 /**
@@ -156,7 +162,7 @@ export class GenerateHybridScheduleHandler
       `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
         `prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
     );
-    return result;
+    return { ...result, llmUsage: usage };
   }
 
   private async runGeneration(

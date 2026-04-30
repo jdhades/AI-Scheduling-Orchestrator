@@ -32,6 +32,7 @@ import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../../src/domain/r
 import { WhatsappPolicyPermissionService } from '../../../src/domain/services/whatsapp-policy-permission.service';
 import { CompanyPolicyCreator } from '../../../src/domain/services/company-policy-creator.service';
 import { PolicyScopeResolver } from '../../../src/application/conversational/policy-scope-resolver.service';
+import { LLMUsageTracker } from '../../../src/infrastructure/observability/llm-usage-tracker.service';
 
 describe('MessageRouterService', () => {
   let service: MessageRouterService;
@@ -169,6 +170,19 @@ describe('MessageRouterService', () => {
               scope: { type: 'company', id: null },
               targetName: null,
             }),
+          },
+        },
+        {
+          provide: LLMUsageTracker,
+          useValue: {
+            run: jest.fn().mockImplementation(async (fn: any) => {
+              const result = await fn();
+              return {
+                result,
+                usage: { calls: 0, prompt: 0, completion: 0, total: 0 },
+              };
+            }),
+            record: jest.fn(),
           },
         },
       ],
