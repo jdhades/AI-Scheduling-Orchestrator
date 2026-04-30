@@ -125,6 +125,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       undesirableWeight: UndesirableWeight.create(row.undesirable_weight),
       isActive: row.is_active,
       requiredEmployees: row.required_employees ?? null,
+      departmentId: row.department_id ?? null,
     });
   }
 }

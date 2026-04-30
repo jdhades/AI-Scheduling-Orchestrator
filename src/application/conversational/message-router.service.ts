@@ -489,38 +489,88 @@ export class MessageRouterService {
         return;
       }
 
-      // 4c. Handle GENERATE_SELECT_TEMPLATE
+      // 4c. Handle GENERATE_SELECT_TEMPLATE — flow jerárquico:
+      //     [SELECT_BRANCH if >1] → [SELECT_DEPARTMENT if >1] → SELECT_TEMPLATE.
+      //     Niveles con 1 sola opción se auto-seleccionan (smart-skip).
       if (mapResult.actionRequired === 'GENERATE_SELECT_TEMPLATE') {
-        const templates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+        const weekStart = mergedEntities.weekStart || this._getNextMondayStr();
+        const branches = await this._loadBranches(companyId);
+        const departments = await this._loadDepartments(companyId);
 
-        if (templates.length <= 1) {
-            const weekStart = mergedEntities.weekStart || this._getNextMondayStr();
-            const command = new GenerateHybridScheduleCommand(companyId, weekStart);
-            await this._execute(command);
-            await this.sessionRepository.clearSession(from);
-            this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
-            return;
+        // Caso degenerado: tenant sin estructura. Generamos directo (todo).
+        if (branches.length === 0 && departments.length === 0) {
+          const command = new GenerateHybridScheduleCommand(companyId, weekStart);
+          await this._execute(command);
+          await this.sessionRepository.clearSession(from);
+          this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+          return;
         }
 
-        let responseText = `Veo que tienes turnos configurados. ¿Quieres generar el horario para todos automáticamente o elegir uno en específico?\n\n`;
-        responseText += `1. Todos los turnos\n`;
-        const optionsEntities: Record<string, string> = {
+        // ── ¿Smart-skip de branch? ──
+        let chosenBranchId: string | null;
+        if (branches.length <= 1) {
+          chosenBranchId = branches[0]?.id ?? null;
+        } else {
+          // >1 sucursal — preguntar.
+          let responseText = `¿Para qué sucursal querés generar el horario?\n\n`;
+          const optionsEntities: Record<string, string> = {
             pendingAction: 'generate_schedule',
-            generateStep: 'SELECT_TEMPLATE',
-            weekStart: mergedEntities.weekStart || this._getNextMondayStr(),
-        };
-        templates.slice(0, 5).forEach((t, idx) => {
-            const num = idx + 2;
-            responseText += `${num}. ${t.name}\n`;
-            optionsEntities[`option${num}_templateId`] = t.id;
-        });
-
-        session = session.withIntent('generate_schedule', {
+            generateStep: 'SELECT_BRANCH',
+            weekStart,
+          };
+          branches.slice(0, 5).forEach((b, idx) => {
+            const num = idx + 1;
+            responseText += `${num}. ${b.name}\n`;
+            optionsEntities[`option${num}_branchId`] = b.id;
+          });
+          session = session.withIntent('generate_schedule', {
             ...mergedEntities,
-            ...optionsEntities
-        });
-        await this.sessionRepository.saveSession(session);
-        this._reply(from, responseText.trim());
+            ...optionsEntities,
+          });
+          await this.sessionRepository.saveSession(session);
+          this._reply(from, responseText.trim());
+          return;
+        }
+
+        // ── ¿Smart-skip de department? ──
+        const deptsForBranch = chosenBranchId
+          ? departments.filter((d) => d.branchId === chosenBranchId)
+          : departments;
+        let chosenDeptId: string | null;
+        if (deptsForBranch.length <= 1) {
+          chosenDeptId = deptsForBranch[0]?.id ?? null;
+        } else {
+          let responseText = `¿Para qué departamento?\n\n`;
+          const optionsEntities: Record<string, string> = {
+            pendingAction: 'generate_schedule',
+            generateStep: 'SELECT_DEPARTMENT',
+            weekStart,
+            ...(chosenBranchId ? { selectedBranchId: chosenBranchId } : {}),
+          };
+          deptsForBranch.slice(0, 5).forEach((d, idx) => {
+            const num = idx + 1;
+            responseText += `${num}. ${d.name}\n`;
+            optionsEntities[`option${num}_departmentId`] = d.id;
+          });
+          session = session.withIntent('generate_schedule', {
+            ...mergedEntities,
+            ...optionsEntities,
+          });
+          await this.sessionRepository.saveSession(session);
+          this._reply(from, responseText.trim());
+          return;
+        }
+
+        // ── SELECT_TEMPLATE (filtrado por dept si lo tenemos) ──
+        await this._promptTemplateSelection(
+          from,
+          session,
+          mergedEntities,
+          companyId,
+          weekStart,
+          chosenDeptId,
+          locale,
+        );
         return;
       }
 
@@ -607,7 +657,11 @@ export class MessageRouterService {
   }
 
   // ─── Generate Schedule Helpers ───────────────────────────────────────────
-  
+
+  /**
+   * Phase 14 — flow jerárquico (branch → department → template) con
+   * smart-skip de niveles con 1 sola opción.
+   */
   private async _handleGenerateSelection(
     from: string,
     companyId: string,
@@ -616,27 +670,206 @@ export class MessageRouterService {
     selection: string,
     locale: string,
   ): Promise<boolean> {
-     const step = sessionEntities.generateStep;
-     if (step === 'SELECT_TEMPLATE') {
-         let cmd: GenerateHybridScheduleCommand;
-         if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
-             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, undefined, locale);
-         } else {
-             const templateId = sessionEntities[`option${selection}_templateId`];
-             if (!templateId) {
-                 this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
-                 return true;
-             }
-             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId, locale);
-         }
+    const step = sessionEntities.generateStep;
+    const weekStart = sessionEntities.weekStart;
 
-         const result = await this.commandBus.execute(cmd);
-         await this.sessionRepository.clearSession(from);
-         this._reply(from, this._formatScheduleReply(result, locale));
-         return true;
-     }
+    if (step === 'SELECT_BRANCH') {
+      const branchId = sessionEntities[`option${selection}_branchId`];
+      if (!branchId) {
+        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        return true;
+      }
+      // Avanzar a SELECT_DEPARTMENT (con smart-skip si solo hay 1).
+      const departments = (await this._loadDepartments(companyId)).filter(
+        (d) => d.branchId === branchId,
+      );
+      if (departments.length <= 1) {
+        const deptId = departments[0]?.id ?? null;
+        await this._promptTemplateSelection(
+          from,
+          session,
+          { ...sessionEntities, selectedBranchId: branchId },
+          companyId,
+          weekStart,
+          deptId,
+          locale,
+        );
+        return true;
+      }
+      let msg = `¿Para qué departamento?\n\n`;
+      const opts: Record<string, string> = {
+        pendingAction: 'generate_schedule',
+        generateStep: 'SELECT_DEPARTMENT',
+        weekStart,
+        selectedBranchId: branchId,
+      };
+      departments.slice(0, 5).forEach((d, idx) => {
+        const num = idx + 1;
+        msg += `${num}. ${d.name}\n`;
+        opts[`option${num}_departmentId`] = d.id;
+      });
+      session = session.withIntent('generate_schedule', opts);
+      await this.sessionRepository.saveSession(session);
+      this._reply(from, msg.trim());
+      return true;
+    }
 
-     return false;
+    if (step === 'SELECT_DEPARTMENT') {
+      const departmentId = sessionEntities[`option${selection}_departmentId`];
+      if (!departmentId) {
+        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        return true;
+      }
+      await this._promptTemplateSelection(
+        from,
+        session,
+        sessionEntities,
+        companyId,
+        weekStart,
+        departmentId,
+        locale,
+      );
+      return true;
+    }
+
+    if (step === 'SELECT_TEMPLATE') {
+      const departmentId = sessionEntities.selectedDepartmentId ?? undefined;
+      let cmd: GenerateHybridScheduleCommand;
+      if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
+        cmd = new GenerateHybridScheduleCommand(
+          companyId,
+          weekStart,
+          undefined,
+          undefined,
+          locale,
+          departmentId,
+        );
+      } else {
+        const templateId = sessionEntities[`option${selection}_templateId`];
+        if (!templateId) {
+          this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+          return true;
+        }
+        cmd = new GenerateHybridScheduleCommand(
+          companyId,
+          weekStart,
+          undefined,
+          templateId,
+          locale,
+          departmentId,
+        );
+      }
+      const result = await this.commandBus.execute(cmd);
+      await this.sessionRepository.clearSession(from);
+      this._reply(from, this._formatScheduleReply(result, locale));
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Pregunta por el turno (o "todos") filtrando por el departmentId si
+   * lo tenemos. Persiste opciones numeradas en la sesión y replica al
+   * manager. Si no hay templates en el dept, ejecuta inmediatamente con
+   * todos (degenera al comportamiento legacy).
+   */
+  private async _promptTemplateSelection(
+    from: string,
+    session: ConversationSessionVO,
+    sessionEntities: Record<string, any>,
+    companyId: string,
+    weekStart: string,
+    departmentId: string | null,
+    locale: string,
+  ): Promise<void> {
+    const allTemplates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+    const templates = departmentId
+      ? allTemplates.filter((t) => (t as any).departmentId === departmentId)
+      : allTemplates;
+
+    if (templates.length === 0) {
+      const cmd = new GenerateHybridScheduleCommand(
+        companyId,
+        weekStart,
+        undefined,
+        undefined,
+        locale,
+        departmentId ?? undefined,
+      );
+      const result = await this.commandBus.execute(cmd);
+      await this.sessionRepository.clearSession(from);
+      this._reply(from, this._formatScheduleReply(result, locale));
+      return;
+    }
+
+    if (templates.length === 1) {
+      // Único template → no hay nada que elegir, ejecutamos.
+      const cmd = new GenerateHybridScheduleCommand(
+        companyId,
+        weekStart,
+        undefined,
+        templates[0].id,
+        locale,
+        departmentId ?? undefined,
+      );
+      const result = await this.commandBus.execute(cmd);
+      await this.sessionRepository.clearSession(from);
+      this._reply(from, this._formatScheduleReply(result, locale));
+      return;
+    }
+
+    let msg = `¿Qué turno generar?\n\n1. Todos los turnos\n`;
+    const opts: Record<string, string> = {
+      ...sessionEntities,
+      pendingAction: 'generate_schedule',
+      generateStep: 'SELECT_TEMPLATE',
+      weekStart,
+      ...(departmentId ? { selectedDepartmentId: departmentId } : {}),
+    };
+    templates.slice(0, 5).forEach((t, idx) => {
+      const num = idx + 2;
+      msg += `${num}. ${t.name}\n`;
+      opts[`option${num}_templateId`] = t.id;
+    });
+    session = session.withIntent('generate_schedule', opts);
+    await this.sessionRepository.saveSession(session);
+    this._reply(from, msg.trim());
+  }
+
+  /** Phase 14 — listas de branches/departments con company_id (read-only). */
+  private async _loadBranches(
+    companyId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const { data, error } = await this.supabase
+      .from('branches')
+      .select('id, name')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true });
+    if (error) {
+      this.logger.warn(`_loadBranches: ${error.message}`);
+      return [];
+    }
+    return (data ?? []) as { id: string; name: string }[];
+  }
+
+  private async _loadDepartments(
+    companyId: string,
+  ): Promise<{ id: string; name: string; branchId: string | null }[]> {
+    const { data, error } = await this.supabase
+      .from('departments')
+      .select('id, name, branch_id')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true });
+    if (error) {
+      this.logger.warn(`_loadDepartments: ${error.message}`);
+      return [];
+    }
+    return (data ?? []).map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      branchId: d.branch_id ?? null,
+    }));
   }
 
   /** Formatea la respuesta del hybrid schedule incluyendo explanation + warnings. */

@@ -176,16 +176,40 @@ export class GenerateHybridScheduleHandler
       `Hybrid schedule — company=${command.companyId} week=${weekStartStr} (from input ${command.weekStart})`,
     );
 
-    const [employees, allTemplates, histories] = await Promise.all([
+    const [allEmployees, allTemplates, histories] = await Promise.all([
       this.employeeRepository.findAllByCompany(command.companyId),
       this.shiftTemplateRepository.findAllByCompany(command.companyId),
       this.fairnessRepository.findByWeek(command.companyId, weekStart),
     ]);
 
+    // Phase 14 — empleados sin departamento NO se schedulean.
+    // El manager transversal (dept=null) es ejemplo canónico.
+    const employeesWithDept = allEmployees.filter((e) => e.departmentId);
+    const skippedNoDept = allEmployees.length - employeesWithDept.length;
+    if (skippedNoDept > 0) {
+      this.logger.log(
+        `Excluded ${skippedNoDept} employee(s) without department from scheduling`,
+      );
+    }
+
+    // Si llegó departmentId (ej. flow conversacional o filtro manual),
+    // restringimos empleados Y templates a ese departamento.
+    const employees = command.departmentId
+      ? employeesWithDept.filter((e) => e.departmentId === command.departmentId)
+      : employeesWithDept;
+
     const activeTemplates = allTemplates.filter((t) => t.isActive);
-    const templates = command.shiftTemplateId
-      ? activeTemplates.filter((t) => t.id === command.shiftTemplateId)
+    const deptScopedTemplates = command.departmentId
+      ? activeTemplates.filter((t) => t.departmentId === command.departmentId)
       : activeTemplates;
+    const templates = command.shiftTemplateId
+      ? deptScopedTemplates.filter((t) => t.id === command.shiftTemplateId)
+      : deptScopedTemplates;
+    if (command.departmentId) {
+      this.logger.log(
+        `Filtered to department ${command.departmentId} — employees=${employees.length} templates=${templates.length}`,
+      );
+    }
     if (command.shiftTemplateId) {
       this.logger.log(
         `Filtered templates to ${command.shiftTemplateId} — ${templates.length} remain`,
