@@ -4,7 +4,7 @@ import { GenerateHybridScheduleCommand } from '../../application/commands/genera
 import { GetCompanyScheduleQuery } from '../../application/queries/get-company-schedule.query';
 import { GenerateScheduleDto } from '../dtos/generate-schedule.dto';
 import type { HybridScheduleResult } from '../../application/handlers/generate-hybrid-schedule.handler';
-import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
+import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 
 /**
  * ScheduleController
@@ -52,9 +52,10 @@ export class ScheduleController {
   async getSchedule(
     @Query('weekStart') weekStart: string,
     @Query('companyId') companyId: string,
-  ): Promise<ShiftAssignment[]> {
+    @Query('departmentId') departmentId?: string,
+  ): Promise<CompanyScheduleAssignmentDTO[]> {
     return this.queryBus.execute(
-      new GetCompanyScheduleQuery(companyId, weekStart),
+      new GetCompanyScheduleQuery(companyId, weekStart, departmentId),
     );
   }
 }
