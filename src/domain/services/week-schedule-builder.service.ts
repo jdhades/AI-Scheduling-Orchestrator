@@ -8,6 +8,8 @@ import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
 import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interface';
 import { LLMLineProposerService } from './llm-line-proposer.service';
+import { PolicyEnforcementService } from './policy-enforcement.service';
+import type { CompanyPolicy } from '../aggregates/company-policy.aggregate';
 
 /** Violación hard detectada por `verify()` en una propuesta del LLM. */
 export interface VerifyViolation {
@@ -17,10 +19,12 @@ export interface VerifyViolation {
     | 'skill-mismatch'
     | 'unknown-employee'
     | 'unknown-template'
-    | 'two-shifts-same-day';
+    | 'two-shifts-same-day'
+    | 'policy-hard-violation';
   employeeId?: string;
   date?: string;
   slotKey?: string;
+  policyId?: string;
   message: string;
 }
 
@@ -46,6 +50,12 @@ export interface BuilderResult {
   restDays: { employeeId: string; date: string; reason: string }[];
   /** Slots con target > 0 que NO llegaron al target (warning al manager). */
   underfilled: { slot: VirtualShiftSlot; target: number; filled: number }[];
+  /**
+   * Soft violations de policies tenant-wide. NO bloquean la generación
+   * — son señales para el manager de que el schedule puede mejorarse.
+   * Vacío si no hay PolicyEnforcementService inyectado.
+   */
+  softPolicyViolations?: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
 }
 
 /**
@@ -87,6 +97,15 @@ export class WeekScheduleBuilder {
      * al camino determinístico. Los tests pueden omitirlo.
      */
     @Optional() private readonly proposer?: LLMLineProposerService,
+    /**
+     * Opcional (Phase 14): si se inyecta, `buildWithRetries` carga las
+     * policies activas del tenant una vez por generación, las renderiza
+     * al prompt del LLM (`formatLoaded`) y corre `evaluateLoaded` post
+     * propuesta — las hard violations se mergean al `verify()` para que
+     * el verify-loop pida al LLM una corrección. Si no se inyecta, el
+     * builder se comporta como antes (no policy enforcement).
+     */
+    @Optional() private readonly policyEnforcement?: PolicyEnforcementService,
   ) {}
 
   /**
@@ -106,10 +125,21 @@ export class WeekScheduleBuilder {
     weekStart: Date;
     companyId: string;
   }): Promise<BuildWithRetriesResult> {
+    // Phase 14: cargar policies UNA vez (1 read DB) y reusarlas durante
+    // el verify-loop. Si no hay PolicyEnforcementService, todo el bloque
+    // de policies queda neutro.
+    const policies: CompanyPolicy[] = this.policyEnforcement
+      ? await this.policyEnforcement.loadActivePolicies(params.companyId)
+      : [];
+    const policyPromptBlock = this.policyEnforcement
+      ? this.policyEnforcement.formatLoaded(policies)
+      : '';
+
     // Sin proposer inyectado → directo al determinístico.
     if (!this.proposer) {
       const result = this.build(params);
-      return { ...result, attempts: 1, fellBackToDeterministic: true };
+      const softPolicyViolations = this.evaluatePolicies(result.assignments, params.slots, policies).softViolations;
+      return { ...result, softPolicyViolations, attempts: 1, fellBackToDeterministic: true };
     }
 
     let feedback: string | undefined;
@@ -122,6 +152,7 @@ export class WeekScheduleBuilder {
         rawRuleTexts: params.rawRuleTexts,
         weekStart: params.weekStart,
         feedback,
+        policyPromptBlock,
       });
 
       if (llmLines.size === 0) {
@@ -132,7 +163,7 @@ export class WeekScheduleBuilder {
       }
 
       const candidate = this.applyLines({ ...params, llmLines });
-      const violations = this.verify(
+      const baseViolations = this.verify(
         candidate.assignments,
         params.slots,
         params.semanticRules,
@@ -140,15 +171,34 @@ export class WeekScheduleBuilder {
         params.multiShiftPermits,
       );
 
+      // Phase 14: policy hard violations → al mismo bucket de violations
+      // (el verify-loop reintenta con feedback unificado).
+      const policyEval = this.evaluatePolicies(candidate.assignments, params.slots, policies);
+      const policyHardAsVerify: VerifyViolation[] = policyEval.hardViolations.map((v) => ({
+        kind: 'policy-hard-violation' as const,
+        employeeId: v.employeeId,
+        date: v.scope,
+        policyId: v.policyId,
+        message: v.message,
+      }));
+      const violations = [...baseViolations, ...policyHardAsVerify];
+
       if (violations.length === 0) {
         this.logger.log(
-          `LLM propuesta aceptada en intento ${attempt} (${candidate.assignments.length} asignaciones, ${candidate.restDays.length} rest, ${candidate.underfilled.length} underfilled).`,
+          `LLM propuesta aceptada en intento ${attempt} (${candidate.assignments.length} asignaciones, ${candidate.restDays.length} rest, ${candidate.underfilled.length} underfilled, ${policyEval.softViolations.length} soft policy).`,
         );
-        return { ...candidate, attempts: attempt, fellBackToDeterministic: false };
+        return {
+          ...candidate,
+          softPolicyViolations: policyEval.softViolations,
+          attempts: attempt,
+          fellBackToDeterministic: false,
+        };
       }
 
       this.logger.warn(
-        `LLM intento ${attempt} inválido: ${violations.length} violación(es). ${
+        `LLM intento ${attempt} inválido: ${violations.length} violación(es)${
+          policyHardAsVerify.length > 0 ? ` (incl. ${policyHardAsVerify.length} de policy)` : ''
+        }. ${
           attempt < WeekScheduleBuilder.MAX_LLM_ATTEMPTS ? 'Pidiendo corrección.' : 'Saltando a determinístico.'
         }`,
       );
@@ -161,10 +211,59 @@ export class WeekScheduleBuilder {
 
     // Fallback final: builder determinístico (sin llmLines).
     const deterministic = this.build({ ...params, llmLines: undefined });
+    const softPolicyViolations = this.evaluatePolicies(deterministic.assignments, params.slots, policies).softViolations;
     return {
       ...deterministic,
+      softPolicyViolations,
       attempts: WeekScheduleBuilder.MAX_LLM_ATTEMPTS + 1,
       fellBackToDeterministic: true,
+    };
+  }
+
+  /**
+   * Phase 14: corre `policyEnforcement.evaluateLoaded` traduciendo las
+   * `ShiftAssignment[]` propuestas a `PolicyEvaluationShift[]` (employeeId
+   * + startTime/endTime absolutos derivados del slot). Si no hay servicio
+   * inyectado o no hay policies, devuelve un resultado vacío.
+   */
+  private evaluatePolicies(
+    assignments: ShiftAssignment[],
+    slots: VirtualShiftSlot[],
+    policies: CompanyPolicy[],
+  ): {
+    hardViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
+    softViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
+  } {
+    if (!this.policyEnforcement || policies.length === 0) {
+      return { hardViolations: [], softViolations: [] };
+    }
+    const slotByKey = new Map(slots.map((s) => [s.slotKey, s]));
+    const evalShifts = assignments
+      .map((a) => {
+        const slot = slotByKey.get(a.slotKey);
+        if (!slot) return null;
+        return {
+          employeeId: a.employeeId,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        };
+      })
+      .filter((s): s is { employeeId: string; startTime: Date; endTime: Date } => s !== null);
+
+    const result = this.policyEnforcement.evaluateLoaded(policies, { shifts: evalShifts });
+    return {
+      hardViolations: result.hardViolations.map(({ policyId, employeeId, scope, message }) => ({
+        policyId,
+        employeeId,
+        scope,
+        message,
+      })),
+      softViolations: result.softViolations.map(({ policyId, employeeId, scope, message }) => ({
+        policyId,
+        employeeId,
+        scope,
+        message,
+      })),
     };
   }
 

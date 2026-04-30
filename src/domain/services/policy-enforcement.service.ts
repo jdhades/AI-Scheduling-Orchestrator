@@ -52,12 +52,21 @@ export class PolicyEnforcementService {
     private readonly registry: PolicyInterpreterRegistry,
   ) {}
 
+  /**
+   * Carga las policies activas del tenant. Útil cuando el caller necesita
+   * combinar `formatLoaded` + `evaluateLoaded` con una sola lectura DB
+   * (ej. el `WeekScheduleBuilder` durante la generación de horario).
+   */
+  async loadActivePolicies(companyId: string): Promise<CompanyPolicy[]> {
+    return this.policyRepo.findAllActiveByCompany(companyId);
+  }
+
   /** Carga + corre interpreters activos contra el schedule propuesto. */
   async evaluate(
     companyId: string,
     ctx: PolicyEvaluationContext,
   ): Promise<PolicyEvaluationResult> {
-    const policies = await this.policyRepo.findAllActiveByCompany(companyId);
+    const policies = await this.loadActivePolicies(companyId);
     return this.evaluateLoaded(policies, ctx);
   }
 
@@ -111,7 +120,7 @@ export class PolicyEnforcementService {
     return this.formatLoaded(policies);
   }
 
-  /** Variante sin lectura DB. */
+  /** Variante sin lectura DB. Devuelve string vacío si no hay policies. */
   formatLoaded(policies: CompanyPolicy[]): string {
     const hardLines: string[] = [];
     const softLines: string[] = [];
