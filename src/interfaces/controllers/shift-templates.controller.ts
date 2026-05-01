@@ -81,6 +81,13 @@ export class CreateShiftTemplateDto {
   @IsInt()
   @Min(0)
   requiredEmployees?: number | null;
+
+  /** UUID del departamento al que pertenece el template. null = company-wide. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
+  departmentId?: string | null;
 }
 
 export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
@@ -130,6 +137,12 @@ export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
   @IsInt()
   @Min(0)
   requiredEmployees?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
+  departmentId?: string | null;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -190,6 +203,7 @@ export class ShiftTemplatesController {
       undesirableWeight: UndesirableWeight.create(dto.undesirableWeight ?? 0),
       isActive: true,
       requiredEmployees: dto.requiredEmployees ?? null,
+      departmentId: dto.departmentId ?? null,
     });
 
     await this.templateRepo.save(template);
@@ -251,6 +265,7 @@ export class ShiftTemplatesController {
       undesirableWeight: t.undesirableWeight.value,
       isActive: t.isActive,
       requiredEmployees: t.requiredEmployees,
+      departmentId: t.departmentId,
     };
   }
 }

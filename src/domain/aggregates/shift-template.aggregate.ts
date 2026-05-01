@@ -158,6 +158,7 @@ export class ShiftTemplate {
       undesirableWeight: this.undesirableWeight,
       isActive: this.isActive,
       requiredEmployees: this.requiredEmployees,
+      departmentId: this.departmentId,
     };
   }
 }
