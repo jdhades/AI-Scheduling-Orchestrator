@@ -36,13 +36,28 @@ export class ScopeTargetsController {
   }
 
   @Get('departments')
-  async listDepartments(@Query('companyId') companyId: string): Promise<ScopeTarget[]> {
+  async listDepartments(
+    @Query('companyId') companyId: string,
+  ): Promise<DepartmentDto[]> {
     const { data, error } = await this.supabase
       .from('departments')
-      .select('id, name')
+      .select('id, name, branch_id, manager_employee_id')
       .eq('company_id', companyId)
       .order('name', { ascending: true });
     if (error) throw new Error(error.message);
-    return (data ?? []) as ScopeTarget[];
+    return (data ?? []).map((d: Record<string, unknown>) => ({
+      id: d.id as string,
+      name: d.name as string,
+      branchId: d.branch_id as string,
+      managerEmployeeId: (d.manager_employee_id as string | null) ?? null,
+    }));
   }
+}
+
+interface DepartmentDto {
+  id: string;
+  name: string;
+  branchId: string;
+  /** Employee designado como manager del depto. null = sin asignar. */
+  managerEmployeeId: string | null;
 }
