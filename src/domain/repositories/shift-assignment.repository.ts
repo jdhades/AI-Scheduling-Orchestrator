@@ -21,11 +21,20 @@ export interface IShiftAssignmentRepository {
   /** Borra una assignment puntual. */
   deleteById(id: string, companyId: string): Promise<void>;
 
-  /** Borra todas las assignments del rango (típicamente toda la semana). */
+  /**
+   * Borra assignments del rango.
+   *
+   * Sin `templateIds` → borra TODAS las del rango (re-generación full).
+   * Con `templateIds` → borra solo las que pertenecen a esos templates,
+   * preservando assignments de OTROS templates del mismo rango. Phase
+   * 14 — usado cuando el run es scoped a un departamento, para no pisar
+   * los horarios de departamentos no afectados.
+   */
   deleteByDateRange(
     companyId: string,
     fromDateISO: string,
     toDateISO: string,
+    templateIds?: string[],
   ): Promise<number>;
 
   /** Encuentra una assignment por su id propio (PK). */

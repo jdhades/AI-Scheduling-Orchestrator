@@ -34,6 +34,7 @@ import { GetIncidentsHandler } from './handlers/get-incidents.handler';
 import { GetIncidentByIdHandler } from './handlers/get-incident-by-id.handler';
 import { CommandMapperService } from './conversational/command-mapper.service';
 import { MessageRouterService } from './conversational/message-router.service';
+import { PolicyScopeResolver } from './conversational/policy-scope-resolver.service';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { ConversationalModule } from '../infrastructure/conversational/conversational.module';
@@ -48,6 +49,7 @@ import { PolicyInterpreterRegistry } from '../domain/services/policy-interpreter
 import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter.interface';
 import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
 import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
+import { LLMRuntimeInterpreter } from '../domain/services/policy-interpreters/llm-runtime.interpreter';
 import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
 import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
 import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
@@ -107,7 +109,7 @@ const EventHandlers = [
   AbsenceReportedHandler,
 ];
 
-const ConversationalServices = [MessageRouterService, CommandMapperService];
+const ConversationalServices = [MessageRouterService, CommandMapperService, PolicyScopeResolver];
 
 const DomainServices = [
   SemanticRetrievalService,
@@ -125,6 +127,7 @@ const DomainServices = [
   // Interfaces (que ya importa Application — sería circular).
   MinRestDaysPerWeekInterpreter,
   MinRestHoursBetweenShiftsInterpreter,
+  LLMRuntimeInterpreter,
   PolicyInterpreterRegistry,
   LlmRuleRephraseService,
   CompanyPolicyCreator,
@@ -142,6 +145,7 @@ const PolicyDomainProviders = [
     inject: [
       MinRestDaysPerWeekInterpreter,
       MinRestHoursBetweenShiftsInterpreter,
+      LLMRuntimeInterpreter,
     ],
     useFactory: (...interpreters: unknown[]) => interpreters,
   },

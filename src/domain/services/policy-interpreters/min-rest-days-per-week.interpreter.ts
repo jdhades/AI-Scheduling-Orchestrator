@@ -93,10 +93,10 @@ export class MinRestDaysPerWeekInterpreter
     return { days, holidayCounts };
   }
 
-  apply(
+  async apply(
     ctx: PolicyEvaluationContext,
     params: MinRestDaysParams,
-  ): PolicyViolation[] {
+  ): Promise<PolicyViolation[]> {
     const violations: PolicyViolation[] = [];
     // employeeId → (week → set<YYYY-MM-DD> de días con turno asignado)
     const grouped = new Map<string, Map<string, Set<string>>>();

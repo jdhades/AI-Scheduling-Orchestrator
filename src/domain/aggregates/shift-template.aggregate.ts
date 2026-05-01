@@ -17,6 +17,11 @@ export interface CreateShiftTemplateProps {
   undesirableWeight: UndesirableWeight;
   isActive: boolean;
   requiredEmployees?: number | null;
+  /**
+   * Departamento al que pertenece el template (FK a `departments.id`).
+   * Null en tenants legacy sin estructura de departments configurada.
+   */
+  departmentId?: string | null;
 }
 
 /**
@@ -48,6 +53,7 @@ export class ShiftTemplate {
     public readonly undesirableWeight: UndesirableWeight,
     public readonly isActive: boolean,
     public readonly requiredEmployees: number | null = null,
+    public readonly departmentId: string | null = null,
   ) {
     if (dayOfWeek < 0 || dayOfWeek > 6) {
       throw new Error(`Invalid dayOfWeek: ${dayOfWeek}. Must be 0–6.`);
@@ -69,6 +75,7 @@ export class ShiftTemplate {
       props.undesirableWeight,
       props.isActive,
       props.requiredEmployees ?? null,
+      props.departmentId ?? null,
     );
   }
 
@@ -151,6 +158,7 @@ export class ShiftTemplate {
       undesirableWeight: this.undesirableWeight,
       isActive: this.isActive,
       requiredEmployees: this.requiredEmployees,
+      departmentId: this.departmentId,
     };
   }
 }

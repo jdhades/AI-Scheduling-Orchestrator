@@ -29,6 +29,17 @@ import {
 import { PolicyInterpreterRegistry } from '../../domain/services/policy-interpreter-registry';
 import { CompanyPolicyCreator } from '../../domain/services/company-policy-creator.service';
 import type { RephraseSuggestion } from '../../domain/services/rule-rephrase.service.interface';
+import type { PolicyScope } from '../../domain/aggregates/company-policy.aggregate';
+
+class PolicyScopeDto {
+  @IsIn(['company', 'branch', 'department', 'employee'])
+  type!: 'company' | 'branch' | 'department' | 'employee';
+
+  /** UUID del target (branch / department / employee). NULL sii type='company'. */
+  @IsOptional()
+  @IsString()
+  id?: string | null;
+}
 
 export class CreateCompanyPolicyDto {
   @IsString()
@@ -39,6 +50,11 @@ export class CreateCompanyPolicyDto {
   @IsIn(['hard', 'soft'])
   severity!: 'hard' | 'soft';
 
+  /** Phase 14.1 — alcance de la policy. Default: tenant-wide (company). */
+  @IsOptional()
+  @IsObject()
+  scope?: PolicyScopeDto;
+
   @IsOptional()
   @IsString()
   effectiveFrom?: string;
@@ -46,6 +62,17 @@ export class CreateCompanyPolicyDto {
   @IsOptional()
   @IsString()
   createdBy?: string;
+
+  /**
+   * Si true, el creator salta el suggestion-loop (no consulta al
+   * rephrase service). Útil cuando el manager YA recibió sugerencias
+   * y prefiere guardar su texto original en vez de aceptar una de
+   * las reformulaciones propuestas — la policy cae directo a
+   * `llm_runtime` (severity=hard) o `llm_only` puro (severity=soft).
+   */
+  @IsOptional()
+  @IsBoolean()
+  skipSuggestions?: boolean;
 }
 
 export class UpdateCompanyPolicyDto {
@@ -72,6 +99,8 @@ interface CompanyPolicyResponse {
   companyId: string;
   text: string;
   severity: 'hard' | 'soft';
+  /** Phase 14.1 — alcance al que aplica la policy. */
+  scope: { type: 'company' | 'branch' | 'department' | 'employee'; id: string | null };
   params: Record<string, unknown>;
   interpreterId: string | null;
   /** True si el sistema tiene un interpreter en código que aplica esta
@@ -151,12 +180,22 @@ export class CompanyPoliciesController {
     // Toda la lógica vive en CompanyPolicyCreator (commit P1) — el
     // controller solo traduce DTO ↔ resultado HTTP. Eso permite que el
     // MessageRouter de WhatsApp reuse el mismo flow sin duplicación.
+    // Phase 14.1 — el caller puede mandar scope explícito; default tenant-wide.
+    const scope: PolicyScope | undefined = dto.scope
+      ? {
+          type: dto.scope.type,
+          id: dto.scope.type === 'company' ? null : dto.scope.id ?? null,
+        }
+      : undefined;
+
     const result = await this.creator.create({
       companyId,
       text: dto.text,
       severity: dto.severity,
+      scope,
       effectiveFrom: dto.effectiveFrom,
       createdBy: dto.createdBy ?? null,
+      skipSuggestions: dto.skipSuggestions,
     });
 
     if (result.status === 'needs_clarification') {
@@ -227,6 +266,7 @@ export class CompanyPoliciesController {
       companyId: policy.getCompanyId(),
       text: policy.getText(),
       severity: policy.getSeverity().getValue(),
+      scope: policy.getScope(),
       params: policy.getParams(),
       interpreterId: policy.getInterpreterId(),
       hasInterpreter: policy.hasInterpreter(),

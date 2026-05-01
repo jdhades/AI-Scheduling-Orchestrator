@@ -170,14 +170,14 @@ describe('PolicyEnforcementService', () => {
   });
 
   describe('evaluateLoaded() / formatLoaded()', () => {
-    it('comparten resultado con la versión async pero sin tocar DB', () => {
+    it('comparten resultado con la versión async pero sin tocar DB', async () => {
       const policies = [
         policyWithInterpreter('min_rest_hours_between_shifts', { hours: 11 }),
       ];
       const repo = makeRepo([]);
       const service = new PolicyEnforcementService(repo, registry);
 
-      const result = service.evaluateLoaded(policies, { shifts: [] });
+      const result = await service.evaluateLoaded(policies, { shifts: [] });
       const prompt = service.formatLoaded(policies);
 
       expect(result.hardViolations).toEqual([]);

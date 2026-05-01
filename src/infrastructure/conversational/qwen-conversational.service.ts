@@ -123,7 +123,7 @@ INTENCIONES DISPONIBLES:
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana que viene")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
 - create_rule: el manager dicta una regla de negocio o restricción CASO PARTICULAR (menciona un empleado, fecha o turno específico). Ej. "Pablo no trabaja los lunes", "los viernes ocupo 2 meseros", "Sofía solo turnos de tarde", "el 25 es feriado"
-- create_policy: el manager dicta una política TENANT-WIDE que aplica a TODOS los empleados (no menciona a una persona específica; usa "cada empleado", "los empleados", "todo el staff", etc.). Ej. "los empleados descansan al menos 11h entre turnos", "cada empleado tiene 2 días libres por semana", "máximo 40h semanales para todos"
+- create_policy: el manager dicta una política GENERAL que aplica a un grupo de empleados (toda la empresa, una sucursal, un departamento, o una persona). Ej. "los empleados descansan al menos 11h entre turnos" (toda la empresa), "el departamento de seguridad descansa 48h entre turnos" (departamento), "Pablo trabaja máximo 20 horas por semana" (persona). Detectá el scope del texto y poné scopeType + scopeName si se menciona alcance específico.
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -137,6 +137,8 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - ruleText: texto de la regla / política que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule O create_policy)
 - expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo, calcula la fecha final partiendo de HOY ${today}. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
+- scopeType: SOLO si intent=create_policy. Uno de "company"|"branch"|"department"|"employee" según a quién aplica la política. Default "company". Ej. "para el departamento X" → "department"; "para la sucursal Y" → "branch"; "Pablo no debe..." → "employee" (cuando es individual usar create_rule en su lugar SI menciona excepción puntual; usar create_policy SOLO si es una regla durable de N horas/días para esa persona); resto → "company".
+- scopeName: SOLO si intent=create_policy y scopeType≠"company". Nombre del target tal como lo nombra el manager (sin formatear): el departamento "seguridad", la sucursal "Centro", la persona "Pablo". MessageRouter resuelve el nombre al UUID interno.
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional (nada de marcas markdown):
 {
@@ -152,7 +154,9 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional (nada de marcas markd
     "selection": <string|null>,
     "ruleText": <string|null>,
     "expiresAt": <string|null>,
-    "detectedLanguage": <string|null>
+    "detectedLanguage": <string|null>,
+    "scopeType": <"company"|"branch"|"department"|"employee"|null>,
+    "scopeName": <string|null>
   },
   "transcription": null
 }
@@ -176,7 +180,7 @@ INTENCIONES DISPONIBLES:
 - generate_schedule: el manager quiere generar el horario de la semana (frases como "genera el horario", "crea los turnos", "planifica la semana que viene")
 - select_option: el usuario está seleccionando una opción de una lista (ej. "el número 1", "opción 2") o respondiendo (ej. "sí", "no")
 - create_rule: el manager dicta una regla de negocio o restricción CASO PARTICULAR (menciona un empleado, fecha o turno específico). Ej. "Pablo no trabaja los lunes", "los viernes ocupo 2 meseros", "Sofía solo turnos de tarde", "el 25 es feriado"
-- create_policy: el manager dicta una política TENANT-WIDE que aplica a TODOS los empleados (no menciona a una persona específica; usa "cada empleado", "los empleados", "todo el staff", etc.). Ej. "los empleados descansan al menos 11h entre turnos", "cada empleado tiene 2 días libres por semana", "máximo 40h semanales para todos"
+- create_policy: el manager dicta una política GENERAL que aplica a un grupo de empleados (toda la empresa, una sucursal, un departamento, o una persona). Ej. "los empleados descansan al menos 11h entre turnos" (toda la empresa), "el departamento de seguridad descansa 48h entre turnos" (departamento), "Pablo trabaja máximo 20 horas por semana" (persona). Detectá el scope del texto y poné scopeType + scopeName si se menciona alcance específico.
 - unknown: la intención no es clara o no corresponde a ninguna de las anteriores
 
 ENTIDADES A EXTRAER (pon null si no se menciona):
@@ -190,6 +194,8 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - ruleText: texto de la regla / política que el manager quiere añadir, limpio de saludos, en español. (si intent es create_rule O create_policy)
 - expiresAt: fecha exacta en la que la regla o evento expira y deja de tener efecto (en formato YYYY-MM-DD). Si el humano menciona un plazo, calcula la fecha final partiendo de HOY ${today}. Si es permanente, pon null.
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
+- scopeType: SOLO si intent=create_policy. Uno de "company"|"branch"|"department"|"employee" según a quién aplica. Default "company". "para el departamento X" → "department"; "para la sucursal Y" → "branch"; "Pablo no debe trabajar más de N..." → "employee"; resto → "company".
+- scopeName: SOLO si intent=create_policy y scopeType≠"company". Nombre del target tal como lo nombra el manager (sin formatear).
 
 Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas markdown):
 {
@@ -205,7 +211,9 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
     "selection": <string|null>,
     "ruleText": <string|null>,
     "expiresAt": <string|null>,
-    "detectedLanguage": <string|null>
+    "detectedLanguage": <string|null>,
+    "scopeType": <"company"|"branch"|"department"|"employee"|null>,
+    "scopeName": <string|null>
   },
   "transcription": "<transcripcion textual exacta del audio>"
 }`;

@@ -59,6 +59,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       undesirable_weight: template.undesirableWeight.value,
       is_active: template.isActive,
       required_employees: template.requiredEmployees,
+      department_id: template.departmentId,
     });
     if (error)
       throw new Error(`ShiftTemplateRepository.save failed: ${error.message}`);
@@ -82,6 +83,8 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
     if (patch.isActive !== undefined) row.is_active = patch.isActive;
     if (patch.requiredEmployees !== undefined)
       row.required_employees = patch.requiredEmployees;
+    if (patch.departmentId !== undefined)
+      row.department_id = patch.departmentId;
 
     if (Object.keys(row).length === 0) return;
 
@@ -125,6 +128,7 @@ export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository
       undesirableWeight: UndesirableWeight.create(row.undesirable_weight),
       isActive: row.is_active,
       requiredEmployees: row.required_employees ?? null,
+      departmentId: row.department_id ?? null,
     });
   }
 }

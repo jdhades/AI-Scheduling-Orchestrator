@@ -46,14 +46,25 @@ export class SupabaseShiftAssignmentRepository
     companyId: string,
     fromDateISO: string,
     toDateISO: string,
+    templateIds?: string[],
   ): Promise<number> {
-    const { data, error } = await this.supabase
+    // Si templateIds está presente pero vacío, no hay nada que borrar
+    // (evita el caso "in()" sin valores que en algunas queries
+    // PostgREST se interpreta como "true").
+    if (templateIds !== undefined && templateIds.length === 0) {
+      return 0;
+    }
+
+    let q = this.supabase
       .from('shift_assignments')
       .delete()
       .eq('company_id', companyId)
       .gte('date', fromDateISO)
-      .lte('date', toDateISO)
-      .select('id');
+      .lte('date', toDateISO);
+    if (templateIds && templateIds.length > 0) {
+      q = q.in('template_id', templateIds);
+    }
+    const { data, error } = await q.select('id');
     if (error) {
       throw new Error(
         `ShiftAssignmentRepository.deleteByDateRange: ${error.message}`,

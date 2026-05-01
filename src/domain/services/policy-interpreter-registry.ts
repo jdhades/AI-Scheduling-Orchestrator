@@ -40,9 +40,17 @@ export class PolicyInterpreterRegistry {
     this.interpreters = map;
   }
 
-  /** Lista de IDs disponibles — útil para hints al RuleRephraseService. */
+  /**
+   * Lista de IDs disponibles — útil para hints al RuleRephraseService.
+   * Excluye interpreters marcados con `catchAll=true` (ej. `llm_runtime`):
+   * no tiene sentido proponerle al manager "reformulá hacia el catch-all".
+   */
   getAvailableIds(): string[] {
-    return [...this.interpreters.keys()];
+    const ids: string[] = [];
+    for (const [id, itp] of this.interpreters) {
+      if (!itp.catchAll) ids.push(id);
+    }
+    return ids;
   }
 
   /** Lookup directo por id (cuando ya conocemos cuál usar). */

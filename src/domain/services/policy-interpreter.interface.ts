@@ -32,6 +32,18 @@ export interface PolicyEvaluationContext {
    * descubre por sí mismo.
    */
   holidayDates?: ReadonlySet<string>;
+  /**
+   * Phase 14.1 — metadata por empleado para resolver el scope de una
+   * policy. Si está presente, `PolicyEnforcementService.evaluateLoaded`
+   * filtra `shifts` antes de pasarlos al interpreter usando
+   * `policy.isApplicableTo(meta)`. Si no está, una policy con scope !=
+   * 'company' NO se puede evaluar y se reporta como warning (vuelve a
+   * fiar al LLM en el prompt).
+   */
+  employeeMeta?: ReadonlyMap<
+    string,
+    { branchId: string | null; departmentId: string | null }
+  >;
 }
 
 /** Una violación detectada por un interpreter al evaluar el schedule. */
@@ -49,6 +61,14 @@ export interface PolicyInterpreter<TParams = Record<string, unknown>> {
 
   /** Descripción humana corta — usada en docs y en la UI de admin. */
   readonly description: string;
+
+  /**
+   * Si true, el interpreter NO se ofrece como sugerencia del rephrase
+   * service (no tiene sentido proponerle al manager "reformulá hacia
+   * llm_runtime"). Sigue siendo invocable por id desde el registry, solo
+   * queda fuera de las listas públicas (`getAvailableIds()`).
+   */
+  readonly catchAll?: boolean;
 
   /**
    * ¿Este interpreter puede manejar este texto en lenguaje natural?
@@ -70,8 +90,15 @@ export interface PolicyInterpreter<TParams = Record<string, unknown>> {
    * Aplica el constraint al schedule propuesto y devuelve la lista de
    * violaciones. Lista vacía = sin violaciones. La `severity` (hard/soft)
    * la maneja el solver, no el interpreter.
+   *
+   * Devuelve `Promise<>` para soportar interpreters que invocan al LLM en
+   * runtime (catch-all `llm_runtime`). Los interpreters deterministas
+   * pueden devolver con `Promise.resolve(...)` sin costo perceptible.
    */
-  apply(ctx: PolicyEvaluationContext, params: TParams): PolicyViolation[];
+  apply(
+    ctx: PolicyEvaluationContext,
+    params: TParams,
+  ): Promise<PolicyViolation[]>;
 
   /**
    * Renderiza la policy a una línea en lenguaje natural en inglés —

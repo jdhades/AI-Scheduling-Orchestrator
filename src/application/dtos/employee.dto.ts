@@ -7,6 +7,12 @@ export interface EmployeeDto {
   role: string;
   phone: string;
   externalId: string | null;
+  /**
+   * Phase 14 — id del departamento al que pertenece. NULL para empleados
+   * transversales (managers que administran varios deptos). Empleados
+   * con `departmentId=null` NO se incluyen en la generación de horarios.
+   */
+  departmentId: string | null;
   experienceMonths: number;
   experienceLevel: 'junior' | 'intermediate' | 'senior';
   availability: { dayOfWeek: number; startTime: string; endTime: string }[];
@@ -22,6 +28,7 @@ export function toEmployeeDto(emp: Employee): EmployeeDto {
     role: emp.role,
     phone: emp.phone,
     externalId: emp.externalId ?? null,
+    departmentId: emp.departmentId ?? null,
     experienceMonths: emp.experienceMonths,
     experienceLevel: emp.experienceLevel,
     availability: emp.getAvailability().map((a) => ({

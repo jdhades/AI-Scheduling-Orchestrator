@@ -1,8 +1,10 @@
 import {
   IsDateString,
   IsIn,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsString,
   Max,
   Min,
 } from 'class-validator';
@@ -45,4 +47,23 @@ export class GenerateScheduleDto {
   @Max(1000)
   @Type(() => Number)
   maxFairnessDeviation: number = 700;
+
+  /**
+   * Phase 14 — si está, restringe el run a empleados Y templates del
+   * departamento. Sirve para que regenerar un departamento NO borre las
+   * asignaciones de otros departamentos de la misma semana.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  departmentId?: string;
+
+  /**
+   * Si está, restringe el run a un único template. Combinable con
+   * departmentId (debe pertenecer a ese depto).
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  shiftTemplateId?: string;
 }

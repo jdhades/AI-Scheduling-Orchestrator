@@ -10,5 +10,7 @@ export class GetCompanyScheduleQuery implements IQuery {
     public readonly companyId: string,
     /** ISO date del lunes de la semana (YYYY-MM-DD) */
     public readonly weekStart: string,
+    /** Opcional — filtra assignments al departamento dado. */
+    public readonly departmentId?: string,
   ) {}
 }

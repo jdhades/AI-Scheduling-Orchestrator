@@ -10,6 +10,8 @@ export interface ShiftTemplatePatch {
   undesirableWeight?: number;
   isActive?: boolean;
   requiredEmployees?: number | null;
+  /** UUID del departamento. null = company-wide. */
+  departmentId?: string | null;
 }
 
 export interface IShiftTemplateRepository {

@@ -44,8 +44,14 @@ export class LLMLineProposerService {
     /** Si está presente, se añade al prompt un bloque "Tu intento anterior
      *  violó X; corrige." para el loop de reintento del builder. */
     feedback?: string;
+    /**
+     * Bloque de policies tenant-wide ya pre-renderizado por
+     * `PolicyEnforcementService.formatLoaded(...)`. Si está presente, se
+     * inyecta al prompt en una sección dedicada (Hard / Soft / LLM-only).
+     */
+    policyPromptBlock?: string;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
-    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback } = params;
+    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock } = params;
 
     if (employees.length === 0 || slots.length === 0) {
       return new Map();
@@ -65,6 +71,7 @@ export class LLMLineProposerService {
       ruleTexts: englishRuleTexts,
       weekStart,
       feedback,
+      policyPromptBlock,
     });
 
     this.logger.log(
@@ -172,12 +179,13 @@ Expected output format:
     ruleTexts: string[];
     weekStart: Date;
     feedback?: string;
+    policyPromptBlock?: string;
   }): {
     prompt: string;
     empMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
     templateMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
   } {
-    const { employees, slots, ruleTexts, weekStart, feedback } = params;
+    const { employees, slots, ruleTexts, weekStart, feedback, policyPromptBlock } = params;
 
     // Mapeo de nombres a UUIDs. Sufijo `-xxxxxx` (6 chars del UUID) se incluye
     // SIEMPRE para que el LLM use un identificador estable y desambiguado.
@@ -199,8 +207,11 @@ Expected output format:
 
     const employeeBlock = employees
       .map((e) => {
-        const skills = e.getSkills().map((s) => s.name).join(', ') || 'ninguna';
-        return `  - ${empIdToName.get(e.id)} (skills: ${skills})`;
+        const skillNames = e.getSkills().map((s) => s.name);
+        const display = empIdToName.get(e.id);
+        return skillNames.length > 0
+          ? `  - ${display} (skills: ${skillNames.join(', ')})`
+          : `  - ${display}`;
       })
       .join('\n');
 
@@ -222,6 +233,10 @@ Expected output format:
         ? ruleTexts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
         : '  (no additional rules)';
 
+    const policiesBlock = policyPromptBlock && policyPromptBlock.trim().length > 0
+      ? `\n## Company-wide policies\n${policyPromptBlock}\n`
+      : '';
+
     const feedbackBlock = feedback
       ? `\n## Your previous attempt was invalid\n\n${feedback}\n\nFix those problems in the new response.\n`
       : '';
@@ -234,7 +249,7 @@ Every employee and shift identifier has the form \`Name-xxxxxx\`, where \`xxxxxx
 Use the FULL identifier (name + dash + suffix) EXACTLY as listed below in your JSON output. Do NOT drop, shorten, or omit the suffix — even if two identifiers share the same name.
 
 ## Employees
-Everyone has the same conditions (including the manager).
+All listed employees have the same conditions; only employees with a department are scheduled.
 ${employeeBlock}
 
 ## Shifts (valid every day of the week)
@@ -246,10 +261,10 @@ ${datesBlock}
 
 ## Specific rules for this week
 ${rulesBlock}
-
+${policiesBlock}
 ## General rules
 - One shift per employee per day.
-- On holidays everyone rests (including the manager).
+- On holidays everyone rests.
 - Vacation days count as rest days.
 - Rests: spread them across different days across employees; do not concentrate rest days on the same day.
 - Balance: avoid any employee always doing only one type of shift; alternate shift types across days.

@@ -15,5 +15,12 @@ export class GenerateHybridScheduleCommand {
     public readonly shiftTemplateId?: string,
     /** 2-letter locale for explanations/warnings ('es', 'en', ...). Default 'es'. */
     public readonly locale?: string,
+    /**
+     * Si se setea, el handler filtra templates Y empleados al dado depto
+     * (employee.departmentId === departmentId). Combinable con
+     * `shiftTemplateId`: éste último restringe aún más a un template
+     * concreto del mismo depto.
+     */
+    public readonly departmentId?: string,
   ) {}
 }

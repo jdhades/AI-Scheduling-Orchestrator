@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   CompanyPolicy,
   type CompanyPolicyProps,
+  type PolicyScopeType,
 } from '../../domain/aggregates/company-policy.aggregate';
 import type { ICompanyPolicyRepository } from '../../domain/repositories/company-policy.repository';
 import {
@@ -22,6 +23,8 @@ interface CompanyPolicyRow {
   created_by: string | null;
   created_at: string;
   deleted_at: string | null;
+  scope_type: PolicyScopeType;
+  scope_id: string | null;
 }
 
 /**
@@ -47,6 +50,8 @@ export class SupabaseCompanyPolicyRepository
       company_id: snap.companyId,
       text: snap.text,
       severity: snap.severity.getValue(),
+      scope_type: snap.scope.type,
+      scope_id: snap.scope.id,
       params: snap.params,
       interpreter_id: snap.interpreterId,
       is_active: snap.isActive,
@@ -125,6 +130,7 @@ export class SupabaseCompanyPolicyRepository
       companyId: row.company_id,
       text: row.text,
       severity: PolicySeverity.create(row.severity),
+      scope: { type: row.scope_type, id: row.scope_id },
       params: row.params ?? {},
       interpreterId: row.interpreter_id,
       isActive: row.is_active,

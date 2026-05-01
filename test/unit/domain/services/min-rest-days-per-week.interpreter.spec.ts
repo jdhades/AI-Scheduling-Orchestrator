@@ -65,8 +65,8 @@ describe('MinRestDaysPerWeekInterpreter', () => {
       endTime: new Date(`${dateStr}T${String(hour + 8).padStart(2, '0')}:00:00Z`),
     });
 
-    it('no hay violación si trabaja menos días que (7 - mínimo)', () => {
-      const violations = interpreter.apply(
+    it('no hay violación si trabaja menos días que (7 - mínimo)', async () => {
+      const violations = await interpreter.apply(
         {
           shifts: [
             shift('2026-04-20'),
@@ -82,8 +82,8 @@ describe('MinRestDaysPerWeekInterpreter', () => {
       expect(violations).toHaveLength(0);
     });
 
-    it('detecta violación si trabaja todos los días', () => {
-      const violations = interpreter.apply(
+    it('detecta violación si trabaja todos los días', async () => {
+      const violations = await interpreter.apply(
         {
           shifts: [
             shift('2026-04-20'),
@@ -103,11 +103,11 @@ describe('MinRestDaysPerWeekInterpreter', () => {
       expect(violations[0].message).toMatch(/below the minimum of 2/);
     });
 
-    it('cuando holidayCounts=false, los feriados no se cuentan como descanso', () => {
+    it('cuando holidayCounts=false, los feriados no se cuentan como descanso', async () => {
       // Trabaja 5 días (lun-vie). Sábado feriado, domingo libre.
       // Si holidayCounts=true: 2 rest days (sáb+dom) → cumple.
       // Si holidayCounts=false: 1 rest day (solo dom) → viola.
-      const violations = interpreter.apply(
+      const violations = await interpreter.apply(
         {
           shifts: [
             shift('2026-04-20'),
@@ -124,9 +124,9 @@ describe('MinRestDaysPerWeekInterpreter', () => {
       expect(violations[0].message).toMatch(/holidays excluded/);
     });
 
-    it('múltiples shifts en el mismo día cuentan como un solo día trabajado', () => {
+    it('múltiples shifts en el mismo día cuentan como un solo día trabajado', async () => {
       // Lun 2 turnos + mar-jue trabaja → 4 días distintos = 3 rest days. OK con mínimo 2.
-      const violations = interpreter.apply(
+      const violations = await interpreter.apply(
         {
           shifts: [
             shift('2026-04-20', 9),

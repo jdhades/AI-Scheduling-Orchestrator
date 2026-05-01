@@ -24,8 +24,9 @@ const SPANISH_NUMBERS: Record<string, number> = {
 
 /**
  * MinRestHoursBetweenShiftsInterpreter — "cada empleado descansa al
- * menos N horas entre turnos consecutivos". Reemplaza al hardcode
- * MIN_REST_HOURS = 11 que vivía en ConflictResolutionService.
+ * menos N horas entre turnos consecutivos". Las horas son parámetro
+ * de la policy: cada tenant las define al crearla; el sistema NO trae
+ * un default hardcoded.
  *
  * Heurística matches(): texto con (descanso|rest) + (entre turnos|between
  * shifts) + un número de horas. Idiomas: español + inglés.
@@ -84,10 +85,10 @@ export class MinRestHoursBetweenShiftsInterpreter
     return { hours };
   }
 
-  apply(
+  async apply(
     ctx: PolicyEvaluationContext,
     params: MinRestHoursParams,
-  ): PolicyViolation[] {
+  ): Promise<PolicyViolation[]> {
     const violations: PolicyViolation[] = [];
     // Agrupar shifts por empleado.
     const byEmployee = new Map<string, typeof ctx.shifts>();

@@ -34,6 +34,12 @@ export interface HybridScheduleResult {
   algorithmCorrected: number;
   explanation: string;
   warnings: string[];
+  /**
+   * Tokens consumidos durante este run (LLM-proposer + catch-all
+   * llm_runtime + traducción de rules). NO incluye los del clasificador
+   * de WhatsApp (esos calls viven fuera del scope del handler).
+   */
+  llmUsage?: { calls: number; prompt: number; completion: number; total: number };
 }
 
 /**
@@ -156,7 +162,7 @@ export class GenerateHybridScheduleHandler
       `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
         `prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
     );
-    return result;
+    return { ...result, llmUsage: usage };
   }
 
   private async runGeneration(
@@ -176,16 +182,40 @@ export class GenerateHybridScheduleHandler
       `Hybrid schedule — company=${command.companyId} week=${weekStartStr} (from input ${command.weekStart})`,
     );
 
-    const [employees, allTemplates, histories] = await Promise.all([
+    const [allEmployees, allTemplates, histories] = await Promise.all([
       this.employeeRepository.findAllByCompany(command.companyId),
       this.shiftTemplateRepository.findAllByCompany(command.companyId),
       this.fairnessRepository.findByWeek(command.companyId, weekStart),
     ]);
 
+    // Phase 14 — empleados sin departamento NO se schedulean.
+    // El manager transversal (dept=null) es ejemplo canónico.
+    const employeesWithDept = allEmployees.filter((e) => e.departmentId);
+    const skippedNoDept = allEmployees.length - employeesWithDept.length;
+    if (skippedNoDept > 0) {
+      this.logger.log(
+        `Excluded ${skippedNoDept} employee(s) without department from scheduling`,
+      );
+    }
+
+    // Si llegó departmentId (ej. flow conversacional o filtro manual),
+    // restringimos empleados Y templates a ese departamento.
+    const employees = command.departmentId
+      ? employeesWithDept.filter((e) => e.departmentId === command.departmentId)
+      : employeesWithDept;
+
     const activeTemplates = allTemplates.filter((t) => t.isActive);
-    const templates = command.shiftTemplateId
-      ? activeTemplates.filter((t) => t.id === command.shiftTemplateId)
+    const deptScopedTemplates = command.departmentId
+      ? activeTemplates.filter((t) => t.departmentId === command.departmentId)
       : activeTemplates;
+    const templates = command.shiftTemplateId
+      ? deptScopedTemplates.filter((t) => t.id === command.shiftTemplateId)
+      : deptScopedTemplates;
+    if (command.departmentId) {
+      this.logger.log(
+        `Filtered to department ${command.departmentId} — employees=${employees.length} templates=${templates.length}`,
+      );
+    }
     if (command.shiftTemplateId) {
       this.logger.log(
         `Filtered templates to ${command.shiftTemplateId} — ${templates.length} remain`,
@@ -274,17 +304,32 @@ export class GenerateHybridScheduleHandler
       multiShiftPermits: resolved.multiShiftPermits,
       weekStart,
       companyId: command.companyId,
+      runDepartmentId: command.departmentId,
     });
 
     const allAssignments = buildResult.assignments;
 
+    // Phase 14 — si el run está acotado (a un depto o a un template
+    // puntual), borramos SOLO las assignments de los templates que
+    // efectivamente vamos a regenerar. Eso preserva schedules de OTROS
+    // departamentos / templates de la misma semana.
+    const isScopedRun =
+      command.departmentId !== undefined ||
+      command.shiftTemplateId !== undefined;
+    const templateIdsToWipe = isScopedRun
+      ? templates.map((t) => t.id)
+      : undefined;
     const deletedCount = await this.assignmentRepository.deleteByDateRange(
       command.companyId,
       weekStartStr,
       weekEndStr,
+      templateIdsToWipe,
     );
     this.logger.log(
-      `Cleared ${deletedCount} previous assignments for week ${weekStartStr}–${weekEndStr}`,
+      `Cleared ${deletedCount} previous assignments for week ${weekStartStr}–${weekEndStr}` +
+        (isScopedRun
+          ? ` (scoped to ${templateIdsToWipe!.length} template(s))`
+          : ''),
     );
 
     await Promise.all(
@@ -310,6 +355,11 @@ export class GenerateHybridScheduleHandler
       warnings.push(
         this.i18nWarnUnderfilled(u.slot, u.target, u.filled, command.locale ?? 'es'),
       );
+    }
+    // Phase 14 — el builder agrega warnings cuando el verify-loop best-of-three
+    // tuvo que aceptar una propuesta con violations (LLM no convergió).
+    if (buildResult.policyWarnings && buildResult.policyWarnings.length > 0) {
+      warnings.push(...buildResult.policyWarnings);
     }
     // Nota: las reglas complex/unstructured ya NO son warnings al manager —
     // el LLM las procesa como texto libre vía `rawRuleTexts`. Si el manager

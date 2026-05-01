@@ -35,6 +35,9 @@ import {
   CompanyPolicyCreator,
   type CreateCompanyPolicyInput,
 } from '../../domain/services/company-policy-creator.service';
+import { PolicyScopeResolver } from './policy-scope-resolver.service';
+import type { PolicyScope } from '../../domain/aggregates/company-policy.aggregate';
+import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
 import { I18nService } from 'nestjs-i18n';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -86,6 +89,8 @@ export class MessageRouterService {
     private readonly pendingClarificationRepo: IWhatsappPendingClarificationRepository,
     private readonly policyPermission: WhatsappPolicyPermissionService,
     private readonly companyPolicyCreator: CompanyPolicyCreator,
+    private readonly policyScopeResolver: PolicyScopeResolver,
+    private readonly llmUsageTracker: LLMUsageTracker,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -121,6 +126,28 @@ export class MessageRouterService {
       let mergedEntities = { ...sessionEntities, ...intentEntities };
 
       let currentIntent = intent.getIntent();
+
+      // Phase 14 — durante el flow `generate_schedule` (o cuando el intent
+      // recién clasificado lo abre), acumulamos los tokens del classifier
+      // en la sesión para reportarlos en el reply final junto con los del
+      // schedule generation.
+      const isGenerateFlow =
+        sessionEntities.pendingAction === 'generate_schedule' ||
+        currentIntent === 'generate_schedule';
+      if (isGenerateFlow && this.lastClassifierUsage.calls > 0) {
+        mergedEntities.scheduleClassifierCalls =
+          (Number(sessionEntities.scheduleClassifierCalls) || 0) +
+          this.lastClassifierUsage.calls;
+        mergedEntities.scheduleClassifierPrompt =
+          (Number(sessionEntities.scheduleClassifierPrompt) || 0) +
+          this.lastClassifierUsage.prompt;
+        mergedEntities.scheduleClassifierCompletion =
+          (Number(sessionEntities.scheduleClassifierCompletion) || 0) +
+          this.lastClassifierUsage.completion;
+        mergedEntities.scheduleClassifierTotal =
+          (Number(sessionEntities.scheduleClassifierTotal) || 0) +
+          this.lastClassifierUsage.total;
+      }
 
       // Context Retention: If NLP loses context answering a clarification, inherit pending intent
       if ((currentIntent === 'unknown' || currentIntent === session.getPendingIntent()) && session.getPendingIntent()) {
@@ -486,38 +513,88 @@ export class MessageRouterService {
         return;
       }
 
-      // 4c. Handle GENERATE_SELECT_TEMPLATE
+      // 4c. Handle GENERATE_SELECT_TEMPLATE — flow jerárquico:
+      //     [SELECT_BRANCH if >1] → [SELECT_DEPARTMENT if >1] → SELECT_TEMPLATE.
+      //     Niveles con 1 sola opción se auto-seleccionan (smart-skip).
       if (mapResult.actionRequired === 'GENERATE_SELECT_TEMPLATE') {
-        const templates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+        const weekStart = mergedEntities.weekStart || this._getNextMondayStr();
+        const branches = await this._loadBranches(companyId);
+        const departments = await this._loadDepartments(companyId);
 
-        if (templates.length <= 1) {
-            const weekStart = mergedEntities.weekStart || this._getNextMondayStr();
-            const command = new GenerateHybridScheduleCommand(companyId, weekStart);
-            await this._execute(command);
-            await this.sessionRepository.clearSession(from);
-            this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
-            return;
+        // Caso degenerado: tenant sin estructura. Generamos directo (todo).
+        if (branches.length === 0 && departments.length === 0) {
+          const command = new GenerateHybridScheduleCommand(companyId, weekStart);
+          await this._execute(command);
+          await this.sessionRepository.clearSession(from);
+          this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+          return;
         }
 
-        let responseText = `Veo que tienes turnos configurados. ¿Quieres generar el horario para todos automáticamente o elegir uno en específico?\n\n`;
-        responseText += `1. Todos los turnos\n`;
-        const optionsEntities: Record<string, string> = {
+        // ── ¿Smart-skip de branch? ──
+        let chosenBranchId: string | null;
+        if (branches.length <= 1) {
+          chosenBranchId = branches[0]?.id ?? null;
+        } else {
+          // >1 sucursal — preguntar.
+          let responseText = `¿Para qué sucursal querés generar el horario?\n\n`;
+          const optionsEntities: Record<string, string> = {
             pendingAction: 'generate_schedule',
-            generateStep: 'SELECT_TEMPLATE',
-            weekStart: mergedEntities.weekStart || this._getNextMondayStr(),
-        };
-        templates.slice(0, 5).forEach((t, idx) => {
-            const num = idx + 2;
-            responseText += `${num}. ${t.name}\n`;
-            optionsEntities[`option${num}_templateId`] = t.id;
-        });
-
-        session = session.withIntent('generate_schedule', {
+            generateStep: 'SELECT_BRANCH',
+            weekStart,
+          };
+          branches.slice(0, 5).forEach((b, idx) => {
+            const num = idx + 1;
+            responseText += `${num}. ${b.name}\n`;
+            optionsEntities[`option${num}_branchId`] = b.id;
+          });
+          session = session.withIntent('generate_schedule', {
             ...mergedEntities,
-            ...optionsEntities
-        });
-        await this.sessionRepository.saveSession(session);
-        this._reply(from, responseText.trim());
+            ...optionsEntities,
+          });
+          await this.sessionRepository.saveSession(session);
+          this._reply(from, responseText.trim());
+          return;
+        }
+
+        // ── ¿Smart-skip de department? ──
+        const deptsForBranch = chosenBranchId
+          ? departments.filter((d) => d.branchId === chosenBranchId)
+          : departments;
+        let chosenDeptId: string | null;
+        if (deptsForBranch.length <= 1) {
+          chosenDeptId = deptsForBranch[0]?.id ?? null;
+        } else {
+          let responseText = `¿Para qué departamento?\n\n`;
+          const optionsEntities: Record<string, string> = {
+            pendingAction: 'generate_schedule',
+            generateStep: 'SELECT_DEPARTMENT',
+            weekStart,
+            ...(chosenBranchId ? { selectedBranchId: chosenBranchId } : {}),
+          };
+          deptsForBranch.slice(0, 5).forEach((d, idx) => {
+            const num = idx + 1;
+            responseText += `${num}. ${d.name}\n`;
+            optionsEntities[`option${num}_departmentId`] = d.id;
+          });
+          session = session.withIntent('generate_schedule', {
+            ...mergedEntities,
+            ...optionsEntities,
+          });
+          await this.sessionRepository.saveSession(session);
+          this._reply(from, responseText.trim());
+          return;
+        }
+
+        // ── SELECT_TEMPLATE (filtrado por dept si lo tenemos) ──
+        await this._promptTemplateSelection(
+          from,
+          session,
+          mergedEntities,
+          companyId,
+          weekStart,
+          chosenDeptId,
+          locale,
+        );
         return;
       }
 
@@ -604,7 +681,11 @@ export class MessageRouterService {
   }
 
   // ─── Generate Schedule Helpers ───────────────────────────────────────────
-  
+
+  /**
+   * Phase 14 — flow jerárquico (branch → department → template) con
+   * smart-skip de niveles con 1 sola opción.
+   */
   private async _handleGenerateSelection(
     from: string,
     companyId: string,
@@ -613,31 +694,239 @@ export class MessageRouterService {
     selection: string,
     locale: string,
   ): Promise<boolean> {
-     const step = sessionEntities.generateStep;
-     if (step === 'SELECT_TEMPLATE') {
-         let cmd: GenerateHybridScheduleCommand;
-         if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
-             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, undefined, locale);
-         } else {
-             const templateId = sessionEntities[`option${selection}_templateId`];
-             if (!templateId) {
-                 this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
-                 return true;
-             }
-             cmd = new GenerateHybridScheduleCommand(companyId, sessionEntities.weekStart, undefined, templateId, locale);
-         }
+    const step = sessionEntities.generateStep;
+    const weekStart = sessionEntities.weekStart;
 
-         const result = await this.commandBus.execute(cmd);
-         await this.sessionRepository.clearSession(from);
-         this._reply(from, this._formatScheduleReply(result, locale));
-         return true;
-     }
+    if (step === 'SELECT_BRANCH') {
+      const branchId = sessionEntities[`option${selection}_branchId`];
+      if (!branchId) {
+        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        return true;
+      }
+      // Avanzar a SELECT_DEPARTMENT (con smart-skip si solo hay 1).
+      const departments = (await this._loadDepartments(companyId)).filter(
+        (d) => d.branchId === branchId,
+      );
+      if (departments.length <= 1) {
+        const deptId = departments[0]?.id ?? null;
+        await this._promptTemplateSelection(
+          from,
+          session,
+          { ...sessionEntities, selectedBranchId: branchId },
+          companyId,
+          weekStart,
+          deptId,
+          locale,
+        );
+        return true;
+      }
+      let msg = `¿Para qué departamento?\n\n`;
+      const opts: Record<string, string> = {
+        pendingAction: 'generate_schedule',
+        generateStep: 'SELECT_DEPARTMENT',
+        weekStart,
+        selectedBranchId: branchId,
+      };
+      departments.slice(0, 5).forEach((d, idx) => {
+        const num = idx + 1;
+        msg += `${num}. ${d.name}\n`;
+        opts[`option${num}_departmentId`] = d.id;
+      });
+      session = session.withIntent('generate_schedule', opts);
+      await this.sessionRepository.saveSession(session);
+      this._reply(from, msg.trim());
+      return true;
+    }
 
-     return false;
+    if (step === 'SELECT_DEPARTMENT') {
+      const departmentId = sessionEntities[`option${selection}_departmentId`];
+      if (!departmentId) {
+        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        return true;
+      }
+      await this._promptTemplateSelection(
+        from,
+        session,
+        sessionEntities,
+        companyId,
+        weekStart,
+        departmentId,
+        locale,
+      );
+      return true;
+    }
+
+    if (step === 'SELECT_TEMPLATE') {
+      const departmentId = sessionEntities.selectedDepartmentId ?? undefined;
+      let cmd: GenerateHybridScheduleCommand;
+      if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
+        cmd = new GenerateHybridScheduleCommand(
+          companyId,
+          weekStart,
+          undefined,
+          undefined,
+          locale,
+          departmentId,
+        );
+      } else {
+        const templateId = sessionEntities[`option${selection}_templateId`];
+        if (!templateId) {
+          this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+          return true;
+        }
+        cmd = new GenerateHybridScheduleCommand(
+          companyId,
+          weekStart,
+          undefined,
+          templateId,
+          locale,
+          departmentId,
+        );
+      }
+      const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
+      await this.sessionRepository.clearSession(from);
+      return true;
+    }
+
+    return false;
   }
 
-  /** Formatea la respuesta del hybrid schedule incluyendo explanation + warnings. */
-  private _formatScheduleReply(result: any, locale: string): string {
+  /**
+   * Pregunta por el turno (o "todos") filtrando por el departmentId si
+   * lo tenemos. Persiste opciones numeradas en la sesión y replica al
+   * manager. Si no hay templates en el dept, ejecuta inmediatamente con
+   * todos (degenera al comportamiento legacy).
+   */
+  private async _promptTemplateSelection(
+    from: string,
+    session: ConversationSessionVO,
+    sessionEntities: Record<string, any>,
+    companyId: string,
+    weekStart: string,
+    departmentId: string | null,
+    locale: string,
+  ): Promise<void> {
+    const allTemplates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+    const templates = departmentId
+      ? allTemplates.filter((t) => (t as any).departmentId === departmentId)
+      : allTemplates;
+
+    if (templates.length === 0) {
+      const cmd = new GenerateHybridScheduleCommand(
+        companyId,
+        weekStart,
+        undefined,
+        undefined,
+        locale,
+        departmentId ?? undefined,
+      );
+      const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
+      await this.sessionRepository.clearSession(from);
+      return;
+    }
+
+    if (templates.length === 1) {
+      // Único template → no hay nada que elegir, ejecutamos.
+      const cmd = new GenerateHybridScheduleCommand(
+        companyId,
+        weekStart,
+        undefined,
+        templates[0].id,
+        locale,
+        departmentId ?? undefined,
+      );
+      const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
+      await this.sessionRepository.clearSession(from);
+      return;
+    }
+
+    let msg = `¿Qué turno generar?\n\n1. Todos los turnos\n`;
+    const opts: Record<string, string> = {
+      ...sessionEntities,
+      pendingAction: 'generate_schedule',
+      generateStep: 'SELECT_TEMPLATE',
+      weekStart,
+      ...(departmentId ? { selectedDepartmentId: departmentId } : {}),
+    };
+    templates.slice(0, 5).forEach((t, idx) => {
+      const num = idx + 2;
+      msg += `${num}. ${t.name}\n`;
+      opts[`option${num}_templateId`] = t.id;
+    });
+    session = session.withIntent('generate_schedule', opts);
+    await this.sessionRepository.saveSession(session);
+    this._reply(from, msg.trim());
+  }
+
+  /** Phase 14 — listas de branches/departments con company_id (read-only). */
+  private async _loadBranches(
+    companyId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const { data, error } = await this.supabase
+      .from('branches')
+      .select('id, name')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true });
+    if (error) {
+      this.logger.warn(`_loadBranches: ${error.message}`);
+      return [];
+    }
+    return (data ?? []) as { id: string; name: string }[];
+  }
+
+  private async _loadDepartments(
+    companyId: string,
+  ): Promise<{ id: string; name: string; branchId: string | null }[]> {
+    const { data, error } = await this.supabase
+      .from('departments')
+      .select('id, name, branch_id')
+      .eq('company_id', companyId)
+      .order('name', { ascending: true });
+    if (error) {
+      this.logger.warn(`_loadDepartments: ${error.message}`);
+      return [];
+    }
+    return (data ?? []).map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      branchId: d.branch_id ?? null,
+    }));
+  }
+
+  /**
+   * Formatea la respuesta del hybrid schedule incluyendo explanation +
+   * warnings + LLM usage (proposer + catch-all + classifier).
+   */
+  private _formatScheduleReply(
+    result: any,
+    locale: string,
+    sessionEntities?: Readonly<Record<string, any>>,
+  ): string {
+    // Phase 14 — sumar los tokens del classifier acumulados en la sesión
+    // (mensajes "generar horario" + "1" + "1" del flow jerárquico) al
+    // bloque del LLM usage para que el manager vea el costo total.
+    if (sessionEntities && result?.llmUsage) {
+      const cCalls = Number(sessionEntities.scheduleClassifierCalls) || 0;
+      const cPrompt = Number(sessionEntities.scheduleClassifierPrompt) || 0;
+      const cCompletion =
+        Number(sessionEntities.scheduleClassifierCompletion) || 0;
+      const cTotal = Number(sessionEntities.scheduleClassifierTotal) || 0;
+      if (cCalls > 0) {
+        result.llmUsage = {
+          calls: result.llmUsage.calls + cCalls,
+          prompt: result.llmUsage.prompt + cPrompt,
+          completion: result.llmUsage.completion + cCompletion,
+          total: result.llmUsage.total + cTotal,
+        };
+      }
+    }
+    return this._formatScheduleReplyInner(result, locale);
+  }
+
+  private _formatScheduleReplyInner(result: any, locale: string): string {
     let reply = this.i18n.t('bot.general.success', { lang: locale });
     if (result && typeof result === 'object' && result.explanation) {
       reply = result.explanation;
@@ -646,6 +935,23 @@ export class MessageRouterService {
       const header = this.i18n.t('bot.schedule.warnings_header', { lang: locale });
       reply += `\n\n${header}\n` +
         result.warnings.map((w: string) => `• ${w}`).join('\n');
+    }
+    // Phase 14 — incluir consumo de tokens del LLM en el reply al manager
+    // (cubre LLM-proposer + catch-all llm_runtime + traducción de reglas).
+    // No incluye los tokens del clasificador conversacional — ésos viven
+    // fuera del scope del handler.
+    if (
+      result &&
+      result.llmUsage &&
+      typeof result.llmUsage.total === 'number' &&
+      result.llmUsage.calls > 0
+    ) {
+      const u = result.llmUsage;
+      const fmt = (n: number) => n.toLocaleString('es-AR');
+      reply +=
+        `\n\n🧮 LLM: ${u.calls} llamada${u.calls === 1 ? '' : 's'} · ` +
+        `prompt ${fmt(u.prompt)} · completion ${fmt(u.completion)} · ` +
+        `total ${fmt(u.total)} tokens`;
     }
     return reply;
   }
@@ -999,26 +1305,44 @@ export class MessageRouterService {
   // ─── Private helpers ──────────────────────────────────────────────────────
 
   private async _classifyMessage(msg: IncomingMessage) {
+    // Phase 14 — envolvemos la call del classifier con un scope del
+    // LLMUsageTracker para capturar tokens. Lo guardamos en
+    // `lastClassifierUsage` para que `route()` decida si acumularlos en
+    // sesión (solo cuando el flow del manager es generate_schedule, así
+    // el reply final puede mostrar el costo total incluyendo classifier).
     const isAudio = msg.mimeType?.startsWith('audio/') && msg.mediaUrl;
     const isText = !!msg.body && !msg.mediaUrl;
 
-    if (isText) {
-      return this.conversationalService.processText(msg.body!);
+    if (!isText && !isAudio) {
+      this.logger.warn(`Unsupported media type: ${msg.mimeType}`);
+      this.lastClassifierUsage = { calls: 0, prompt: 0, completion: 0, total: 0 };
+      return ConversationIntentVO.unknown('unsupported');
     }
 
-    if (isAudio) {
+    const { result, usage } = await this.llmUsageTracker.run(async () => {
+      if (isText) return this.conversationalService.processText(msg.body!);
       return this.conversationalService.processAudio(
         msg.mediaUrl!,
         msg.mimeType!,
         msg.twilioSid,
         msg.twilioToken,
       );
-    }
-
-    // Image, document, location — not supported
-    this.logger.warn(`Unsupported media type: ${msg.mimeType}`);
-    return ConversationIntentVO.unknown('unsupported');
+    });
+    this.lastClassifierUsage = usage;
+    return result;
   }
+
+  /**
+   * Tokens consumidos por el último call al classifier. Set por
+   * `_classifyMessage`, leído por `route()` para acumular en la sesión
+   * cuando el flow es `generate_schedule`.
+   */
+  private lastClassifierUsage: { calls: number; prompt: number; completion: number; total: number } = {
+    calls: 0,
+    prompt: 0,
+    completion: 0,
+    total: 0,
+  };
 
   private async _execute(command: object): Promise<string | void> {
     if (command instanceof GetMyScheduleQuery) {
@@ -1341,10 +1665,20 @@ export class MessageRouterService {
       return true;
     }
 
+    // Phase 14.2 — resolver scope si el LLM lo extrajo del texto.
+    const resolvedScope = await this.policyScopeResolver.resolve({
+      companyId,
+      scopeType: mergedEntities.scopeType as PolicyScope['type'] | undefined,
+      scopeName: mergedEntities.scopeName,
+    });
+    const scope = resolvedScope.scope;
+    const scopeLabel = this._formatScopeLabel(scope, resolvedScope.targetName);
+
     const input: CreateCompanyPolicyInput = {
       companyId,
       text,
       severity: 'hard',
+      scope,
       createdBy: employeeId,
     };
     const result = await this.companyPolicyCreator.create(input);
@@ -1375,6 +1709,10 @@ export class MessageRouterService {
       session = session.withIntent('create_policy_clarification', {
         pendingAction: 'create_policy_clarification',
         policySeverity: 'hard',
+        // Phase 14.2 — recordamos el scope resuelto para que la elección
+        // de la sugerencia (handler de clarification) lo pueda reusar.
+        policyScopeType: scope.type,
+        policyScopeId: scope.id ?? '',
       });
       await this.sessionRepository.saveSession(session);
 
@@ -1382,6 +1720,7 @@ export class MessageRouterService {
       result.suggestions.forEach((s, i) => {
         msg += `${i + 1}. ${s.suggestedText}\n`;
       });
+      msg += scopeLabel ? `\n_(Alcance detectado: ${scopeLabel})_\n` : '';
       msg += '\n_Respondé con el número (1, 2, 3...) o escribí una nueva política._';
       this._reply(from, msg);
       return true;
@@ -1389,20 +1728,36 @@ export class MessageRouterService {
 
     // status === 'created'
     await this.sessionRepository.clearSession(from);
+    const scopeSuffix = scopeLabel ? ` (alcance: ${scopeLabel})` : '';
     if (result.mode === 'matched') {
       this._reply(
         from,
-        `✅ Política creada y aplicable directamente: "${result.policy.getText()}"`,
+        `✅ Política creada y aplicable directamente${scopeSuffix}: "${result.policy.getText()}"`,
       );
     } else {
       // mode === 'llm_only' — guardamos pero el solver no la aplica
       // determinísticamente; advertimos al manager.
       this._reply(
         from,
-        `⚠️ Política guardada como LLM-only: "${result.policy.getText()}". El scheduler determinístico no la aplica directo; solo la considera al pasarla al LLM. Si querés que se aplique automáticamente, reformulala matcheando un patrón estructurado.`,
+        `⚠️ Política guardada como LLM-only${scopeSuffix}: "${result.policy.getText()}". El scheduler determinístico no la aplica directo; solo la considera al pasarla al LLM. Si querés que se aplique automáticamente, reformulala matcheando un patrón estructurado.`,
       );
     }
     return true;
+  }
+
+  /**
+   * Phase 14.2 — render legible del scope para el reply al manager.
+   * Devuelve null para scope=company (no hace falta decoración).
+   */
+  private _formatScopeLabel(scope: PolicyScope, targetName: string | null): string | null {
+    if (scope.type === 'company') return null;
+    const label =
+      scope.type === 'branch'
+        ? 'sucursal'
+        : scope.type === 'department'
+          ? 'departamento'
+          : 'empleado';
+    return targetName ? `${label} "${targetName}"` : label;
   }
 
   /**
@@ -1454,10 +1809,27 @@ export class MessageRouterService {
     await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
 
     const severity = (sessionEntities.policySeverity ?? 'hard') as 'hard' | 'soft';
+    // Phase 14.2 — recuperamos el scope decidido cuando se abrió el loop.
+    const persistedScopeType = sessionEntities.policyScopeType as
+      | PolicyScope['type']
+      | undefined;
+    const persistedScopeId = sessionEntities.policyScopeId;
+    const scope: PolicyScope | undefined = persistedScopeType
+      ? {
+          type: persistedScopeType,
+          id:
+            persistedScopeType === 'company'
+              ? null
+              : persistedScopeId && persistedScopeId.length > 0
+                ? persistedScopeId
+                : null,
+        }
+      : undefined;
     const result = await this.companyPolicyCreator.create({
       companyId,
       text: pick.suggestedText,
       severity,
+      scope,
       createdBy: employeeId,
     });
 

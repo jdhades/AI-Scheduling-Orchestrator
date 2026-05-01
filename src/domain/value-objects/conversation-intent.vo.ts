@@ -37,6 +37,14 @@ export interface IntentEntities {
   ruleText?: string; // the rule dictated by the manager
   expiresAt?: string; // ISO 8601 date (YYYY-MM-DD) when the rule expires, if applicable
   detectedLanguage?: string; // ISO 639-1 code (e.g. 'en', 'es', 'pt')
+  /**
+   * Phase 14.2 — alcance al que aplica la policy/regla (sólo create_policy).
+   * El LLM lo extrae del texto del manager: "para el departamento de seguridad"
+   * → scopeType="department", scopeName="seguridad". MessageRouter resuelve
+   * scopeName → scope_id contra la BD del tenant.
+   */
+  scopeType?: 'company' | 'branch' | 'department' | 'employee';
+  scopeName?: string;
   [key: string]: any; // Allow dynamic properties for session state
 }
 
@@ -56,6 +64,9 @@ export class ConversationIntentVO {
     'generate_schedule',
     'select_option',
     'create_rule',
+    'create_rule_clarification',
+    'create_policy',
+    'create_policy_clarification',
     'system_unavailable',
     'unknown',
   ];
