@@ -115,6 +115,26 @@ export class ShiftSwapRequestsController {
       targetId: dto.targetId,
       assignmentId: dto.assignmentId ?? null,
     });
+
+    // Phase 15.3 — auto-approve toggle. Si el depto del requester tiene
+    // `swap_auto_approve = true`, marcamos el request como accepted antes
+    // de persistir. Tag `approved_by = system:auto-approve` para que el
+    // panel/audit lo distinga de aprobaciones manuales.
+    if (requester.department_id) {
+      const dept = await this.supabase
+        .from('departments')
+        .select('swap_auto_approve')
+        .eq('id', requester.department_id)
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (dept.error) {
+        throw new Error(dept.error.message);
+      }
+      if (dept.data?.swap_auto_approve === true) {
+        req.accept('system:auto-approve');
+      }
+    }
+
     await this.repo.save(req);
     return this.toDto(req);
   }
@@ -192,6 +212,7 @@ export class ShiftSwapRequestsController {
       targetId: r.targetId,
       assignmentId: r.assignmentId,
       status: r.status,
+      approvedBy: r.approvedBy,
       createdAt: r.createdAt.toISOString(),
     };
   }

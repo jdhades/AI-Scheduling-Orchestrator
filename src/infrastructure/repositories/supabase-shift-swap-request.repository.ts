@@ -23,6 +23,7 @@ export class SupabaseShiftSwapRequestRepository
       shift_assignment_id: req.assignmentId,
       status: req.status,
       created_at: req.createdAt.toISOString(),
+      approved_by: req.approvedBy,
     });
     if (error)
       throw new Error(`ShiftSwapRequestRepository.save: ${error.message}`);

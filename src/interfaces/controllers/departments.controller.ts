@@ -11,7 +11,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateIf,
+} from 'class-validator';
 
 /**
  * DepartmentsController — write operations sobre departments.
@@ -43,6 +49,16 @@ export class UpdateDepartmentDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  /**
+   * Phase 15.3 — si true, los swap requests originados por empleados
+   * del depto se aprueban automáticamente sin esperar al manager. El
+   * flag vive a nivel depto: cada manager controla la política de su
+   * equipo (Retail puede confiar, Seguridad puede exigir aprobación).
+   */
+  @IsOptional()
+  @IsBoolean()
+  swapAutoApprove?: boolean;
 }
 
 @Controller('departments')
@@ -67,10 +83,10 @@ export class DepartmentsController {
     @Param('id') id: string,
     @Query('companyId') companyId: string,
     @Body() dto: UpdateDepartmentDto,
-  ): Promise<{ id: string; managerEmployeeId: string | null; name: string }> {
+  ): Promise<DepartmentMutateResponse> {
     const existing = await this.supabase
       .from('departments')
-      .select('id, name, manager_employee_id')
+      .select('id, name, manager_employee_id, swap_auto_approve')
       .eq('id', id)
       .eq('company_id', companyId)
       .maybeSingle();
@@ -101,6 +117,9 @@ export class DepartmentsController {
     if (dto.name !== undefined) {
       patch.name = dto.name.trim();
     }
+    if (dto.swapAutoApprove !== undefined) {
+      patch.swap_auto_approve = dto.swapAutoApprove;
+    }
 
     if (Object.keys(patch).length === 0) {
       // Nada que actualizar — devolvemos el estado actual.
@@ -109,6 +128,8 @@ export class DepartmentsController {
         name: existing.data.name,
         managerEmployeeId:
           (existing.data.manager_employee_id as string | null) ?? null,
+        swapAutoApprove:
+          (existing.data.swap_auto_approve as boolean | null) ?? false,
       };
     }
 
@@ -117,7 +138,7 @@ export class DepartmentsController {
       .update(patch)
       .eq('id', id)
       .eq('company_id', companyId)
-      .select('id, name, manager_employee_id')
+      .select('id, name, manager_employee_id, swap_auto_approve')
       .single();
     if (updated.error) throw new Error(updated.error.message);
 
@@ -126,6 +147,15 @@ export class DepartmentsController {
       name: updated.data.name,
       managerEmployeeId:
         (updated.data.manager_employee_id as string | null) ?? null,
+      swapAutoApprove:
+        (updated.data.swap_auto_approve as boolean | null) ?? false,
     };
   }
+}
+
+interface DepartmentMutateResponse {
+  id: string;
+  name: string;
+  managerEmployeeId: string | null;
+  swapAutoApprove: boolean;
 }
