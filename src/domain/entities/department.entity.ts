@@ -7,6 +7,11 @@ export class Department {
     public readonly companyId: string,
     public readonly name: string,
     public readonly workingTimeOverrides: WorkingTimePolicyOverrides = {},
+    /**
+     * Employee designado como manager del depto. NULL = sin asignar
+     * (fallback a "cualquier manager del tenant" en el routing).
+     */
+    public readonly managerEmployeeId: string | null = null,
     public readonly createdAt: Date = new Date(),
   ) {}
 
@@ -16,6 +21,7 @@ export class Department {
     companyId: string;
     name: string;
     workingTimeOverrides?: WorkingTimePolicyOverrides;
+    managerEmployeeId?: string | null;
   }): Department {
     return new Department(
       props.id,
@@ -23,6 +29,7 @@ export class Department {
       props.companyId,
       props.name,
       props.workingTimeOverrides ?? {},
+      props.managerEmployeeId ?? null,
     );
   }
 }

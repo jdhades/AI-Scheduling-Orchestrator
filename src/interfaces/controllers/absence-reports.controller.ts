@@ -23,6 +23,7 @@ import {
   type IAbsenceReportRepository,
 } from '../../domain/repositories/absence-report.repository';
 import { AbsenceReport } from '../../domain/aggregates/absence-report.aggregate';
+import { ManagerScopeService } from '../../application/services/manager-scope.service';
 
 // IDs validados como strings no vacíos (la seed data del proyecto usa
 // formato UUID-shape no estricto RFC 4122 — @IsUUID los rechazaría).
@@ -62,6 +63,7 @@ export class AbsenceReportsController {
   constructor(
     @Inject(ABSENCE_REPORT_REPOSITORY)
     private readonly repo: IAbsenceReportRepository,
+    private readonly managerScope: ManagerScopeService,
   ) {}
 
   @Post()
@@ -88,6 +90,7 @@ export class AbsenceReportsController {
     @Query('employeeId') employeeId?: string,
     @Query('isUrgent') isUrgent?: string,
     @Query('from') fromISO?: string,
+    @Query('managerEmployeeId') managerEmployeeId?: string,
   ): Promise<object[]> {
     const rows = await this.repo.findAllByCompany(companyId, {
       employeeId,
@@ -95,6 +98,15 @@ export class AbsenceReportsController {
         isUrgent === undefined ? undefined : isUrgent === 'true',
       fromISO,
     });
+    if (managerEmployeeId) {
+      const scope = await this.managerScope.getEmployeeIdsForManager(
+        companyId,
+        managerEmployeeId,
+      );
+      return rows
+        .filter((r) => scope.has(r.employeeId))
+        .map((r) => this.toDto(r));
+    }
     return rows.map((r) => this.toDto(r));
   }
 

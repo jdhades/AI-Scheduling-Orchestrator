@@ -6,11 +6,17 @@ import type { INotificationService } from '../../domain/services/notification.se
 import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
+import { ManagerNotificationService } from '../services/manager-notification.service';
 
 /**
  * ShiftSwapRequestedHandler
  *
- * Notifies both employees via WhatsApp when a swap is requested.
+ * Notifica:
+ *   - Al target employee (que su compañero le pide swap).
+ *   - Al requester (confirmación).
+ *   - Phase 15.2: Al manager del depto del requester (para que
+ *     pueda aprobar/rechazar). Antes nadie le avisaba al manager
+ *     y el swap se quedaba en pending hasta que abriera el panel.
  */
 @EventsHandler(ShiftSwapRequestedEvent)
 export class ShiftSwapRequestedHandler implements IEventHandler<ShiftSwapRequestedEvent> {
@@ -22,6 +28,7 @@ export class ShiftSwapRequestedHandler implements IEventHandler<ShiftSwapRequest
     @Inject(NOTIFICATION_SERVICE)
     private readonly notificationService: INotificationService,
     private readonly i18n: I18nService,
+    private readonly managerNotifications: ManagerNotificationService,
   ) {}
 
   async handle(event: ShiftSwapRequestedEvent): Promise<void> {
@@ -56,6 +63,22 @@ export class ShiftSwapRequestedHandler implements IEventHandler<ShiftSwapRequest
           lang: requester.locale,
           args: { targetName: target.name },
         }),
+      );
+
+      // Phase 15.2 — alertar al manager del depto del requester.
+      // Mensaje en es-AR (bot del proyecto). Si querés multi-locale,
+      // mover a i18n con namespace `bot.swap.notification_manager`.
+      const managerMessage =
+        '🔄 *Solicitud de intercambio de turno*\n\n' +
+        `*Solicitante:* ${requester.name} (${requester.phone})\n` +
+        `*Destinatario:* ${target.name} (${target.phone})\n` +
+        `*Turno:* ${shiftId}\n\n` +
+        'Aprobá o rechazá desde el panel.';
+
+      await this.managerNotifications.notifyManagerForEmployee(
+        companyId,
+        requesterId,
+        managerMessage,
       );
     } catch (err) {
       this.logger.error(

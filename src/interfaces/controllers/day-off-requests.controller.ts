@@ -20,6 +20,7 @@ import {
   DayOffRequest,
   type DayOffRequestStatus,
 } from '../../domain/aggregates/day-off-request.aggregate';
+import { ManagerScopeService } from '../../application/services/manager-scope.service';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -51,6 +52,7 @@ export class DayOffRequestsController {
   constructor(
     @Inject(DAY_OFF_REQUEST_REPOSITORY)
     private readonly repo: IDayOffRequestRepository,
+    private readonly managerScope: ManagerScopeService,
   ) {}
 
   @Post()
@@ -77,6 +79,7 @@ export class DayOffRequestsController {
     @Query('status') status?: string,
     @Query('from') fromDate?: string,
     @Query('to') toDate?: string,
+    @Query('managerEmployeeId') managerEmployeeId?: string,
   ): Promise<object[]> {
     const statusList = status
       ? (status.split(',').map((s) => s.trim()) as DayOffRequestStatus[])
@@ -87,6 +90,15 @@ export class DayOffRequestsController {
       fromDate,
       toDate,
     });
+    if (managerEmployeeId) {
+      const scope = await this.managerScope.getEmployeeIdsForManager(
+        companyId,
+        managerEmployeeId,
+      );
+      return rows
+        .filter((r) => scope.has(r.employeeId))
+        .map((r) => this.toDto(r));
+    }
     return rows.map((r) => this.toDto(r));
   }
 

@@ -17,6 +17,7 @@ import { GetIncidentsQuery } from '../../application/queries/get-incidents.query
 import { GetIncidentByIdQuery } from '../../application/queries/get-incident-by-id.query';
 import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 import type { IncidentStatus } from '../../domain/aggregates/incident.aggregate';
+import { ManagerScopeService } from '../../application/services/manager-scope.service';
 
 export class CreateIncidentDto {
   @IsString()
@@ -63,6 +64,7 @@ export class IncidentsController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly managerScope: ManagerScopeService,
   ) {}
 
   @Post()
@@ -90,17 +92,26 @@ export class IncidentsController {
     @Query('companyId') companyIdQuery?: string,
     @Query('employeeId') employeeId?: string,
     @Query('status') status?: string,
+    @Query('managerEmployeeId') managerEmployeeId?: string,
   ): Promise<unknown[]> {
     const companyId = companyIdHeader || companyIdQuery || '';
     const statusList = status
       ? (status.split(',').map((s) => s.trim()) as IncidentStatus[])
       : undefined;
-    return this.queryBus.execute(
+    const rows = (await this.queryBus.execute(
       new GetIncidentsQuery(companyId, {
         employeeId,
         status: statusList && statusList.length === 1 ? statusList[0] : statusList,
       }),
-    );
+    )) as Array<{ employeeId: string }>;
+    if (managerEmployeeId) {
+      const scope = await this.managerScope.getEmployeeIdsForManager(
+        companyId,
+        managerEmployeeId,
+      );
+      return rows.filter((r) => scope.has(r.employeeId));
+    }
+    return rows;
   }
 
   @Get(':id')
