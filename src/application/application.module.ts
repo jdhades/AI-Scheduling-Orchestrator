@@ -58,6 +58,8 @@ import { StructuredRuleResolver } from '../domain/services/structured-rule-resol
 import { ShiftSlotGeneratorService } from '../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.service';
 import { LLMLineProposerService } from '../domain/services/llm-line-proposer.service';
+import { ManagerScopeService } from './services/manager-scope.service';
+import { ManagerNotificationService } from './services/manager-notification.service';
 
 /**
  * ApplicationModule
@@ -135,6 +137,13 @@ const DomainServices = [
   // cuando esté listo para consumir policies activas (evaluate() para
   // verificación post-generation, formatForPrompt() para el LLM repair).
   PolicyEnforcementService,
+  // Phase 15.2 — resuelve "qué empleados ve un manager" para filtrar
+  // las listas de approvals (swap/absence/incident/day-off).
+  ManagerScopeService,
+  // Phase 15.2 — resuelve a qué manager mandar la notificación WhatsApp
+  // de una approval (origen = depto del employee). Reemplaza el env var
+  // global MANAGER_WHATSAPP_NUMBER.
+  ManagerNotificationService,
 ];
 
 const PolicyDomainProviders = [

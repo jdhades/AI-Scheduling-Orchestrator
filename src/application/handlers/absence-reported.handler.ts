@@ -1,30 +1,30 @@
 import { EventsHandler, IEventHandler } from '@nestjs/cqrs';
 import { Inject, Logger } from '@nestjs/common';
 import { AbsenceReportedEvent } from '../../domain/events/absence-reported.event';
-import type { INotificationService } from '../../domain/services/notification.service';
-import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
+import { ManagerNotificationService } from '../services/manager-notification.service';
 
 /**
  * AbsenceReportedHandler
  *
- * Notifies the manager when an absence is reported.
- * If isUrgent (shift starts in < 2 hours), escalates with a 🚨 alert.
+ * Notifica al manager cuando se reporta una ausencia. Phase 15.2 —
+ * en vez del env var global `MANAGER_WHATSAPP_NUMBER`, usa
+ * `ManagerNotificationService.notifyManagerForEmployee` que resuelve
+ * el manager correcto según el depto del empleado origen
+ * (con fallback al env var legacy si el tenant no configuró deptos).
+ *
+ * Si `isUrgent` (turno < 2h), prefijo con 🚨.
  */
 @EventsHandler(AbsenceReportedEvent)
 export class AbsenceReportedHandler implements IEventHandler<AbsenceReportedEvent> {
   private readonly logger = new Logger(AbsenceReportedHandler.name);
-  private readonly managerPhone: string;
 
   constructor(
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepo: IEmployeeRepository,
-    @Inject(NOTIFICATION_SERVICE)
-    private readonly notificationService: INotificationService,
-  ) {
-    this.managerPhone = process.env.MANAGER_WHATSAPP_NUMBER ?? '';
-  }
+    private readonly managerNotifications: ManagerNotificationService,
+  ) {}
 
   async handle(event: AbsenceReportedEvent): Promise<void> {
     const { employeeId, shiftId, reason, companyId, isUrgent } = event;
@@ -46,13 +46,11 @@ export class AbsenceReportedHandler implements IEventHandler<AbsenceReportedEven
           ? '🔴 Se necesita reemplazo urgente.'
           : 'Se necesita reasignar el turno.');
 
-      if (this.managerPhone) {
-        await this.notificationService.sendWhatsApp(this.managerPhone, message);
-      } else {
-        this.logger.warn(
-          'MANAGER_WHATSAPP_NUMBER not configured — manager not notified',
-        );
-      }
+      await this.managerNotifications.notifyManagerForEmployee(
+        companyId,
+        employeeId,
+        message,
+      );
     } catch (err) {
       this.logger.error(
         `AbsenceReportedHandler failed: ${(err as Error).message}`,

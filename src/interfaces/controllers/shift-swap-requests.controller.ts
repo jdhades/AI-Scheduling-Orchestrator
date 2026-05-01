@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -10,6 +11,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   IsNotEmpty,
   IsOptional,
@@ -25,6 +27,7 @@ import {
   ShiftSwapRequest,
   type ShiftSwapRequestStatus,
 } from '../../domain/aggregates/shift-swap-request.aggregate';
+import { ManagerScopeService } from '../../application/services/manager-scope.service';
 
 export class CreateShiftSwapRequestDto {
   @IsString()
@@ -58,6 +61,9 @@ export class ShiftSwapRequestsController {
   constructor(
     @Inject(SHIFT_SWAP_REQUEST_REPOSITORY)
     private readonly repo: IShiftSwapRequestRepository,
+    private readonly managerScope: ManagerScopeService,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   @Post()
@@ -66,6 +72,42 @@ export class ShiftSwapRequestsController {
     @Query('companyId') companyId: string,
     @Body() dto: CreateShiftSwapRequestDto,
   ): Promise<object> {
+    // Phase 15.2 — cross-department swap guard. Si los dos employees
+    // pertenecen a depts distintos rechazamos: el manager de cada depto
+    // tendría que coordinar y la auditoría se vuelve confusa. Si uno (o
+    // los dos) no tiene depto, lo permitimos (legacy / managers tenant-
+    // wide).
+    const empPair = await this.supabase
+      .from('employees')
+      .select('id, department_id, company_id')
+      .eq('company_id', companyId)
+      .in('id', [dto.requesterId, dto.targetId]);
+    if (empPair.error) {
+      throw new Error(empPair.error.message);
+    }
+    const employees = empPair.data ?? [];
+    const requester = employees.find((e) => e.id === dto.requesterId);
+    const target = employees.find((e) => e.id === dto.targetId);
+    if (!requester) {
+      throw new BadRequestException(
+        `Requester ${dto.requesterId} not found in company`,
+      );
+    }
+    if (!target) {
+      throw new BadRequestException(
+        `Target ${dto.targetId} not found in company`,
+      );
+    }
+    if (
+      requester.department_id &&
+      target.department_id &&
+      requester.department_id !== target.department_id
+    ) {
+      throw new BadRequestException(
+        'Cross-department swaps are not supported. Requester and target must belong to the same department.',
+      );
+    }
+
     const req = ShiftSwapRequest.create({
       id: randomUUID(),
       companyId,
@@ -83,6 +125,7 @@ export class ShiftSwapRequestsController {
     @Query('requesterId') requesterId?: string,
     @Query('targetId') targetId?: string,
     @Query('status') status?: string,
+    @Query('managerEmployeeId') managerEmployeeId?: string,
   ): Promise<object[]> {
     const statusList = status
       ? (status.split(',').map((s) => s.trim()) as ShiftSwapRequestStatus[])
@@ -92,6 +135,18 @@ export class ShiftSwapRequestsController {
       targetId,
       status: statusList && statusList.length === 1 ? statusList[0] : statusList,
     });
+    // Phase 15.2 — filter por manager: si vino el query, filtramos a los
+    // requests cuyo `requesterId` esté en el scope del manager (su depto
+    // + depts sin manager asignado).
+    if (managerEmployeeId) {
+      const scope = await this.managerScope.getEmployeeIdsForManager(
+        companyId,
+        managerEmployeeId,
+      );
+      return rows
+        .filter((r) => scope.has(r.requesterId))
+        .map((r) => this.toDto(r));
+    }
     return rows.map((r) => this.toDto(r));
   }
 
