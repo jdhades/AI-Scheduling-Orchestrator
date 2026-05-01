@@ -356,6 +356,11 @@ export class GenerateHybridScheduleHandler
         this.i18nWarnUnderfilled(u.slot, u.target, u.filled, command.locale ?? 'es'),
       );
     }
+    // Phase 14 — el builder agrega warnings cuando el verify-loop best-of-three
+    // tuvo que aceptar una propuesta con violations (LLM no convergió).
+    if (buildResult.policyWarnings && buildResult.policyWarnings.length > 0) {
+      warnings.push(...buildResult.policyWarnings);
+    }
     // Nota: las reglas complex/unstructured ya NO son warnings al manager —
     // el LLM las procesa como texto libre vía `rawRuleTexts`. Si el manager
     // quiere enforcement garantizado, debe expresarlas en términos
