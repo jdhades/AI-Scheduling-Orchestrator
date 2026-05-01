@@ -72,9 +72,25 @@ export class CompanyPolicyCreator {
   ): Promise<CompanyPolicyCreationResult> {
     const text = input.text.trim();
 
-    // Caso 1: interpreter matchea → extrae params y persiste.
+    // Caso 1: interpreter matchea → extrae params, valida que la
+    // estructura preserva la intención completa, y persiste.
+    //
+    // Phase 14 — el matching es ciego a matices del lenguaje natural.
+    // Ej. "2 días libres NO CONSECUTIVOS" matchea con
+    // `min_rest_days_per_week`, pero el interpreter solo cuenta
+    // cantidad — pierde "no consecutivos". Antes de aceptar el match
+    // verificamos que no se hayan perdido matices; si los hay y la
+    // policy es hard, caemos al catch-all llm_runtime.
     const interpreter = this.registry.findMatch(text);
     if (interpreter) {
+      const params = await interpreter.extractParams(text);
+      const intentPreserved = await this.matchPreservesIntent({
+        text,
+        interpreterId: interpreter.id,
+        interpreterDescription: interpreter.description,
+        extractedParams: params,
+      });
+
       const policy = CompanyPolicy.create({
         companyId: input.companyId,
         text,
@@ -83,10 +99,25 @@ export class CompanyPolicyCreator {
         effectiveFrom: input.effectiveFrom,
         createdBy: input.createdBy ?? null,
       });
-      const params = await interpreter.extractParams(text);
-      policy.attachInterpreter(interpreter.id, params);
+
+      if (intentPreserved) {
+        policy.attachInterpreter(interpreter.id, params);
+        await this.policyRepo.save(policy);
+        return { status: 'created', policy, mode: 'matched' };
+      }
+
+      // Matices perdidos. Si severity=hard, enchufamos llm_runtime
+      // (preserva el texto original). Si severity=soft, queda LLM-only
+      // puro — el texto viaja al prompt sin enforcement deterministico.
+      if (input.severity === 'hard' && this.registry.getById('llm_runtime')) {
+        const englishText = await this.translateToEnglish(text);
+        policy.attachInterpreter('llm_runtime', {
+          originalText: text,
+          englishText,
+        });
+      }
       await this.policyRepo.save(policy);
-      return { status: 'created', policy, mode: 'matched' };
+      return { status: 'created', policy, mode: 'llm_only' };
     }
 
     // Caso 2: ningún interpreter — pedimos sugerencias verificadas.
@@ -140,6 +171,73 @@ export class CompanyPolicyCreator {
 
     await this.policyRepo.save(policy);
     return { status: 'created', policy, mode: 'llm_only' };
+  }
+
+  /**
+   * Phase 14 — verifica que el matching estructurado preserve la
+   * intención completa del manager. Cuando el `findMatch` agarra un
+   * texto y `extractParams` produce números, el resto del texto puede
+   * tener matices (temporales, condicionales, compuestos) que el
+   * interpreter no contempla. Si el LLM detecta esa pérdida, devolvemos
+   * `false` para que el creator caiga al catch-all `llm_runtime`.
+   *
+   * Fail-open: si el LLM falla o devuelve forma inválida, devolvemos
+   * `true` (preferimos enforcement determinístico que bloqueo total).
+   */
+  private async matchPreservesIntent(input: {
+    text: string;
+    interpreterId: string;
+    interpreterDescription: string;
+    extractedParams: Record<string, unknown>;
+  }): Promise<boolean> {
+    const prompt = `You are auditing whether a structured policy interpreter would FULLY capture the manager's intent or LOSE NUANCES.
+
+Original policy (manager's natural language):
+${input.text}
+
+Proposed structured handler:
+- id: ${input.interpreterId}
+- description: ${input.interpreterDescription}
+- extracted parameters: ${JSON.stringify(input.extractedParams)}
+
+The structured handler enforces ONLY what its description and parameters can express. Anything in the original text that is NOT covered by them will be LOST. Common nuances that get lost:
+- temporal distribution (e.g. "not consecutive", "spread out", "every other day")
+- conditional applicability (e.g. "except seniors", "except holidays", "after 6 months")
+- compound rules (e.g. "and also...", "but only when...")
+
+Decide: does the structured handler with these parameters fully preserve the manager's intent, or does it lose meaningful nuances?
+
+Respond with ONLY a JSON object, no prose, no code fences:
+{"fullyCovered": true|false, "reason": "<one short sentence>"}`;
+
+    try {
+      const raw = await this.llm.complete(prompt);
+      const m = raw.match(/\{[\s\S]*?\}/);
+      if (!m) {
+        this.logger.warn(
+          'matchPreservesIntent: no JSON in LLM output; defaulting to fullyCovered=true',
+        );
+        return true;
+      }
+      const parsed = JSON.parse(m[0]);
+      if (typeof parsed?.fullyCovered === 'boolean') {
+        if (!parsed.fullyCovered) {
+          this.logger.log(
+            `matchPreservesIntent: nuances lost on ${input.interpreterId} → fallback a llm_runtime. Reason: ${parsed.reason ?? '(none)'}`,
+          );
+        }
+        return parsed.fullyCovered;
+      }
+      this.logger.warn(
+        `matchPreservesIntent: shape inválida (${JSON.stringify(parsed)}); fallback a true`,
+      );
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `matchPreservesIntent failed (${(err as Error).message}); using interpreter`,
+      );
+      return true;
+    }
   }
 
   /**
