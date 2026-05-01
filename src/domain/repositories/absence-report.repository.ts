@@ -16,4 +16,15 @@ export interface IAbsenceReportRepository {
     companyId: string,
     filter?: AbsenceReportFilter,
   ): Promise<AbsenceReport[]>;
+  /**
+   * Phase 17.3 — usado por el scheduler. Devuelve absences activos
+   * (deleted_at IS NULL) cuyo período intersecta con [from, to].
+   */
+  findActiveInRange(
+    companyId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<AbsenceReport[]>;
+  /** Soft delete: set deleted_at = NOW(). */
+  softDelete(id: string, companyId: string): Promise<void>;
 }

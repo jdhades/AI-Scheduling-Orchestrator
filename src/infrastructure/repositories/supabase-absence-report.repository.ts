@@ -22,6 +22,8 @@ export class SupabaseAbsenceReportRepository
       shift_assignment_id: report.assignmentId,
       reason: report.reason,
       is_urgent: report.isUrgent,
+      start_date: report.startDate,
+      end_date: report.endDate,
       reported_at: report.reportedAt.toISOString(),
     });
     if (error)
@@ -34,6 +36,7 @@ export class SupabaseAbsenceReportRepository
       .select('*')
       .eq('id', id)
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .maybeSingle();
     if (error)
       throw new Error(`AbsenceReportRepository.findById: ${error.message}`);
@@ -48,6 +51,7 @@ export class SupabaseAbsenceReportRepository
       .from('absence_reports')
       .select('*')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .order('reported_at', { ascending: false });
     if (filter?.employeeId) q = q.eq('employee_id', filter.employeeId);
     if (filter?.isUrgent !== undefined) q = q.eq('is_urgent', filter.isUrgent);
@@ -58,5 +62,39 @@ export class SupabaseAbsenceReportRepository
         `AbsenceReportRepository.findAllByCompany: ${error.message}`,
       );
     return (data ?? []).map((r) => AbsenceReport.fromPersistence(r as never));
+  }
+
+  /**
+   * Devuelve absences vigentes cuyo período intersecta con [fromDate, toDate].
+   * Solapamiento: start_date <= toDate AND end_date >= fromDate.
+   */
+  async findActiveInRange(
+    companyId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<AbsenceReport[]> {
+    const { data, error } = await this.supabase
+      .from('absence_reports')
+      .select('*')
+      .eq('company_id', companyId)
+      .is('deleted_at', null)
+      .lte('start_date', toDate)
+      .gte('end_date', fromDate);
+    if (error)
+      throw new Error(
+        `AbsenceReportRepository.findActiveInRange: ${error.message}`,
+      );
+    return (data ?? []).map((r) => AbsenceReport.fromPersistence(r as never));
+  }
+
+  async softDelete(id: string, companyId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('absence_reports')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
+    if (error)
+      throw new Error(`AbsenceReportRepository.softDelete: ${error.message}`);
   }
 }

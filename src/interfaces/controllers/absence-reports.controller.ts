@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,15 +16,18 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   ValidateIf,
 } from 'class-validator';
-import { randomUUID } from 'crypto';
 import {
   ABSENCE_REPORT_REPOSITORY,
   type IAbsenceReportRepository,
 } from '../../domain/repositories/absence-report.repository';
 import { AbsenceReport } from '../../domain/aggregates/absence-report.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
+import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // IDs validados como strings no vacíos (la seed data del proyecto usa
 // formato UUID-shape no estricto RFC 4122 — @IsUUID los rechazaría).
@@ -42,6 +46,24 @@ export class CreateAbsenceReportDto {
   @IsNotEmpty()
   reason!: string;
 
+  /**
+   * Phase 17.1 — período de la ausencia (YYYY-MM-DD). startDate default
+   * = hoy si no llega; endDate default = startDate. Single-day si los
+   * dos coinciden, multi-day si end > start.
+   */
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'startDate must be YYYY-MM-DD' })
+  startDate?: string;
+
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'endDate must be YYYY-MM-DD' })
+  endDate?: string;
+
+  /**
+   * Solo flag de UI: el creator recalcula isUrgent inspeccionando los
+   * assignments del range. Lo dejamos por compat con clientes que lo
+   * mandan, pero el valor real lo decide el creator.
+   */
   @IsOptional()
   @IsBoolean()
   isUrgent?: boolean;
@@ -50,13 +72,16 @@ export class CreateAbsenceReportDto {
 /**
  * AbsenceReportsController
  *
- * POST /absence-reports              — registrar una ausencia
- * GET  /absence-reports              — listar (filtros: employeeId, isUrgent, from)
- * GET  /absence-reports/:id          — obtener uno
- *
- * Sin DELETE / PATCH: un reporte de ausencia es un hecho histórico,
- * no se edita. Si fue reportado por error, se puede crear un nuevo
- * registro "de corrección" con reason apropiado.
+ * POST   /absence-reports              — registrar una ausencia (Phase 17.2:
+ *                                         delega en AbsenceReportCreator;
+ *                                         dispara borrado de assignments
+ *                                         del range + notificación al
+ *                                         manager via event handler).
+ * GET    /absence-reports              — listar (filtros: employeeId, isUrgent, from).
+ * GET    /absence-reports/:id          — obtener uno.
+ * DELETE /absence-reports/:id          — soft delete. NO restaura los
+ *                                         assignments borrados (el manager
+ *                                         regenera el slot si quiere).
  */
 @Controller('absence-reports')
 export class AbsenceReportsController {
@@ -64,6 +89,7 @@ export class AbsenceReportsController {
     @Inject(ABSENCE_REPORT_REPOSITORY)
     private readonly repo: IAbsenceReportRepository,
     private readonly managerScope: ManagerScopeService,
+    private readonly creator: AbsenceReportCreator,
   ) {}
 
   @Post()
@@ -72,16 +98,18 @@ export class AbsenceReportsController {
     @Query('companyId') companyId: string,
     @Body() dto: CreateAbsenceReportDto,
   ): Promise<object> {
-    const report = AbsenceReport.create({
-      id: randomUUID(),
+    const result = await this.creator.create({
       companyId,
       employeeId: dto.employeeId,
-      assignmentId: dto.assignmentId ?? null,
       reason: dto.reason,
-      isUrgent: dto.isUrgent ?? false,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      assignmentIdHint: dto.assignmentId ?? null,
     });
-    await this.repo.save(report);
-    return this.toDto(report);
+    return {
+      ...this.toDto(result.report),
+      deletedAssignmentIds: result.deletedAssignmentIds,
+    };
   }
 
   @Get()
@@ -120,6 +148,26 @@ export class AbsenceReportsController {
     return this.toDto(r);
   }
 
+  /**
+   * DELETE /absence-reports/:id?companyId=...
+   *
+   * Soft-delete del reporte. NO restaura assignments que se borraron
+   * cuando el reporte se creó: si el manager lo necesita reemplazado,
+   * regenera el slot con el bot de generación. Devuelve 204 NO_CONTENT.
+   */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+  ): Promise<void> {
+    const existing = await this.repo.findById(id, companyId);
+    if (!existing) {
+      throw new NotFoundException(`AbsenceReport ${id} not found`);
+    }
+    await this.repo.softDelete(id, companyId);
+  }
+
   private toDto(r: AbsenceReport): object {
     return {
       id: r.id,
@@ -128,6 +176,8 @@ export class AbsenceReportsController {
       assignmentId: r.assignmentId,
       reason: r.reason,
       isUrgent: r.isUrgent,
+      startDate: r.startDate,
+      endDate: r.endDate,
       reportedAt: r.reportedAt.toISOString(),
     };
   }
