@@ -43,6 +43,15 @@ export interface CreateCompanyPolicyInput {
   scope?: PolicyScope;
   effectiveFrom?: string;
   createdBy?: string | null;
+  /**
+   * Si true, el creator NO consulta al rephrase service y NO devuelve
+   * `needs_clarification`. Va directo al fallback: si el texto matchea
+   * un interpreter, lo usa (con match guard); si no, cae a `llm_runtime`
+   * (severity=hard) o `llm_only` puro (severity=soft) preservando el
+   * texto original del manager. Pensado para cuando el manager rechaza
+   * las sugerencias propuestas y prefiere su redacción.
+   */
+  skipSuggestions?: boolean;
 }
 
 export type CompanyPolicyCreationResult =
@@ -120,23 +129,27 @@ export class CompanyPolicyCreator {
       return { status: 'created', policy, mode: 'llm_only' };
     }
 
-    // Caso 2: ningún interpreter — pedimos sugerencias verificadas.
-    const interpreterHints = this.registry.getAvailableIds().map((id) => {
-      const itp = this.registry.getById(id);
-      return { id, description: itp?.description ?? '' };
-    });
-    const suggestions = await this.rephraseService.suggest({
-      originalText: text,
-      reason: 'no_interpreter_matched',
-      interpreters: interpreterHints,
-    });
-
-    if (suggestions.length > 0) {
-      return {
-        status: 'needs_clarification',
+    // Caso 2: ningún interpreter — opcionalmente pedimos sugerencias.
+    // Si el caller pasó `skipSuggestions`, saltamos esta rama y caemos
+    // directo al fallback (caso 3) preservando el texto original.
+    if (!input.skipSuggestions) {
+      const interpreterHints = this.registry.getAvailableIds().map((id) => {
+        const itp = this.registry.getById(id);
+        return { id, description: itp?.description ?? '' };
+      });
+      const suggestions = await this.rephraseService.suggest({
+        originalText: text,
         reason: 'no_interpreter_matched',
-        suggestions,
-      };
+        interpreters: interpreterHints,
+      });
+
+      if (suggestions.length > 0) {
+        return {
+          status: 'needs_clarification',
+          reason: 'no_interpreter_matched',
+          suggestions,
+        };
+      }
     }
 
     // Caso 3: fallback LLM-only.

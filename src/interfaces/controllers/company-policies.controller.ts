@@ -62,6 +62,17 @@ export class CreateCompanyPolicyDto {
   @IsOptional()
   @IsString()
   createdBy?: string;
+
+  /**
+   * Si true, el creator salta el suggestion-loop (no consulta al
+   * rephrase service). Útil cuando el manager YA recibió sugerencias
+   * y prefiere guardar su texto original en vez de aceptar una de
+   * las reformulaciones propuestas — la policy cae directo a
+   * `llm_runtime` (severity=hard) o `llm_only` puro (severity=soft).
+   */
+  @IsOptional()
+  @IsBoolean()
+  skipSuggestions?: boolean;
 }
 
 export class UpdateCompanyPolicyDto {
@@ -184,6 +195,7 @@ export class CompanyPoliciesController {
       scope,
       effectiveFrom: dto.effectiveFrom,
       createdBy: dto.createdBy ?? null,
+      skipSuggestions: dto.skipSuggestions,
     });
 
     if (result.status === 'needs_clarification') {
