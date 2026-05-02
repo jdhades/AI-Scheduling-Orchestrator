@@ -35,10 +35,11 @@ export interface CreateAbsenceReportInput {
    */
   assignmentIdHint?: string | null;
   /**
-   * Quién origina la solicitud — para el texto de las semantic rules
-   * ("created by manager X"). Default 'system'.
+   * UUID del employee que origina la solicitud (manager o self). Se
+   * usa como `created_by` de la semantic rule (FK a employees). Null o
+   * undefined = system-generated.
    */
-  createdBy?: string;
+  createdByUserId?: string | null;
 }
 
 export interface AbsenceReportCreationResult {
@@ -130,7 +131,7 @@ export class AbsenceReportCreator {
       startDate,
       endDate,
       reason,
-      createdBy: input.createdBy,
+      createdByUserId: input.createdByUserId,
       ruleSource: 'absence',
     });
 
@@ -193,6 +194,9 @@ export class AbsenceReportCreator {
    *    semantic rule por cada rango (priority Hard, restriction,
    *    expiresAt = endDate del rango).
    *  - Calcula isUrgent (algún assignment empieza < 2h).
+   *
+   * `createdByUserId` debe ser UUID de employee (FK semantic_rules.created_by)
+   * o null para system-generated. Strings formateados rompen la FK.
    */
   async applyUnavailability(input: {
     companyId: string;
@@ -201,7 +205,8 @@ export class AbsenceReportCreator {
     startDate: string;
     endDate: string;
     reason: string;
-    createdBy?: string;
+    /** UUID del actor (manager o self). Null = system-generated. */
+    createdByUserId?: string | null;
     /** Tag para metadata.source de la rule — facilita auditoría. */
     ruleSource: 'absence' | 'day-off';
   }): Promise<UnavailabilitySideEffectResult> {
@@ -302,7 +307,10 @@ export class AbsenceReportCreator {
             ruleText,
             2, // priority Hard
             'restriction',
-            input.createdBy ?? `system:${ruleSource}-creator`,
+            // semantic_rules.created_by es UUID con FK a employees. Si
+            // no hay actor, dejamos null (system-generated). El source
+            // queda en metadata para auditoría.
+            input.createdByUserId ?? undefined,
             {
               source: ruleSource,
               employeeId,

@@ -156,7 +156,9 @@ export class DayOffRequestsController {
       startDate: r.date,
       endDate: r.date,
       reason: `día libre aprobado${r.reason ? `: ${r.reason}` : ''}`,
-      createdBy: 'system:day-off-approve',
+      // No JWT todavía → no podemos identificar al manager que aprueba.
+      // La rule queda con created_by NULL; la fuente queda en metadata.
+      createdByUserId: null,
       ruleSource: 'day-off',
     });
 
