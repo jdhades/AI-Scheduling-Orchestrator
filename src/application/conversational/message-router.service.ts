@@ -1993,9 +1993,10 @@ export class MessageRouterService {
         reason: entities.reason!.trim(),
         startDate: startDate ?? undefined,
         endDate: endDate ?? undefined,
-        createdBy: targetName
-          ? `manager:${senderEmployeeId}`
-          : `self:${senderEmployeeId}`,
+        // El audit del actor queda en metadata.source de la rule. La
+        // FK created_by exige UUID válido, así que pasamos solo el
+        // UUID del remitente sin prefix.
+        createdByUserId: senderEmployeeId,
       });
 
       // Mensaje de confirmación al remitente.
