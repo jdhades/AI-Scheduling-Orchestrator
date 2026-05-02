@@ -48,8 +48,12 @@
   "schedule": {
     "none_that_week": "📅 No tienes turnos asignados para la semana del {date}.",
     "none_this_week": "📅 No tienes turnos asignados esta semana.",
+    "none_that_week_other": "📅 {name} no tiene turnos asignados para la semana del {date}.",
+    "none_this_week_other": "📅 {name} no tiene turnos asignados esta semana.",
     "title_that_week": "📅 *Tu horario para la semana del {date}:*",
     "title_this_week": "📅 *Tu horario esta semana:*",
+    "title_that_week_other": "📅 *Horario de {name} para la semana del {date}:*",
+    "title_this_week_other": "📅 *Horario de {name} esta semana:*",
     "anything_else": "🤔 ¿Necesitas algo más?",
     "explanation_header": "📅 Horario generado para la semana del {date} ({total} turno(s) solicitados).",
     "explanation_llm_ok": "🤖 El LLM analizó y asignó {n} turnos bajo cumplimiento de reglas.",

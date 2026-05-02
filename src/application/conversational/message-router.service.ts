@@ -330,6 +330,25 @@ export class MessageRouterService {
         if (handled) return;
       }
 
+      // Phase 18.6 — manager-on-behalf for check_schedule.
+      // Si el LLM extrajo targetEmployeeName y la intent es check_schedule,
+      // resolvemos al empleado y corremos GetMyScheduleQuery contra él en
+      // vez de contra el remitente. El short-path responde solo y corta
+      // el flow; si no aplica, sigue al CommandMapper normal.
+      if (
+        currentIntent === 'check_schedule' &&
+        mergedEntities.targetEmployeeName?.trim()
+      ) {
+        const handled = await this._tryHandleScheduleOnBehalf(
+          from,
+          employeeId,
+          companyId,
+          mergedEntities,
+          locale,
+        );
+        if (handled) return;
+      }
+
       const pseudoIntent = ConversationIntentVO.create({
         intent: currentIntent,
         confidence: 1, // assume high confidence for internal processing
@@ -2075,6 +2094,63 @@ export class MessageRouterService {
       );
       return true;
     }
+  }
+
+  /**
+   * Phase 18.6 — manager-on-behalf para check_schedule. Si el remitente
+   * es manager y mencionó otro empleado, resuelve el nombre y dispatcha
+   * GetMyScheduleQuery contra ese empleado. Reutiliza los mensajes i18n
+   * de bot.absence.* (manager_only / name_not_found / name_ambiguous)
+   * porque la lógica de resolución es idéntica.
+   */
+  private async _tryHandleScheduleOnBehalf(
+    from: string,
+    senderEmployeeId: string,
+    companyId: string,
+    entities: IntentEntities,
+    locale: string,
+  ): Promise<boolean> {
+    const targetName = entities.targetEmployeeName!.trim();
+
+    const sender = await this.employeeRepo.findById(senderEmployeeId, companyId);
+    if (!sender || sender.role !== 'manager') {
+      this._reply(from, this.i18n.t('bot.absence.manager_only', { lang: locale }));
+      return true;
+    }
+
+    const matches = await this._resolveEmployeeByName(companyId, targetName);
+    if (matches.length === 0) {
+      this._reply(
+        from,
+        this.i18n.t('bot.absence.name_not_found', {
+          lang: locale,
+          args: { name: targetName },
+        }),
+      );
+      return true;
+    }
+    if (matches.length > 1) {
+      const list = matches
+        .slice(0, 5)
+        .map((e, i) => `${i + 1}. ${e.name}${e.phone ? ` (${e.phone})` : ''}`)
+        .join('\n');
+      this._reply(
+        from,
+        this.i18n.t('bot.absence.name_ambiguous', {
+          lang: locale,
+          args: { name: targetName, list },
+        }),
+      );
+      return true;
+    }
+
+    const target = matches[0];
+    const weekStart = entities.weekStart || entities.date;
+    const reply = await this.queryBus.execute<GetMyScheduleQuery, string>(
+      new GetMyScheduleQuery(target.id, companyId, weekStart, locale, target.name),
+    );
+    this._reply(from, reply);
+    return true;
   }
 
   /**

@@ -21,7 +21,7 @@ export class GetMyScheduleHandler
   ) {}
 
   async execute(query: GetMyScheduleQuery): Promise<string> {
-    const { employeeId, companyId, weekStart, locale } = query;
+    const { employeeId, companyId, weekStart, locale, forEmployeeName } = query;
 
     let monday = this._getCurrentMonday();
     if (weekStart) {
@@ -51,12 +51,27 @@ export class GetMyScheduleHandler
           locale === 'en' ? 'en-US' : 'es-ES',
           { day: 'numeric', month: 'short' },
         );
-        return this.i18n.t('bot.schedule.none_that_week', {
-          lang: locale,
-          args: { date: dateStr },
-        });
+        return this.i18n.t(
+          forEmployeeName
+            ? 'bot.schedule.none_that_week_other'
+            : 'bot.schedule.none_that_week',
+          {
+            lang: locale,
+            args: forEmployeeName
+              ? { date: dateStr, name: forEmployeeName }
+              : { date: dateStr },
+          },
+        );
       }
-      return this.i18n.t('bot.schedule.none_this_week', { lang: locale });
+      return this.i18n.t(
+        forEmployeeName
+          ? 'bot.schedule.none_this_week_other'
+          : 'bot.schedule.none_this_week',
+        {
+          lang: locale,
+          args: forEmployeeName ? { name: forEmployeeName } : {},
+        },
+      );
     }
 
     const templateIds = Array.from(new Set(assignments.map((a) => a.templateId)));
@@ -68,7 +83,14 @@ export class GetMyScheduleHandler
       }),
     );
 
-    return this._formatSchedule(assignments, templates, locale, weekStart, monday);
+    return this._formatSchedule(
+      assignments,
+      templates,
+      locale,
+      weekStart,
+      monday,
+      forEmployeeName,
+    );
   }
 
   private _formatSchedule(
@@ -77,19 +99,27 @@ export class GetMyScheduleHandler
     locale: string,
     hasWeekStart?: string,
     monday?: Date,
+    forEmployeeName?: string,
   ): string {
-    const title =
+    const dateStr =
       hasWeekStart && monday
-        ? this.i18n.t('bot.schedule.title_that_week', {
-            lang: locale,
-            args: {
-              date: monday.toLocaleDateString(
-                locale === 'en' ? 'en-US' : 'es-ES',
-                { day: 'numeric', month: 'short' },
-              ),
-            },
+        ? monday.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', {
+            day: 'numeric',
+            month: 'short',
           })
-        : this.i18n.t('bot.schedule.title_this_week', { lang: locale });
+        : '';
+    const titleKey =
+      hasWeekStart && monday
+        ? forEmployeeName
+          ? 'bot.schedule.title_that_week_other'
+          : 'bot.schedule.title_that_week'
+        : forEmployeeName
+          ? 'bot.schedule.title_this_week_other'
+          : 'bot.schedule.title_this_week';
+    const titleArgs: Record<string, string> = {};
+    if (hasWeekStart && monday) titleArgs.date = dateStr;
+    if (forEmployeeName) titleArgs.name = forEmployeeName;
+    const title = this.i18n.t(titleKey, { lang: locale, args: titleArgs });
     const lines: string[] = [title, ''];
     const dayEmoji: Record<number, string> = {
       0: '🌞',
