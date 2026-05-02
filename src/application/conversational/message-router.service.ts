@@ -1939,10 +1939,7 @@ export class MessageRouterService {
     if (!entities.reason || !entities.reason.trim()) {
       this._reply(
         from,
-        this.i18n.t('bot.absence.reason_prompt', {
-          lang: locale,
-          defaultValue: '¿Cuál es el motivo de la ausencia?',
-        }),
+        this.i18n.t('bot.absence.missing_reason', { lang: locale }),
       );
       return true;
     }
@@ -1955,7 +1952,7 @@ export class MessageRouterService {
       if (!sender || sender.role !== 'manager') {
         this._reply(
           from,
-          'Solo los managers pueden reportar la ausencia de otro empleado.',
+          this.i18n.t('bot.absence.manager_only', { lang: locale }),
         );
         return true;
       }
@@ -1963,7 +1960,10 @@ export class MessageRouterService {
       if (matches.length === 0) {
         this._reply(
           from,
-          `No encontré un empleado con nombre "${targetName}". Verificá la grafía e intentá de nuevo.`,
+          this.i18n.t('bot.absence.name_not_found', {
+            lang: locale,
+            args: { name: targetName },
+          }),
         );
         return true;
       }
@@ -1974,7 +1974,10 @@ export class MessageRouterService {
           .join('\n');
         this._reply(
           from,
-          `Encontré varios empleados que coinciden con "${targetName}". Especificá apellido:\n${list}`,
+          this.i18n.t('bot.absence.name_ambiguous', {
+            lang: locale,
+            args: { name: targetName, list },
+          }),
         );
         return true;
       }
@@ -1999,34 +2002,51 @@ export class MessageRouterService {
         createdByUserId: senderEmployeeId,
       });
 
-      // Mensaje de confirmación al remitente.
-      const period =
-        startDate === endDate
-          ? `el ${startDate}`
-          : `del ${startDate} al ${endDate}`;
-      const lines = [
-        `✅ Ausencia registrada para ${targetEmployeeName} ${period}.`,
+      // Mensaje de confirmación al remitente — todo via i18n.
+      const isSingleDay = startDate === endDate;
+      const lines: string[] = [
+        isSingleDay
+          ? this.i18n.t('bot.absence.registered_for_period_single', {
+              lang: locale,
+              args: { name: targetEmployeeName, date: startDate },
+            })
+          : this.i18n.t('bot.absence.registered_for_period_range', {
+              lang: locale,
+              args: {
+                name: targetEmployeeName,
+                start: startDate,
+                end: endDate,
+              },
+            }),
       ];
 
       if (result.deletedAssignmentIds.length > 0) {
-        // Caso 1: tenía turnos en el rango → se desasignaron.
         const n = result.deletedAssignmentIds.length;
         lines.push(
-          `Se desasignó ${n} turno${n === 1 ? '' : 's'} existente${n === 1 ? '' : 's'}.`,
+          this.i18n.t(
+            n === 1
+              ? 'bot.absence.deleted_assignments_single'
+              : 'bot.absence.deleted_assignments_other',
+            { lang: locale, args: { count: n } },
+          ),
         );
       } else {
-        // Sin deletes — distinguimos entre "semana generada pero sin
-        // turnos del empleado" vs "semana sin generar". Consulto si HAY
-        // assignments de OTROS empleados en el rango.
+        // Sin deletes — distinguimos "semana generada sin turnos del
+        // empleado" vs "semana sin generar". Si hay assignments de OTROS
+        // empleados en el rango, decimos explícito que el empleado no
+        // tenía turno; si no hay nada, omitimos (la rule futura ya
+        // explica que el scheduler la respetará).
         const otherAssignments = await this.assignmentRepo.findByCompanyAndDateRange(
           companyId,
           startDate ?? '',
           endDate ?? '',
         );
-        const weekHasAnySchedule = otherAssignments.length > 0;
-        if (weekHasAnySchedule) {
+        if (otherAssignments.length > 0) {
           lines.push(
-            `${targetEmployeeName} no tenía turno asignado en ese período.`,
+            this.i18n.t('bot.absence.no_shift_in_period', {
+              lang: locale,
+              args: { name: targetEmployeeName },
+            }),
           );
         }
       }
@@ -2034,7 +2054,12 @@ export class MessageRouterService {
       if (result.rulesCreated.length > 0) {
         const n = result.rulesCreated.length;
         lines.push(
-          `Se creó ${n} regla${n === 1 ? '' : 's'} hard para que el scheduler no le asigne turnos en ese período (aplica al regenerar la semana o al generar futuras).`,
+          this.i18n.t(
+            n === 1
+              ? 'bot.absence.rules_created_single'
+              : 'bot.absence.rules_created_other',
+            { lang: locale, args: { count: n } },
+          ),
         );
       }
 
@@ -2046,7 +2071,7 @@ export class MessageRouterService {
       );
       this._reply(
         from,
-        '⚠️ No pude registrar la ausencia. Intentá de nuevo o usá el panel.',
+        this.i18n.t('bot.absence.create_failed', { lang: locale }),
       );
       return true;
     }
