@@ -48,8 +48,12 @@
   "schedule": {
     "none_that_week": "📅 You don't have any shifts assigned for the week of {date}.",
     "none_this_week": "📅 You don't have any shifts assigned for this week.",
+    "none_that_week_other": "📅 {name} has no shifts assigned for the week of {date}.",
+    "none_this_week_other": "📅 {name} has no shifts assigned for this week.",
     "title_that_week": "📅 *Your schedule for the week of {date}:*",
     "title_this_week": "📅 *Your schedule for this week:*",
+    "title_that_week_other": "📅 *{name}'s schedule for the week of {date}:*",
+    "title_this_week_other": "📅 *{name}'s schedule for this week:*",
     "anything_else": "🤔 Do you need anything else?",
     "explanation_header": "📅 Schedule generated for the week of {date} ({total} shift(s) requested).",
     "explanation_llm_ok": "🤖 The LLM analyzed and assigned {n} shifts respecting the rules.",
