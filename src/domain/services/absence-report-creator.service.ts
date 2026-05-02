@@ -144,9 +144,9 @@ export class AbsenceReportCreator {
     await this.absenceRepo.save(report);
 
     // 4. Publicar event (AbsenceReportedHandler manda WhatsApp al manager).
-    // Pasamos el primer affectedId (legacy compat). Si no había turnos en
-    // el range, mandamos null y el handler igual notifica al manager con
-    // el reason y el período.
+    // shiftId queda como first-affected (legacy compat). Pasamos también
+    // el período y la lista completa para que el handler render con
+    // nombres de empleado/turnos.
     this.eventBus.publish(
       new AbsenceReportedEvent(
         employeeId,
@@ -154,6 +154,9 @@ export class AbsenceReportCreator {
         reason,
         companyId,
         isUrgent,
+        startDate,
+        endDate,
+        deletedIds,
       ),
     );
 
