@@ -14,7 +14,10 @@ import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-
 import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { ConversationSessionRepository } from '../../infrastructure/conversational/conversation-session.repository';
 import { ConversationSessionVO } from '../../domain/value-objects/conversation-session.vo';
-import { ConversationIntentVO } from '../../domain/value-objects/conversation-intent.vo';
+import {
+  ConversationIntentVO,
+  type IntentEntities,
+} from '../../domain/value-objects/conversation-intent.vo';
 import { GetMyScheduleQuery } from '../queries/get-my-schedule.query';
 import { GetUpcomingShiftsQuery } from '../queries/get-upcoming-shifts.query';
 import type { UpcomingShiftDto } from '../handlers/get-upcoming-shifts.handler';
@@ -22,6 +25,7 @@ import { CommandMapperService } from './command-mapper.service';
 import { SwapShiftCommand } from '../commands/swap-shift.command';
 import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
+import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import type { CreateSemanticRuleResult } from '../handlers/create-semantic-rule.handler';
@@ -91,6 +95,14 @@ export class MessageRouterService {
     private readonly companyPolicyCreator: CompanyPolicyCreator,
     private readonly policyScopeResolver: PolicyScopeResolver,
     private readonly llmUsageTracker: LLMUsageTracker,
+    /**
+     * Phase 18.4 — habilita el flow nuevo de report_absence:
+     *   - manager-on-behalf via targetEmployeeName.
+     *   - period via startDate/endDate (multi-day).
+     * Si el extractor LLM no detecta ninguno, sigue el flow legacy
+     * (FETCH_SHIFTS guiado para reportar self single-shift).
+     */
+    private readonly absenceCreator: AbsenceReportCreator,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -400,6 +412,21 @@ export class MessageRouterService {
 
       // 4b. Handle FETCH_SHIFTS (report_absence flow)
       if (mapResult.actionRequired === 'FETCH_SHIFTS') {
+        // Phase 18.4 — antes del flow legacy, intentamos atajos:
+        //   (a) manager-on-behalf: targetEmployeeName presente Y remitente
+        //       tiene role='manager'.
+        //   (b) period: startDate/endDate explícitos.
+        // Si alguno aplica, vamos directo al AbsenceReportCreator y
+        // saltamos el FETCH_SHIFTS guiado.
+        const newPathHandled = await this._tryHandleAbsenceShortPath(
+          from,
+          employeeId,
+          companyId,
+          mergedEntities,
+          locale,
+        );
+        if (newPathHandled) return;
+
         const rawShifts = await this.queryBus.execute<
           GetUpcomingShiftsQuery,
           UpcomingShiftDto[]
@@ -1875,5 +1902,163 @@ export class MessageRouterService {
       );
     }
     return true;
+  }
+
+  // ── Phase 18.4 — absence report short-paths ──────────────────────────
+
+  /**
+   * Atajo del flow `report_absence` cuando el LLM extrajo period o
+   * targetEmployeeName. Devuelve `true` si se manejó (no seguir con el
+   * FETCH_SHIFTS guiado), `false` si hay que caer al flow legacy.
+   *
+   * Reglas:
+   *  - manager-on-behalf: targetEmployeeName + remitente con role='manager'.
+   *    Resuelve nombre → employeeId via fuzzy match. Si 0 → mensaje "no
+   *    encontrado". Si >1 → lista candidatos y pide especificar (sin
+   *    suggestion-loop persistente; el manager re-envía con apellido).
+   *  - self-period: startDate/endDate (con o sin equality), reporter es
+   *    el target.
+   *  - reason mínimo: si no hay reason, pide reason inline (no creator
+   *    sin razón).
+   */
+  private async _tryHandleAbsenceShortPath(
+    from: string,
+    senderEmployeeId: string,
+    companyId: string,
+    entities: IntentEntities,
+    locale: string,
+  ): Promise<boolean> {
+    const startDate = entities.startDate ?? entities.date;
+    const endDate = entities.endDate ?? startDate;
+    const targetName = entities.targetEmployeeName?.trim();
+
+    // Sin period y sin target → no aplica este short-path; flow legacy.
+    if (!startDate && !targetName) return false;
+
+    // Reason obligatorio para ambos casos.
+    if (!entities.reason || !entities.reason.trim()) {
+      this._reply(
+        from,
+        this.i18n.t('bot.absence.reason_prompt', {
+          lang: locale,
+          defaultValue: '¿Cuál es el motivo de la ausencia?',
+        }),
+      );
+      return true;
+    }
+
+    // Resolver target: o el remitente (self) o el empleado mencionado.
+    let targetEmployeeId = senderEmployeeId;
+    let targetEmployeeName = '';
+    if (targetName) {
+      const sender = await this.employeeRepo.findById(senderEmployeeId, companyId);
+      if (!sender || sender.role !== 'manager') {
+        this._reply(
+          from,
+          'Solo los managers pueden reportar la ausencia de otro empleado.',
+        );
+        return true;
+      }
+      const matches = await this._resolveEmployeeByName(companyId, targetName);
+      if (matches.length === 0) {
+        this._reply(
+          from,
+          `No encontré un empleado con nombre "${targetName}". Verificá la grafía e intentá de nuevo.`,
+        );
+        return true;
+      }
+      if (matches.length > 1) {
+        const list = matches
+          .slice(0, 5)
+          .map((e, i) => `${i + 1}. ${e.name}${e.phone ? ` (${e.phone})` : ''}`)
+          .join('\n');
+        this._reply(
+          from,
+          `Encontré varios empleados que coinciden con "${targetName}". Especificá apellido:\n${list}`,
+        );
+        return true;
+      }
+      targetEmployeeId = matches[0].id;
+      targetEmployeeName = matches[0].name;
+    } else {
+      const self = await this.employeeRepo.findById(senderEmployeeId, companyId);
+      targetEmployeeName = self?.name ?? '';
+    }
+
+    // Llamar al creator. Devuelve report (puede ser null) + rules creadas.
+    try {
+      const result = await this.absenceCreator.create({
+        companyId,
+        employeeId: targetEmployeeId,
+        reason: entities.reason!.trim(),
+        startDate: startDate ?? undefined,
+        endDate: endDate ?? undefined,
+        createdBy: targetName
+          ? `manager:${senderEmployeeId}`
+          : `self:${senderEmployeeId}`,
+      });
+
+      // Mensaje de confirmación al remitente.
+      const period =
+        startDate === endDate
+          ? `el ${startDate}`
+          : `del ${startDate} al ${endDate}`;
+      const lines = [
+        `✅ Ausencia registrada para ${targetEmployeeName} ${period}.`,
+      ];
+      if (result.deletedAssignmentIds.length > 0) {
+        lines.push(
+          `Se desasignó ${result.deletedAssignmentIds.length} turno${result.deletedAssignmentIds.length === 1 ? '' : 's'} existente${result.deletedAssignmentIds.length === 1 ? '' : 's'}.`,
+        );
+      }
+      if (result.rulesCreated.length > 0) {
+        lines.push(
+          `Se creó ${result.rulesCreated.length} regla${result.rulesCreated.length === 1 ? '' : 's'} para que el scheduler respete el período al generar.`,
+        );
+      }
+      if (
+        result.deletedAssignmentIds.length === 0 &&
+        result.rulesCreated.length === 0
+      ) {
+        lines.push('El período quedó registrado sin efectos adicionales.');
+      }
+      this._reply(from, lines.join('\n'));
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `_tryHandleAbsenceShortPath failed: ${(err as Error).message}`,
+      );
+      this._reply(
+        from,
+        '⚠️ No pude registrar la ausencia. Intentá de nuevo o usá el panel.',
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Resolución por nombre — case-insensitive, contiene match. v1: si el
+   * input es solo primer nombre y hay 2+ empleados con ese nombre,
+   * devolvemos la lista para que el manager especifique. Sin Levenshtein
+   * todavía; la fuzziness real se agrega cuando aparezcan typos en prod.
+   */
+  private async _resolveEmployeeByName(
+    companyId: string,
+    nameQuery: string,
+  ): Promise<Array<{ id: string; name: string; phone: string }>> {
+    const { data, error } = await this.supabase
+      .from('employees')
+      .select('id, name, phone_number')
+      .eq('company_id', companyId)
+      .ilike('name', `%${nameQuery}%`);
+    if (error) {
+      this.logger.warn(`_resolveEmployeeByName failed: ${error.message}`);
+      return [];
+    }
+    return (data ?? []).map((r) => ({
+      id: r.id as string,
+      name: r.name as string,
+      phone: (r.phone_number as string) ?? '',
+    }));
   }
 }

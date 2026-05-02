@@ -21,6 +21,9 @@ import {
   type DayOffRequestStatus,
 } from '../../domain/aggregates/day-off-request.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
+import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
+import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
+import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -52,7 +55,10 @@ export class DayOffRequestsController {
   constructor(
     @Inject(DAY_OFF_REQUEST_REPOSITORY)
     private readonly repo: IDayOffRequestRepository,
+    @Inject(EMPLOYEE_REPOSITORY)
+    private readonly employeeRepo: IEmployeeRepository,
     private readonly managerScope: ManagerScopeService,
+    private readonly absenceCreator: AbsenceReportCreator,
   ) {}
 
   @Post()
@@ -112,16 +118,52 @@ export class DayOffRequestsController {
     return this.toDto(r);
   }
 
+  /**
+   * POST /day-off-requests/:id/approve
+   *
+   * Phase 18.3 — además de marcar `status='approved'`, dispara el
+   * side-effect de unavailability (igual que absence_report):
+   *   - Si hay assignment ese día → lo borra.
+   *   - Si no hay → crea una semantic rule para que el scheduler
+   *     respete el día libre cuando se genere la semana.
+   *
+   * El reason de la rule es "día libre aprobado: <razón original>".
+   */
   @Post(':id/approve')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   async approve(
     @Param('id') id: string,
     @Query('companyId') companyId: string,
-  ): Promise<void> {
+  ): Promise<{
+    deletedAssignmentIds: string[];
+    rulesCreated: Array<{ startDate: string; endDate: string; ruleText: string }>;
+  }> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
+
+    const employee = await this.employeeRepo.findById(r.employeeId, companyId);
+    if (!employee) {
+      throw new NotFoundException(`Employee ${r.employeeId} not found`);
+    }
+
     r.approve();
     await this.repo.save(r);
+
+    const sideEffects = await this.absenceCreator.applyUnavailability({
+      companyId,
+      employeeId: r.employeeId,
+      employeeName: employee.name,
+      startDate: r.date,
+      endDate: r.date,
+      reason: `día libre aprobado${r.reason ? `: ${r.reason}` : ''}`,
+      createdBy: 'system:day-off-approve',
+      ruleSource: 'day-off',
+    });
+
+    return {
+      deletedAssignmentIds: sideEffects.deleted.map((d) => d.id),
+      rulesCreated: sideEffects.rulesCreated,
+    };
   }
 
   @Post(':id/reject')
