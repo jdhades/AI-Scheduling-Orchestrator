@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { EventBus } from '@nestjs/cqrs';
+import { CommandBus, EventBus } from '@nestjs/cqrs';
 import { randomUUID } from 'crypto';
 import { AbsenceReport } from '../aggregates/absence-report.aggregate';
 import {
@@ -14,10 +14,9 @@ import {
   EMPLOYEE_REPOSITORY,
   type IEmployeeRepository,
 } from '../repositories/employee.repository';
-import {
-  type IShiftTemplateRepository,
-} from '../repositories/shift-template.repository';
+import { type IShiftTemplateRepository } from '../repositories/shift-template.repository';
 import { AbsenceReportedEvent } from '../events/absence-reported.event';
+import { CreateSemanticRuleCommand } from '../../application/commands/create-semantic-rule.command';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
@@ -35,32 +34,63 @@ export interface CreateAbsenceReportInput {
    * assignments dentro del range; el hint solo se persiste como reference.
    */
   assignmentIdHint?: string | null;
+  /**
+   * Quién origina la solicitud — para el texto de las semantic rules
+   * ("created by manager X"). Default 'system'.
+   */
+  createdBy?: string;
 }
 
 export interface AbsenceReportCreationResult {
-  report: AbsenceReport;
+  /** absence_report persistido. NULL si todo el rango era futuro sin
+   *  assignments y solo se crearon rules. */
+  report: AbsenceReport | null;
   /** Assignments borrados como side-effect. */
   deletedAssignmentIds: string[];
   /** Si algún assignment del range empieza en < 2h, marca urgente. */
+  isUrgent: boolean;
+  /**
+   * Phase 18.2 — semantic rules creadas para cubrir días sin assignments
+   * existentes. Cada rango contiguo de días sin turnos genera una rule.
+   */
+  rulesCreated: Array<{ startDate: string; endDate: string; ruleText: string }>;
+}
+
+/**
+ * Resultado de aplicar el side-effect "el empleado X no está disponible
+ * en este rango". Reutilizable por absence_report (Phase 18.2) y day-off
+ * approve (Phase 18.3) — ambos comparten la misma semántica.
+ */
+export interface UnavailabilitySideEffectResult {
+  /** Refs de assignments borrados (con templateId/date para descripción). */
+  deleted: Array<{ id: string; templateId: string; date: string }>;
+  /** Rangos contiguos de días sin assignments → rules creadas. */
+  rulesCreated: Array<{ startDate: string; endDate: string; ruleText: string }>;
+  /** Algún assignment afectado inicia en < 2h. */
   isUrgent: boolean;
 }
 
 /**
  * AbsenceReportCreator — Domain Service
  *
- * Phase 17.2 — unifica el flow de alta de un absence report entre los
- * dos callers (WhatsApp via ReportAbsenceHandler y el panel via
- * AbsenceReportsController). Antes la lógica de borrar assignments y
- * publicar el event vivía solo en el path WhatsApp; el panel solo
- * persistía el row sin efectos.
+ * Phase 18.2 — modelo "antes / después" separado:
+ *
+ *   - Días con assignments existentes → caso "histórico/consumado" → se
+ *     borran los assignments y queda registro en absence_reports.
+ *   - Días sin assignments (rango futuro sin generar) → caso "regla
+ *     antes de generar" → se crea una semantic rule para que el
+ *     scheduler la respete cuando se genere la semana.
+ *   - Mixto → ambas cosas.
  *
  * Side-effects unificados:
- *   1. Resolver el rango de fechas (defaults a hoy si no llegan).
- *   2. Encontrar todos los assignments del empleado en ese rango.
- *   3. Borrarlos uno por uno (`deleteByDateRange` no scope-by-employee).
- *   4. Calcular isUrgent (algún assignment inicia en < 2h).
- *   5. Persistir el AbsenceReport con startDate/endDate.
- *   6. Publicar AbsenceReportedEvent (handler manda WhatsApp al manager).
+ *   1. Resolver el rango (defaults a hoy si no llegan).
+ *   2. Day-by-day: buscar assignment → borrar (sigue acumulando) o
+ *      marcarlo como "rule-day".
+ *   3. Calcular isUrgent (algún assignment inicia en < 2h).
+ *   4. Si hubo deletes → persistir absence_report + publicar event
+ *      (handler manda WhatsApp al manager).
+ *   5. Para los rule-days, agrupar contiguous y crear semantic rules
+ *      vía CommandBus (reusa embedding + dedup pipeline).
  */
 @Injectable()
 export class AbsenceReportCreator {
@@ -76,9 +106,12 @@ export class AbsenceReportCreator {
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
     private readonly eventBus: EventBus,
+    private readonly commandBus: CommandBus,
   ) {}
 
-  async create(input: CreateAbsenceReportInput): Promise<AbsenceReportCreationResult> {
+  async create(
+    input: CreateAbsenceReportInput,
+  ): Promise<AbsenceReportCreationResult> {
     const { companyId, employeeId, reason } = input;
 
     const employee = await this.employeeRepo.findById(employeeId, companyId);
@@ -89,39 +122,156 @@ export class AbsenceReportCreator {
     const today = new Date().toISOString().slice(0, 10);
     const startDate = input.startDate ?? today;
     const endDate = input.endDate ?? startDate;
+
+    const sideEffects = await this.applyUnavailability({
+      companyId,
+      employeeId,
+      employeeName: employee.name,
+      startDate,
+      endDate,
+      reason,
+      createdBy: input.createdBy,
+      ruleSource: 'absence',
+    });
+
+    // Persist absence_report — solo si hubo días con assignments
+    // (caso "histórico/consumado"). Los días futuros sin assignments
+    // ya quedaron cubiertos por las semantic rules creadas.
+    let report: AbsenceReport | null = null;
+    if (sideEffects.deleted.length > 0) {
+      const reportStart = sideEffects.deleted
+        .map((d) => d.date)
+        .sort()[0];
+      const reportEnd = sideEffects.deleted
+        .map((d) => d.date)
+        .sort()
+        .reverse()[0];
+      const deletedIds = sideEffects.deleted.map((d) => d.id);
+
+      report = AbsenceReport.create({
+        id: randomUUID(),
+        companyId,
+        employeeId,
+        assignmentId: input.assignmentIdHint ?? deletedIds[0] ?? null,
+        reason,
+        startDate: reportStart,
+        endDate: reportEnd,
+        isUrgent: sideEffects.isUrgent,
+      });
+      await this.absenceRepo.save(report);
+
+      this.eventBus.publish(
+        new AbsenceReportedEvent(
+          employeeId,
+          deletedIds[0] ?? '',
+          reason,
+          companyId,
+          sideEffects.isUrgent,
+          reportStart,
+          reportEnd,
+          deletedIds,
+        ),
+      );
+    }
+
+    return {
+      report,
+      deletedAssignmentIds: sideEffects.deleted.map((d) => d.id),
+      isUrgent: sideEffects.isUrgent,
+      rulesCreated: sideEffects.rulesCreated,
+    };
+  }
+
+  /**
+   * Aplica el side-effect "el empleado X no está disponible del start al
+   * end" — sin persistir absence_report ni publicar event. Reutilizable
+   * por DayOff approve (Phase 18.3) o cualquier otro flow que necesite
+   * la misma semántica.
+   *
+   *  - Días con assignments → borra los assignments (acumula refs).
+   *  - Días sin assignments → agrupa en rangos contiguos y crea una
+   *    semantic rule por cada rango (priority Hard, restriction,
+   *    expiresAt = endDate del rango).
+   *  - Calcula isUrgent (algún assignment empieza < 2h).
+   */
+  async applyUnavailability(input: {
+    companyId: string;
+    employeeId: string;
+    employeeName: string;
+    startDate: string;
+    endDate: string;
+    reason: string;
+    createdBy?: string;
+    /** Tag para metadata.source de la rule — facilita auditoría. */
+    ruleSource: 'absence' | 'day-off';
+  }): Promise<UnavailabilitySideEffectResult> {
+    const {
+      companyId,
+      employeeId,
+      employeeName,
+      startDate,
+      endDate,
+      reason,
+      ruleSource,
+    } = input;
+
     if (endDate < startDate) {
       throw new Error(
         `endDate (${endDate}) cannot be before startDate (${startDate})`,
       );
     }
 
-    // 1. Encontrar y borrar assignments del empleado en el range.
-    const affected = await this.assignmentRepo.findByEmployeeAndDateRange(
-      employeeId,
-      companyId,
-      startDate,
-      endDate,
+    // 1. Day-by-day classification.
+    const allDays = this.expandDays(startDate, endDate);
+    const dayClassification: Array<{ date: string; assignmentIds: string[] }> = [];
+    for (const date of allDays) {
+      const assignments = await this.assignmentRepo.findByEmployeeAndDateRange(
+        employeeId,
+        companyId,
+        date,
+        date,
+      );
+      dayClassification.push({
+        date,
+        assignmentIds: assignments.map((a) => a.id),
+      });
+    }
+
+    const daysWithAssignments = dayClassification.filter(
+      (d) => d.assignmentIds.length > 0,
     );
-    const deletedIds: string[] = [];
-    for (const a of affected) {
-      try {
-        await this.assignmentRepo.deleteById(a.id, companyId);
-        deletedIds.push(a.id);
-      } catch (err) {
-        // No abortamos por un assignment, registramos y seguimos.
-        this.logger.warn(
-          `Failed to delete assignment ${a.id} during absence creation: ${(err as Error).message}`,
-        );
+    const daysWithoutAssignments = dayClassification.filter(
+      (d) => d.assignmentIds.length === 0,
+    );
+
+    // 2. Borrar assignments de los días "histórico/consumado".
+    const deleted: Array<{ id: string; templateId: string; date: string }> = [];
+    for (const d of daysWithAssignments) {
+      for (const id of d.assignmentIds) {
+        const a = await this.assignmentRepo.findById(id, companyId);
+        try {
+          await this.assignmentRepo.deleteById(id, companyId);
+          if (a) {
+            deleted.push({ id, templateId: a.templateId, date: a.date });
+          } else {
+            deleted.push({ id, templateId: '', date: d.date });
+          }
+        } catch (err) {
+          this.logger.warn(
+            `applyUnavailability: failed to delete assignment ${id}: ${(err as Error).message}`,
+          );
+        }
       }
     }
 
-    // 2. Calcular isUrgent — algún assignment afectado empieza en < 2h.
+    // 3. isUrgent — algún assignment afectado empieza < 2h.
     let isUrgent = false;
-    for (const a of affected) {
-      const template = await this.templateRepo.findById(a.templateId, companyId);
+    for (const ref of deleted) {
+      if (!ref.templateId) continue;
+      const template = await this.templateRepo.findById(ref.templateId, companyId);
       if (!template) continue;
       const [h, m] = template.startTime.split(':').map((n) => parseInt(n, 10));
-      const slotStart = new Date(`${a.date}T00:00:00Z`);
+      const slotStart = new Date(`${ref.date}T00:00:00Z`);
       slotStart.setUTCHours(h, m, 0, 0);
       if (slotStart.getTime() - Date.now() <= TWO_HOURS_MS) {
         isUrgent = true;
@@ -129,37 +279,103 @@ export class AbsenceReportCreator {
       }
     }
 
-    // 3. Persistir el reporte. assignmentId guarda el hint si llegó —
-    // útil para audit retroactivo del WhatsApp flow.
-    const report = AbsenceReport.create({
-      id: randomUUID(),
-      companyId,
-      employeeId,
-      assignmentId: input.assignmentIdHint ?? null,
-      reason,
-      startDate,
-      endDate,
-      isUrgent,
-    });
-    await this.absenceRepo.save(report);
-
-    // 4. Publicar event (AbsenceReportedHandler manda WhatsApp al manager).
-    // shiftId queda como first-affected (legacy compat). Pasamos también
-    // el período y la lista completa para que el handler render con
-    // nombres de empleado/turnos.
-    this.eventBus.publish(
-      new AbsenceReportedEvent(
-        employeeId,
-        deletedIds[0] ?? '',
-        reason,
-        companyId,
-        isUrgent,
-        startDate,
-        endDate,
-        deletedIds,
-      ),
+    // 4. semantic rules — días sin assignments → rangos contiguos.
+    const futureRanges = this.groupContiguousDays(
+      daysWithoutAssignments.map((d) => d.date),
     );
+    const rulesCreated: Array<{
+      startDate: string;
+      endDate: string;
+      ruleText: string;
+    }> = [];
+    for (const range of futureRanges) {
+      const ruleText = this.composeRuleText(
+        employeeName,
+        range.start,
+        range.end,
+        reason,
+      );
+      try {
+        await this.commandBus.execute(
+          new CreateSemanticRuleCommand(
+            companyId,
+            ruleText,
+            2, // priority Hard
+            'restriction',
+            input.createdBy ?? `system:${ruleSource}-creator`,
+            {
+              source: ruleSource,
+              employeeId,
+              startDate: range.start,
+              endDate: range.end,
+            },
+            new Date(`${range.end}T23:59:59Z`),
+          ),
+        );
+        rulesCreated.push({
+          startDate: range.start,
+          endDate: range.end,
+          ruleText,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `CreateSemanticRule failed for ${ruleSource} range ${range.start}–${range.end}: ${(err as Error).message}`,
+        );
+      }
+    }
 
-    return { report, deletedAssignmentIds: deletedIds, isUrgent };
+    return { deleted, rulesCreated, isUrgent };
+  }
+
+  /** Expande un rango YYYY-MM-DD inclusivo a la lista de fechas. */
+  private expandDays(startDate: string, endDate: string): string[] {
+    const out: string[] = [];
+    const cursor = new Date(`${startDate}T00:00:00Z`);
+    const last = new Date(`${endDate}T00:00:00Z`);
+    while (cursor.getTime() <= last.getTime()) {
+      out.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return out;
+  }
+
+  /** Agrupa fechas consecutivas en rangos. Asume el array está ordenado. */
+  private groupContiguousDays(
+    dates: string[],
+  ): Array<{ start: string; end: string }> {
+    if (dates.length === 0) return [];
+    const sorted = [...dates].sort();
+    const ranges: Array<{ start: string; end: string }> = [];
+    let rangeStart = sorted[0];
+    let prev = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      const expected = new Date(`${prev}T00:00:00Z`);
+      expected.setUTCDate(expected.getUTCDate() + 1);
+      const expectedISO = expected.toISOString().slice(0, 10);
+      if (sorted[i] !== expectedISO) {
+        ranges.push({ start: rangeStart, end: prev });
+        rangeStart = sorted[i];
+      }
+      prev = sorted[i];
+    }
+    ranges.push({ start: rangeStart, end: prev });
+    return ranges;
+  }
+
+  /**
+   * Texto en español natural — el sistema RAG hace embedding y matching.
+   * Incluye nombre + rango + razón. Single-day usa "el {date}", multi-day
+   * usa "del {start} al {end}".
+   */
+  private composeRuleText(
+    employeeName: string,
+    start: string,
+    end: string,
+    reason: string,
+  ): string {
+    const period =
+      start === end ? `el ${start}` : `del ${start} al ${end}`;
+    const reasonClause = reason.trim() ? ` por ${reason.trim()}` : '';
+    return `${employeeName} no trabaja ${period}${reasonClause}.`;
   }
 }

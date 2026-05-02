@@ -139,6 +139,9 @@ ENTIDADES A EXTRAER (pon null si no se menciona):
 - detectedLanguage: el código de idioma ISO 639-1 del mensaje (ej. "es", "en", "pt")
 - scopeType: SOLO si intent=create_policy. Uno de "company"|"branch"|"department"|"employee" según a quién aplica la política. Default "company". Ej. "para el departamento X" → "department"; "para la sucursal Y" → "branch"; "Pablo no debe..." → "employee" (cuando es individual usar create_rule en su lugar SI menciona excepción puntual; usar create_policy SOLO si es una regla durable de N horas/días para esa persona); resto → "company".
 - scopeName: SOLO si intent=create_policy y scopeType≠"company". Nombre del target tal como lo nombra el manager (sin formatear): el departamento "seguridad", la sucursal "Centro", la persona "Pablo". MessageRouter resuelve el nombre al UUID interno.
+- startDate: SOLO si intent=report_absence o request_day_off. Primera fecha del período en YYYY-MM-DD. Si es single-day, igual a date. Resolvé "el lunes" o "el 4 de mayo" partiendo de HOY ${today} (próxima ocurrencia futura).
+- endDate: SOLO si intent=report_absence o request_day_off. Última fecha del período en YYYY-MM-DD. Single-day: igual a startDate. "del lunes al jueves" → ese jueves.
+- targetEmployeeName: SOLO si intent=report_absence o request_day_off Y el remitente reporta POR OTRO ("ausencia de María", "María va a faltar", "Pablo necesita un día libre"). Solo el nombre como lo dice el manager. Si reporta su propia ausencia, null.
 
 Responde ÚNICAMENTE con JSON válido, sin texto adicional (nada de marcas markdown):
 {
@@ -156,7 +159,10 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional (nada de marcas markd
     "expiresAt": <string|null>,
     "detectedLanguage": <string|null>,
     "scopeType": <"company"|"branch"|"department"|"employee"|null>,
-    "scopeName": <string|null>
+    "scopeName": <string|null>,
+    "startDate": <string|null>,
+    "endDate": <string|null>,
+    "targetEmployeeName": <string|null>
   },
   "transcription": null
 }
@@ -213,7 +219,10 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
     "expiresAt": <string|null>,
     "detectedLanguage": <string|null>,
     "scopeType": <"company"|"branch"|"department"|"employee"|null>,
-    "scopeName": <string|null>
+    "scopeName": <string|null>,
+    "startDate": <string|null>,
+    "endDate": <string|null>,
+    "targetEmployeeName": <string|null>
   },
   "transcription": "<transcripcion textual exacta del audio>"
 }`;

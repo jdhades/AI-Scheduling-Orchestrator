@@ -45,6 +45,19 @@ export interface IntentEntities {
    */
   scopeType?: 'company' | 'branch' | 'department' | 'employee';
   scopeName?: string;
+  /**
+   * Phase 18.4 — período (YYYY-MM-DD) para report_absence / request_day_off.
+   * Single-day: start === end (o solo `date` legacy). Multi-day: start < end.
+   */
+  startDate?: string;
+  endDate?: string;
+  /**
+   * Phase 18.4 — nombre del empleado target cuando el manager reporta
+   * on-behalf ("ausencia de María del lunes al martes"). MessageRouter
+   * resuelve el nombre → employeeId vía fuzzy match. Si el remitente
+   * no es manager, se ignora.
+   */
+  targetEmployeeName?: string;
   [key: string]: any; // Allow dynamic properties for session state
 }
 

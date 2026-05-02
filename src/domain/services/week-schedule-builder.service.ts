@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { ShiftMembership } from '../aggregates/shift-membership.aggregate';
@@ -10,11 +10,6 @@ import { SEMANTIC_BLOCKED_ALL } from '../strategies/scheduling-strategy.interfac
 import { LLMLineProposerService } from './llm-line-proposer.service';
 import { PolicyEnforcementService } from './policy-enforcement.service';
 import type { CompanyPolicy } from '../aggregates/company-policy.aggregate';
-import {
-  ABSENCE_REPORT_REPOSITORY,
-  type IAbsenceReportRepository,
-} from '../repositories/absence-report.repository';
-import type { AbsenceReport } from '../aggregates/absence-report.aggregate';
 
 /** Violación hard detectada por `verify()` en una propuesta del LLM. */
 export interface VerifyViolation {
@@ -25,8 +20,7 @@ export interface VerifyViolation {
     | 'unknown-employee'
     | 'unknown-template'
     | 'two-shifts-same-day'
-    | 'policy-hard-violation'
-    | 'unavailability-violated';
+    | 'policy-hard-violation';
   employeeId?: string;
   date?: string;
   slotKey?: string;
@@ -120,16 +114,6 @@ export class WeekScheduleBuilder {
      * builder se comporta como antes (no policy enforcement).
      */
     @Optional() private readonly policyEnforcement?: PolicyEnforcementService,
-    /**
-     * Opcional (Phase 17.3): si se inyecta, `buildWithRetries` carga
-     * las absences activas del week range, las pasa al LLM como
-     * rawRuleTexts ("Employee X is on leave from D1 to D2") y `verify()`
-     * rechaza cualquier assignment que viole una unavailability. Sin
-     * inyectar, el builder corre como antes (sin awareness de absences).
-     */
-    @Optional()
-    @Inject(ABSENCE_REPORT_REPOSITORY)
-    private readonly absenceRepo?: IAbsenceReportRepository,
   ) {}
 
   /**
@@ -171,21 +155,6 @@ export class WeekScheduleBuilder {
       ? this.policyEnforcement.formatLoaded(policies)
       : '';
 
-    // Phase 17.3 — absences activos del week range. Pasamos como rawRuleTexts
-    // al LLM y `verify()` los chequea. Sin absenceRepo, queda neutro.
-    const absences = await this.loadAbsencesForWeek(
-      params.companyId,
-      params.weekStart,
-    );
-    const absenceRuleTexts = this.formatAbsencesForPrompt(
-      absences,
-      params.employees,
-    );
-    const combinedRawRuleTexts = [
-      ...(params.rawRuleTexts ?? []),
-      ...absenceRuleTexts,
-    ];
-
     // Sin proposer inyectado → directo al determinístico.
     if (!this.proposer) {
       const result = this.build(params);
@@ -215,7 +184,7 @@ export class WeekScheduleBuilder {
         employees: params.employees,
         slots: params.slots,
         semanticRules: params.semanticRules,
-        rawRuleTexts: combinedRawRuleTexts,
+        rawRuleTexts: params.rawRuleTexts,
         weekStart: params.weekStart,
         feedback,
         policyPromptBlock,
@@ -236,11 +205,6 @@ export class WeekScheduleBuilder {
         params.employees,
         params.multiShiftPermits,
       );
-      const absenceViolations = this.verifyAgainstAbsences(
-        candidate.assignments,
-        absences,
-        params.employees,
-      );
       const policyEval = await this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees);
       const policyHardAsVerify: VerifyViolation[] = policyEval.hardViolations.map((v) => ({
         kind: 'policy-hard-violation' as const,
@@ -249,11 +213,7 @@ export class WeekScheduleBuilder {
         policyId: v.policyId,
         message: v.message,
       }));
-      const allHardViolations = [
-        ...baseViolations,
-        ...absenceViolations,
-        ...policyHardAsVerify,
-      ];
+      const allHardViolations = [...baseViolations, ...policyHardAsVerify];
       const hardCount = allHardViolations.length;
 
       if (hardCount === 0) {
@@ -953,89 +913,4 @@ export class WeekScheduleBuilder {
     return lines.join('\n');
   }
 
-  // ── Phase 17.3 — absences ─────────────────────────────────────────────
-
-  /**
-   * Carga los absences activos cuyo período toca la semana del `weekStart`.
-   * Si no hay `absenceRepo` inyectado (tests / setups legacy), devuelve [].
-   */
-  private async loadAbsencesForWeek(
-    companyId: string,
-    weekStart: Date,
-  ): Promise<AbsenceReport[]> {
-    if (!this.absenceRepo) return [];
-    const start = weekStart.toISOString().slice(0, 10);
-    const endDate = new Date(weekStart);
-    endDate.setUTCDate(endDate.getUTCDate() + 6);
-    const end = endDate.toISOString().slice(0, 10);
-    try {
-      return await this.absenceRepo.findActiveInRange(companyId, start, end);
-    } catch (err) {
-      this.logger.warn(
-        `loadAbsencesForWeek failed (${(err as Error).message}); proceeding without absences.`,
-      );
-      return [];
-    }
-  }
-
-  /**
-   * Formatea las absences como reglas naturales para el LLM. El prompt
-   * usa el name del empleado para que el LLM lo entienda en lenguaje
-   * humano. Si el employee no está en la lista del run, se ignora.
-   */
-  private formatAbsencesForPrompt(
-    absences: AbsenceReport[],
-    employees: Employee[],
-  ): string[] {
-    const empById = new Map(employees.map((e) => [e.id, e]));
-    const out: string[] = [];
-    for (const a of absences) {
-      const emp = empById.get(a.employeeId);
-      if (!emp) continue;
-      const range =
-        a.startDate === a.endDate
-          ? `on ${a.startDate}`
-          : `from ${a.startDate} to ${a.endDate}`;
-      const reason = a.reason.trim() ? ` (reason: ${a.reason.trim()})` : '';
-      out.push(
-        `${emp.name} is on leave ${range}${reason}. DO NOT assign any shift to ${emp.name} during this period.`,
-      );
-    }
-    return out;
-  }
-
-  /**
-   * Verifica que ningún assignment caiga dentro del período de un absence
-   * activo. `verify()` ya itera assignments con varios checks; este helper
-   * agrega su slice de violations al resultado.
-   */
-  private verifyAgainstAbsences(
-    assignments: ShiftAssignment[],
-    absences: AbsenceReport[],
-    employees: Employee[],
-  ): VerifyViolation[] {
-    if (absences.length === 0) return [];
-    const empById = new Map(employees.map((e) => [e.id, e]));
-    const violations: VerifyViolation[] = [];
-    for (const a of assignments) {
-      for (const ab of absences) {
-        if (ab.employeeId !== a.employeeId) continue;
-        if (a.date < ab.startDate || a.date > ab.endDate) continue;
-        const empName =
-          empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8);
-        const range =
-          ab.startDate === ab.endDate
-            ? `on ${ab.startDate}`
-            : `from ${ab.startDate} to ${ab.endDate}`;
-        violations.push({
-          kind: 'unavailability-violated',
-          employeeId: a.employeeId,
-          date: a.date,
-          slotKey: a.slotKey,
-          message: `${empName} is on leave ${range} but was scheduled for ${a.slotKey} on ${a.date}.`,
-        });
-      }
-    }
-    return violations;
-  }
 }
