@@ -2007,22 +2007,37 @@ export class MessageRouterService {
       const lines = [
         `✅ Ausencia registrada para ${targetEmployeeName} ${period}.`,
       ];
+
       if (result.deletedAssignmentIds.length > 0) {
+        // Caso 1: tenía turnos en el rango → se desasignaron.
+        const n = result.deletedAssignmentIds.length;
         lines.push(
-          `Se desasignó ${result.deletedAssignmentIds.length} turno${result.deletedAssignmentIds.length === 1 ? '' : 's'} existente${result.deletedAssignmentIds.length === 1 ? '' : 's'}.`,
+          `Se desasignó ${n} turno${n === 1 ? '' : 's'} existente${n === 1 ? '' : 's'}.`,
         );
+      } else {
+        // Sin deletes — distinguimos entre "semana generada pero sin
+        // turnos del empleado" vs "semana sin generar". Consulto si HAY
+        // assignments de OTROS empleados en el rango.
+        const otherAssignments = await this.assignmentRepo.findByCompanyAndDateRange(
+          companyId,
+          startDate ?? '',
+          endDate ?? '',
+        );
+        const weekHasAnySchedule = otherAssignments.length > 0;
+        if (weekHasAnySchedule) {
+          lines.push(
+            `${targetEmployeeName} no tenía turno asignado en ese período.`,
+          );
+        }
       }
+
       if (result.rulesCreated.length > 0) {
+        const n = result.rulesCreated.length;
         lines.push(
-          `Se creó ${result.rulesCreated.length} regla${result.rulesCreated.length === 1 ? '' : 's'} para que el scheduler respete el período al generar.`,
+          `Se creó ${n} regla${n === 1 ? '' : 's'} hard para que el scheduler no le asigne turnos en ese período (aplica al regenerar la semana o al generar futuras).`,
         );
       }
-      if (
-        result.deletedAssignmentIds.length === 0 &&
-        result.rulesCreated.length === 0
-      ) {
-        lines.push('El período quedó registrado sin efectos adicionales.');
-      }
+
       this._reply(from, lines.join('\n'));
       return true;
     } catch (err) {
