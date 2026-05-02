@@ -43,9 +43,13 @@ export interface CreateAbsenceReportInput {
 }
 
 export interface AbsenceReportCreationResult {
-  /** absence_report persistido. NULL si todo el rango era futuro sin
-   *  assignments y solo se crearon rules. */
-  report: AbsenceReport | null;
+  /**
+   * absence_report persistido — siempre se crea (Phase 18.5). Cubre el
+   * rango completo declarado por el caller, sin importar si hubo
+   * deletes o si todo es futuro. Sirve como histórico/tracking en el
+   * panel /approvals/absences.
+   */
+  report: AbsenceReport;
   /** Assignments borrados como side-effect. */
   deletedAssignmentIds: string[];
   /** Si algún assignment del range empieza en < 2h, marca urgente. */
@@ -135,32 +139,29 @@ export class AbsenceReportCreator {
       ruleSource: 'absence',
     });
 
-    // Persist absence_report — solo si hubo días con assignments
-    // (caso "histórico/consumado"). Los días futuros sin assignments
-    // ya quedaron cubiertos por las semantic rules creadas.
-    let report: AbsenceReport | null = null;
-    if (sideEffects.deleted.length > 0) {
-      const reportStart = sideEffects.deleted
-        .map((d) => d.date)
-        .sort()[0];
-      const reportEnd = sideEffects.deleted
-        .map((d) => d.date)
-        .sort()
-        .reverse()[0];
-      const deletedIds = sideEffects.deleted.map((d) => d.id);
+    // Persist absence_report SIEMPRE: el rango completo declarado por
+    // el caller queda como histórico para tracking, sin importar si
+    // tuvo efectos operacionales (deletes) o solo se materializó como
+    // semantic rule(s) para el scheduler. El manager ve TODAS las
+    // ausencias reportadas en el listado /approvals/absences.
+    const deletedIds = sideEffects.deleted.map((d) => d.id);
+    const report = AbsenceReport.create({
+      id: randomUUID(),
+      companyId,
+      employeeId,
+      assignmentId: input.assignmentIdHint ?? deletedIds[0] ?? null,
+      reason,
+      startDate,
+      endDate,
+      isUrgent: sideEffects.isUrgent,
+    });
+    await this.absenceRepo.save(report);
 
-      report = AbsenceReport.create({
-        id: randomUUID(),
-        companyId,
-        employeeId,
-        assignmentId: input.assignmentIdHint ?? deletedIds[0] ?? null,
-        reason,
-        startDate: reportStart,
-        endDate: reportEnd,
-        isUrgent: sideEffects.isUrgent,
-      });
-      await this.absenceRepo.save(report);
-
+    // Notificación al manager: solo cuando hubo efecto operacional
+    // (deletes) o cuando es urgente. Las ausencias 100% futuras sin
+    // turnos asignados no requieren acción inmediata — el scheduler
+    // las respetará al generar y queda registrada en el panel.
+    if (deletedIds.length > 0 || sideEffects.isUrgent) {
       this.eventBus.publish(
         new AbsenceReportedEvent(
           employeeId,
@@ -168,8 +169,8 @@ export class AbsenceReportCreator {
           reason,
           companyId,
           sideEffects.isUrgent,
-          reportStart,
-          reportEnd,
+          startDate,
+          endDate,
           deletedIds,
         ),
       );
@@ -177,7 +178,7 @@ export class AbsenceReportCreator {
 
     return {
       report,
-      deletedAssignmentIds: sideEffects.deleted.map((d) => d.id),
+      deletedAssignmentIds: deletedIds,
       isUrgent: sideEffects.isUrgent,
       rulesCreated: sideEffects.rulesCreated,
     };

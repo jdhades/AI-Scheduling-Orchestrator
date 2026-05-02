@@ -106,12 +106,12 @@ export class AbsenceReportsController {
       endDate: dto.endDate,
       assignmentIdHint: dto.assignmentId ?? null,
     });
-    // Phase 18.2 — el report puede ser null cuando todo el rango era
-    // futuro sin assignments (solo se crearon rules). El frontend
-    // refleja ambos casos: report puede no existir, pero rulesCreated
-    // siempre informa qué se creó para el scheduler.
+    // Phase 18.5 — el report SIEMPRE se persiste como histórico/tracking,
+    // sin importar si hubo deletes. Las side-effects (deletes + rules)
+    // se devuelven como metadata para que el frontend pueda mostrar
+    // qué pasó.
     return {
-      report: result.report ? this.toDto(result.report) : null,
+      report: this.toDto(result.report),
       deletedAssignmentIds: result.deletedAssignmentIds,
       rulesCreated: result.rulesCreated,
       isUrgent: result.isUrgent,
