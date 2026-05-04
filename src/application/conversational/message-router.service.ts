@@ -28,6 +28,7 @@ import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
+import { ScheduleGenerationDispatcher } from '../jobs/schedule-generation-dispatcher.service';
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import type { CreateSemanticRuleResult } from '../handlers/create-semantic-rule.handler';
 import {
@@ -104,6 +105,12 @@ export class MessageRouterService {
      * (FETCH_SHIFTS guiado para reportar self single-shift).
      */
     private readonly absenceCreator: AbsenceReportCreator,
+    /**
+     * Fase 1 async migration — encola jobs `schedule.generate` cuando
+     * el env var `USE_ASYNC_SCHEDULE_GEN=true`. Si está apagado, el
+     * helper `_executeScheduleGenAndReply` cae al CommandBus síncrono.
+     */
+    private readonly scheduleDispatcher: ScheduleGenerationDispatcher,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -951,6 +958,46 @@ export class MessageRouterService {
     sessionEntities: Record<string, any>,
     locale: string,
   ): Promise<void> {
+    const useAsync = process.env.USE_ASYNC_SCHEDULE_GEN === 'true';
+
+    // Path async (Fase 1) — encola, responde inmediato "generando…",
+    // limpia sesión. El worker dispara el outbound real cuando termina.
+    if (useAsync) {
+      try {
+        await this.scheduleDispatcher.enqueue({
+          companyId: cmd.companyId,
+          weekStart: cmd.weekStart,
+          shiftTemplateId: cmd.shiftTemplateId,
+          departmentId: cmd.departmentId,
+          locale: cmd.locale ?? locale,
+          source: { type: 'whatsapp', from },
+        });
+        this._reply(
+          from,
+          this.i18n.t('bot.schedule.queued', {
+            lang: locale,
+            args: { weekStart: cmd.weekStart },
+          }),
+        );
+        await this.sessionRepository.clearSession(from);
+        return;
+      } catch (err) {
+        if (err instanceof ScheduleGenerationLockedException) {
+          this._reply(
+            from,
+            this.i18n.t('bot.schedule.generation_in_progress', {
+              lang: locale,
+              args: { weekStart: err.weekStart },
+            }),
+          );
+          await this.sessionRepository.clearSession(from);
+          return;
+        }
+        throw err;
+      }
+    }
+
+    // Path síncrono (Fase 0) — bloquea el handler hasta terminar.
     try {
       const result = await this.commandBus.execute(cmd);
       this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));

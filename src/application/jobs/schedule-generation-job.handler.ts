@@ -1,0 +1,149 @@
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
+import { CommandBus } from '@nestjs/cqrs';
+import { I18nService } from 'nestjs-i18n';
+import type { Job } from 'pg-boss';
+import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
+import {
+  JOB_SCHEDULE_GENERATE,
+} from '../../infrastructure/queue/job-names';
+import type { ScheduleGenerationJobPayload } from '../../infrastructure/queue/job-types';
+import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
+import type { HybridScheduleResult } from '../../application/handlers/generate-hybrid-schedule.handler';
+import {
+  NOTIFICATION_SERVICE,
+  type INotificationService,
+} from '../../domain/services/notification.service';
+
+/**
+ * ScheduleGenerationJobHandler
+ *
+ * Worker que procesa jobs `schedule.generate` desde pg-boss. Reusa
+ * el `GenerateHybridScheduleCommand` existente vía CommandBus, así
+ * toda la lógica del path síncrono (lock Fase 0, runGeneration,
+ * fairness, NotificationsGateway WS) sigue funcionando idéntica.
+ *
+ * Pre/post:
+ *   - Antes: el dispatcher encoló con `singletonKey` → garantía de
+ *     que no hay otra corriendo para la misma (companyId, weekStart).
+ *     El lock interno del handler solo confirma; nunca debería chocar.
+ *   - Después (success): si el origen es WhatsApp, Twilio outbound
+ *     con explanation + warnings. Si es HTTP, el cliente se entera
+ *     vía polling de /jobs/:id (Fase 2).
+ *   - Después (failure): se re-lanza la excepción. pg-boss reintenta
+ *     según `retryLimit` (queue config = 1). Al exhaustar, copia el
+ *     payload a la dead-letter queue → otro handler notifica.
+ */
+@Injectable()
+export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
+  private readonly logger = new Logger(ScheduleGenerationJobHandler.name);
+
+  constructor(
+    private readonly pgBoss: PgBossService,
+    private readonly commandBus: CommandBus,
+    @Inject(NOTIFICATION_SERVICE)
+    private readonly notificationService: INotificationService,
+    private readonly i18n: I18nService,
+  ) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    if (!this.pgBoss.isEnabled()) {
+      this.logger.warn(
+        `pg-boss disabled — ${JOB_SCHEDULE_GENERATE} worker NOT registered`,
+      );
+      return;
+    }
+    const boss = this.pgBoss.getInstance();
+    await boss.work<ScheduleGenerationJobPayload>(
+      JOB_SCHEDULE_GENERATE,
+      { batchSize: 1, pollingIntervalSeconds: 1 },
+      async (jobs) => {
+        for (const job of jobs) {
+          await this._handleJob(job);
+        }
+      },
+    );
+    this.logger.log(`Worker registered for ${JOB_SCHEDULE_GENERATE}`);
+  }
+
+  private async _handleJob(
+    job: Job<ScheduleGenerationJobPayload>,
+  ): Promise<void> {
+    const payload = job.data;
+    const startedAt = Date.now();
+    this.logger.log(
+      `Processing job=${job.id} ${JOB_SCHEDULE_GENERATE} ` +
+        `company=${payload.companyId} week=${payload.weekStart} ` +
+        `source=${payload.source.type}`,
+    );
+
+    let result: HybridScheduleResult;
+    try {
+      result = await this.commandBus.execute<
+        GenerateHybridScheduleCommand,
+        HybridScheduleResult
+      >(
+        new GenerateHybridScheduleCommand(
+          payload.companyId,
+          payload.weekStart,
+          undefined,
+          payload.shiftTemplateId,
+          payload.locale,
+          payload.departmentId,
+        ),
+      );
+    } catch (err) {
+      const ms = Date.now() - startedAt;
+      this.logger.error(
+        `Job=${job.id} failed after ${ms}ms: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      throw err; // pg-boss decide si reintentar o mandar a dead-letter
+    }
+
+    const ms = Date.now() - startedAt;
+    this.logger.log(
+      `Job=${job.id} success in ${ms}ms — ${result.assignmentsCount} assignments, ${result.unfilledShiftsCount} unfilled`,
+    );
+
+    // Notificar al originador (solo WhatsApp por ahora; HTTP usa polling).
+    if (payload.source.type === 'whatsapp') {
+      const message = this._formatSuccessReply(
+        result,
+        payload.locale ?? 'es',
+        payload.weekStart,
+      );
+      try {
+        await this.notificationService.sendWhatsApp(
+          payload.source.from,
+          message,
+        );
+      } catch (sendErr) {
+        // Falla de notificación NO debe marcar el job como fallido —
+        // los assignments ya están persistidos. Solo logueamos.
+        this.logger.warn(
+          `Job=${job.id} success but Twilio outbound failed: ${(sendErr as Error).message}`,
+        );
+      }
+    }
+  }
+
+  private _formatSuccessReply(
+    result: HybridScheduleResult,
+    locale: string,
+    weekStart: string,
+  ): string {
+    void weekStart;
+    const lines = [result.explanation];
+    if (result.warnings.length > 0) {
+      lines.push('');
+      lines.push(this.i18n.t('bot.schedule.warnings_header', { lang: locale }));
+      for (const w of result.warnings) lines.push(`• ${w}`);
+    }
+    return lines.join('\n');
+  }
+}

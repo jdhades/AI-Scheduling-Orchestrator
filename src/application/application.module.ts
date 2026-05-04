@@ -62,6 +62,9 @@ import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
 import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
+import { ScheduleGenerationJobHandler } from './jobs/schedule-generation-job.handler';
+import { ScheduleGenerationDeadletterHandler } from './jobs/schedule-generation-deadletter.handler';
+import { ScheduleGenerationDispatcher } from './jobs/schedule-generation-dispatcher.service';
 
 /**
  * ApplicationModule
@@ -153,6 +156,13 @@ const DomainServices = [
   // serializa runs sincronicos de generate_schedule. Se va a complementar
   // con pg-boss singletonKey cuando entre la cola.
   ScheduleGenerationLockService,
+  // Fase 1 async migration — dispatcher (encola con singletonKey),
+  // worker (procesa) y dead-letter handler (notifica fallo terminal).
+  // Los workers usan OnApplicationBootstrap para subscribir después
+  // que pg-boss + las queues están listas.
+  ScheduleGenerationDispatcher,
+  ScheduleGenerationJobHandler,
+  ScheduleGenerationDeadletterHandler,
 ];
 
 const PolicyDomainProviders = [

@@ -66,7 +66,9 @@
     "warning_unstructured_rule": "📝 Unanalyzed rule: \"{ruleText}\" — please re-edit the rule to retry",
     "warning_unfilled_shift": "🚫 Unfilled shift: {date} {from}–{to} (no eligible candidates)",
     "warning_no_day_off": "🛌 {name}: no day off this week (rotating day-off rule active)",
-    "generation_in_progress": "⏳ A schedule generation is already in progress for the week of {weekStart}. Please wait a moment and try again."
+    "generation_in_progress": "⏳ A schedule generation is already in progress for the week of {weekStart}. Please wait a moment and try again.",
+    "queued": "📅 Generating the schedule for the week of {weekStart}. I'll let you know when it's ready.",
+    "generation_failed": "⚠️ We couldn't generate the schedule for the week of {weekStart}. Please review your rules and try again."
   },
   "rules": {
     "missing_text": "📐 To create a rule, please state the restriction or preference. For example: 'On Fridays I need 2 cashiers'."

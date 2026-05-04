@@ -66,7 +66,9 @@
     "warning_unstructured_rule": "📝 Regla sin analizar: \"{ruleText}\" — re-editá la regla para reintentar",
     "warning_unfilled_shift": "🚫 Turno sin cubrir: {date} {from}–{to} (sin candidatos elegibles)",
     "warning_no_day_off": "🛌 {name}: sin día libre en la semana (regla rotativa activa)",
-    "generation_in_progress": "⏳ Ya hay una generación en curso para la semana del {weekStart}. Esperá un momento e intentá de nuevo."
+    "generation_in_progress": "⏳ Ya hay una generación en curso para la semana del {weekStart}. Esperá un momento e intentá de nuevo.",
+    "queued": "📅 Generando el horario para la semana del {weekStart}. Te aviso cuando termine.",
+    "generation_failed": "⚠️ No pudimos generar el horario para la semana del {weekStart}. Revisá las reglas y volvé a intentarlo."
   },
   "rules": {
     "missing_text": "📐 Para crear una regla, por favor dime cuál es la restricción o preferencia. Por ejemplo: 'Los viernes necesito 2 cajeros'."
