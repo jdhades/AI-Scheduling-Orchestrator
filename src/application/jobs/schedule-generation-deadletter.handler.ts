@@ -13,6 +13,7 @@ import {
   NOTIFICATION_SERVICE,
   type INotificationService,
 } from '../../domain/services/notification.service';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 /**
  * ScheduleGenerationDeadletterHandler
@@ -37,6 +38,7 @@ export class ScheduleGenerationDeadletterHandler
     private readonly pgBoss: PgBossService,
     @Inject(NOTIFICATION_SERVICE)
     private readonly notificationService: INotificationService,
+    private readonly notificationsGateway: NotificationsGateway,
     private readonly i18n: I18nService,
   ) {}
 
@@ -65,6 +67,14 @@ export class ScheduleGenerationDeadletterHandler
         `source=${payload.source.type} — notifying originator`,
     );
 
+    // WS broadcast — el dashboard muestra toast de error sin que el
+    // manager tenga que estar en /generate.
+    this.notificationsGateway.notifyScheduleGenerationFailed(
+      payload.companyId,
+      payload.weekStart,
+    );
+
+    // Outbound Twilio si el job se originó por WhatsApp.
     if (payload.source.type === 'whatsapp') {
       const message = this.i18n.t('bot.schedule.generation_failed', {
         lang: payload.locale ?? 'es',
