@@ -46,6 +46,27 @@ export class NotificationsGateway
   }
 
   /**
+   * Broadcast del fallo terminal de un job `schedule.generate` (después
+   * de exhaustar retries). El front muestra toast de error desde
+   * cualquier página, sin que el manager tenga que estar en /generate.
+   */
+  notifyScheduleGenerationFailed(
+    companyId: string,
+    weekStart: string,
+    reason?: string,
+  ) {
+    if (!this.server) return;
+    this.server.emit('ScheduleGenerationFailed', {
+      companyId,
+      weekStart,
+      reason,
+    });
+    this.logger.log(
+      `Broadcasted ScheduleGenerationFailed for company ${companyId}, week ${weekStart}`,
+    );
+  }
+
+  /**
    * Broadcasts that a new HR routing incident has occurred (e.g., employee absence).
    */
   notifyIncidentCreated(
