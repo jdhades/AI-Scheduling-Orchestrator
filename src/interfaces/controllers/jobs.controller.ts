@@ -49,8 +49,50 @@ interface JobStateDTO {
 @Controller('jobs')
 export class JobsController {
   private static readonly QUEUE_NAME = JOB_SCHEDULE_GENERATE;
+  private static readonly IN_FLIGHT_STATES: ReadonlyArray<JobWithMetadata['state']> = [
+    'created',
+    'retry',
+    'active',
+  ];
 
   constructor(private readonly pgBoss: PgBossService) {}
+
+  /**
+   * GET /jobs/active?companyId=...
+   *
+   * Devuelve los jobs `schedule.generate` en estados no-terminales
+   * (created/retry/active) para la company del caller. El frontend lo
+   * polea para detectar cuando vuelve a una página y hay un job en
+   * curso (sin perder estado al navegar).
+   *
+   * Importante: declarar ANTES de `@Get(':id')` para que el path
+   * 'active' no matchee `:id`.
+   */
+  @Get('active')
+  async getActive(
+    @Query('companyId') companyId: string,
+  ): Promise<JobStateDTO[]> {
+    if (!this.pgBoss.isEnabled()) return [];
+    const boss = this.pgBoss.getInstance();
+    // findJobs con `data: { companyId }` filtra via `data @> $1` (jsonb
+    // containment, indexable). El filtro de estado va en JS porque
+    // findJobs no expone `state` filter; el set típico de jobs no-
+    // terminales por company es chico (1-2), así que es barato.
+    const jobs = await boss.findJobs<ScheduleGenerationJobPayload>(
+      JobsController.QUEUE_NAME,
+      { data: { companyId } },
+    );
+    return jobs
+      .filter((j) =>
+        JobsController.IN_FLIGHT_STATES.includes(j.state),
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.createdOn).getTime() -
+          new Date(a.createdOn).getTime(),
+      )
+      .map((j) => this._toDto(j));
+  }
 
   @Get(':id')
   async getById(
