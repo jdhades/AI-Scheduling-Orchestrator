@@ -10,6 +10,7 @@ import { AuthModule } from './infrastructure/auth/auth.module';
 import { TenantMiddleware } from './infrastructure/tenant/tenant.middleware';
 import { RepositoriesModule } from './infrastructure/repositories/repositories.module';
 import { InterfacesModule } from './interfaces/interfaces.module';
+import { QueueModule } from './infrastructure/queue/queue.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { InterfacesModule } from './interfaces/interfaces.module';
       resolvers: [AcceptLanguageResolver],
     }),
     AppConfigModule,
+    QueueModule,
     ApplicationModule,
     TenantModule,
     RepositoriesModule,

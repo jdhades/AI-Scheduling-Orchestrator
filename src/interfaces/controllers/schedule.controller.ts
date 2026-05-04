@@ -3,6 +3,8 @@ import {
   ConflictException,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Query,
 } from '@nestjs/common';
@@ -13,6 +15,7 @@ import { GenerateScheduleDto } from '../dtos/generate-schedule.dto';
 import type { HybridScheduleResult } from '../../application/handlers/generate-hybrid-schedule.handler';
 import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
+import { ScheduleGenerationDispatcher } from '../../application/jobs/schedule-generation-dispatcher.service';
 
 /**
  * ScheduleController
@@ -26,6 +29,7 @@ export class ScheduleController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly scheduleDispatcher: ScheduleGenerationDispatcher,
   ) {}
 
   /**
@@ -35,10 +39,41 @@ export class ScheduleController {
    * (`WeekScheduleBuilder`) + el LLM como proveedor de líneas.
    */
   @Post('generate')
+  @HttpCode(HttpStatus.OK)
   async generate(
     @Body() dto: GenerateScheduleDto,
     @Query('companyId') companyId: string,
-  ): Promise<HybridScheduleResult> {
+  ): Promise<HybridScheduleResult | { jobId: string; status: 'queued' }> {
+    const useAsync = process.env.USE_ASYNC_SCHEDULE_GEN === 'true';
+
+    if (useAsync) {
+      // Path async (Fase 1): encola y devuelve 202 + jobId. El cliente
+      // hace polling a /jobs/:id para ver el resultado.
+      try {
+        const jobId = await this.scheduleDispatcher.enqueue({
+          companyId,
+          weekStart: dto.weekStart,
+          shiftTemplateId: dto.shiftTemplateId,
+          departmentId: dto.departmentId,
+          locale: 'es',
+          source: { type: 'http' },
+        });
+        return { jobId, status: 'queued' };
+      } catch (err) {
+        if (err instanceof ScheduleGenerationLockedException) {
+          throw new ConflictException({
+            error: 'generation_in_progress',
+            companyId: err.companyId,
+            weekStart: err.weekStart,
+            since: err.acquiredAt,
+            acquiredBy: err.acquiredBy,
+          });
+        }
+        throw err;
+      }
+    }
+
+    // Path síncrono (Fase 0): handler corre inline con lock interno.
     try {
       return await this.commandBus.execute(
         new GenerateHybridScheduleCommand(
