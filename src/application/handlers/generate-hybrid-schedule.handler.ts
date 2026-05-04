@@ -26,6 +26,7 @@ import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggreg
 import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.vo';
 import type { Employee } from '../../domain/aggregates/employee.aggregate';
 import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
+import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
 
 export interface HybridScheduleResult {
   assignmentsCount: number;
@@ -79,6 +80,7 @@ export class GenerateHybridScheduleHandler
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
     private readonly llmUsageTracker: LLMUsageTracker,
+    private readonly lockService: ScheduleGenerationLockService,
   ) {
     void this.eventBus;
   }
@@ -155,14 +157,23 @@ export class GenerateHybridScheduleHandler
   async execute(
     command: GenerateHybridScheduleCommand,
   ): Promise<HybridScheduleResult> {
-    const { result, usage } = await this.llmUsageTracker.run(() =>
-      this.runGeneration(command),
-    );
-    this.logger.log(
-      `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
-        `prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
-    );
-    return { ...result, llmUsage: usage };
+    // Fase 0 async migration — lock por (companyId, weekStart) para
+    // rechazar disparos concurrentes. Si ya hay un run activo,
+    // `acquire` lanza ScheduleGenerationLockedException; el caller
+    // (REST controller / WhatsApp router) la traduce al user.
+    await this.lockService.acquire(command.companyId, command.weekStart, 'http');
+    try {
+      const { result, usage } = await this.llmUsageTracker.run(() =>
+        this.runGeneration(command),
+      );
+      this.logger.log(
+        `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
+          `prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
+      );
+      return { ...result, llmUsage: usage };
+    } finally {
+      await this.lockService.release(command.companyId, command.weekStart);
+    }
   }
 
   private async runGeneration(

@@ -65,7 +65,8 @@
     "warning_complex_rule": "🧩 Regla compleja (requiere supervisión manual): \"{ruleText}\" — {reason}",
     "warning_unstructured_rule": "📝 Regla sin analizar: \"{ruleText}\" — re-editá la regla para reintentar",
     "warning_unfilled_shift": "🚫 Turno sin cubrir: {date} {from}–{to} (sin candidatos elegibles)",
-    "warning_no_day_off": "🛌 {name}: sin día libre en la semana (regla rotativa activa)"
+    "warning_no_day_off": "🛌 {name}: sin día libre en la semana (regla rotativa activa)",
+    "generation_in_progress": "⏳ Ya hay una generación en curso para la semana del {weekStart}. Esperá un momento e intentá de nuevo."
   },
   "rules": {
     "missing_text": "📐 Para crear una regla, por favor dime cuál es la restricción o preferencia. Por ejemplo: 'Los viernes necesito 2 cajeros'."

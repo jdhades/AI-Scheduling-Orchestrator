@@ -61,6 +61,7 @@ import { LLMLineProposerService } from '../domain/services/llm-line-proposer.ser
 import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
+import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
 
 /**
  * ApplicationModule
@@ -148,6 +149,10 @@ const DomainServices = [
   // Phase 17.2 — unifica el alta de absence reports entre WhatsApp y
   // panel. Borra assignments del range, calcula urgencia, publica event.
   AbsenceReportCreator,
+  // Fase 0 async migration — lock por (company_id, week_start) que
+  // serializa runs sincronicos de generate_schedule. Se va a complementar
+  // con pg-boss singletonKey cuando entre la cola.
+  ScheduleGenerationLockService,
 ];
 
 const PolicyDomainProviders = [
