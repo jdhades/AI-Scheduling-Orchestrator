@@ -27,6 +27,7 @@ import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { ReportAbsenceCommand } from '../commands/report-absence.command';
 import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
+import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import type { CreateSemanticRuleResult } from '../handlers/create-semantic-rule.handler';
 import {
@@ -829,9 +830,7 @@ export class MessageRouterService {
           departmentId,
         );
       }
-      const result = await this.commandBus.execute(cmd);
-      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
-      await this.sessionRepository.clearSession(from);
+      await this._executeScheduleGenAndReply(cmd, from, sessionEntities, locale);
       return true;
     }
 
@@ -867,9 +866,7 @@ export class MessageRouterService {
         locale,
         departmentId ?? undefined,
       );
-      const result = await this.commandBus.execute(cmd);
-      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
-      await this.sessionRepository.clearSession(from);
+      await this._executeScheduleGenAndReply(cmd, from, sessionEntities, locale);
       return;
     }
 
@@ -883,9 +880,7 @@ export class MessageRouterService {
         locale,
         departmentId ?? undefined,
       );
-      const result = await this.commandBus.execute(cmd);
-      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
-      await this.sessionRepository.clearSession(from);
+      await this._executeScheduleGenAndReply(cmd, from, sessionEntities, locale);
       return;
     }
 
@@ -940,6 +935,40 @@ export class MessageRouterService {
       name: d.name,
       branchId: d.branch_id ?? null,
     }));
+  }
+
+  /**
+   * Ejecuta el GenerateHybridScheduleCommand desde el flow de WhatsApp,
+   * formatea la respuesta y limpia la sesión. Si choca con un lock
+   * activo (`ScheduleGenerationLockedException`), responde con i18n
+   * `bot.schedule.generation_in_progress` y limpia la sesión también.
+   * Otros errores se propagan tal cual (la sesión NO se limpia, para
+   * que el manager pueda reintentar desde el mismo paso).
+   */
+  private async _executeScheduleGenAndReply(
+    cmd: GenerateHybridScheduleCommand,
+    from: string,
+    sessionEntities: Record<string, any>,
+    locale: string,
+  ): Promise<void> {
+    try {
+      const result = await this.commandBus.execute(cmd);
+      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
+      await this.sessionRepository.clearSession(from);
+    } catch (err) {
+      if (err instanceof ScheduleGenerationLockedException) {
+        this._reply(
+          from,
+          this.i18n.t('bot.schedule.generation_in_progress', {
+            lang: locale,
+            args: { weekStart: err.weekStart },
+          }),
+        );
+        await this.sessionRepository.clearSession(from);
+        return;
+      }
+      throw err;
+    }
   }
 
   /**

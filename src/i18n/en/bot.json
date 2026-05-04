@@ -65,7 +65,8 @@
     "warning_complex_rule": "🧩 Complex rule (requires manual supervision): \"{ruleText}\" — {reason}",
     "warning_unstructured_rule": "📝 Unanalyzed rule: \"{ruleText}\" — please re-edit the rule to retry",
     "warning_unfilled_shift": "🚫 Unfilled shift: {date} {from}–{to} (no eligible candidates)",
-    "warning_no_day_off": "🛌 {name}: no day off this week (rotating day-off rule active)"
+    "warning_no_day_off": "🛌 {name}: no day off this week (rotating day-off rule active)",
+    "generation_in_progress": "⏳ A schedule generation is already in progress for the week of {weekStart}. Please wait a moment and try again."
   },
   "rules": {
     "missing_text": "📐 To create a rule, please state the restriction or preference. For example: 'On Fridays I need 2 cashiers'."

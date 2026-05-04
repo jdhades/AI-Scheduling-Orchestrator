@@ -156,7 +156,17 @@ export class WeekScheduleBuilder {
       : '';
 
     // Sin proposer inyectado → directo al determinístico.
-    if (!this.proposer) {
+    // SKIP_LLM_PROPOSER=true (dev-only, durante la migración a worker
+    // async) tiene el mismo efecto: salta el LLM y usa solo el motor
+    // determinístico. Sirve para iterar sobre lock/queue/dashboard sin
+    // gastar tokens de Qwen.
+    const skipLlm = process.env.SKIP_LLM_PROPOSER === 'true';
+    if (!this.proposer || skipLlm) {
+      if (skipLlm && this.proposer) {
+        this.logger.warn(
+          'SKIP_LLM_PROPOSER=true → bypassing LLM proposer, using deterministic fallback only',
+        );
+      }
       const result = this.build(params);
       const evalResult = await this.evaluatePolicies(result.assignments, params.slots, policies, params.employees);
       const policyWarnings = evalResult.hardViolations.length > 0

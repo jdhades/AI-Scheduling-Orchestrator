@@ -1,10 +1,18 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GenerateHybridScheduleCommand } from '../../application/commands/generate-hybrid-schedule.command';
 import { GetCompanyScheduleQuery } from '../../application/queries/get-company-schedule.query';
 import { GenerateScheduleDto } from '../dtos/generate-schedule.dto';
 import type { HybridScheduleResult } from '../../application/handlers/generate-hybrid-schedule.handler';
 import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
+import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
 
 /**
  * ScheduleController
@@ -31,16 +39,29 @@ export class ScheduleController {
     @Body() dto: GenerateScheduleDto,
     @Query('companyId') companyId: string,
   ): Promise<HybridScheduleResult> {
-    return this.commandBus.execute(
-      new GenerateHybridScheduleCommand(
-        companyId,
-        dto.weekStart,
-        dto.maxFairnessDeviation,
-        dto.shiftTemplateId,
-        undefined,
-        dto.departmentId,
-      ),
-    );
+    try {
+      return await this.commandBus.execute(
+        new GenerateHybridScheduleCommand(
+          companyId,
+          dto.weekStart,
+          dto.maxFairnessDeviation,
+          dto.shiftTemplateId,
+          undefined,
+          dto.departmentId,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof ScheduleGenerationLockedException) {
+        throw new ConflictException({
+          error: 'generation_in_progress',
+          companyId: err.companyId,
+          weekStart: err.weekStart,
+          since: err.acquiredAt,
+          acquiredBy: err.acquiredBy,
+        });
+      }
+      throw err;
+    }
   }
 
   /**
