@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { PgBossService } from './pg-boss.service';
 import { QueueBootstrapService } from './queue-bootstrap.service';
+import { JobCancellationRegistry } from './job-cancellation.registry';
 
 /**
  * QueueModule (Global)
@@ -14,7 +15,7 @@ import { QueueBootstrapService } from './queue-bootstrap.service';
  */
 @Global()
 @Module({
-  providers: [PgBossService, QueueBootstrapService],
-  exports: [PgBossService],
+  providers: [PgBossService, QueueBootstrapService, JobCancellationRegistry],
+  exports: [PgBossService, JobCancellationRegistry],
 })
 export class QueueModule {}

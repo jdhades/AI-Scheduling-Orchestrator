@@ -8,6 +8,7 @@ import { CommandBus } from '@nestjs/cqrs';
 import { I18nService } from 'nestjs-i18n';
 import type { Job } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
+import { JobCancellationRegistry } from '../../infrastructure/queue/job-cancellation.registry';
 import {
   JOB_SCHEDULE_GENERATE,
 } from '../../infrastructure/queue/job-names';
@@ -48,6 +49,7 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     @Inject(NOTIFICATION_SERVICE)
     private readonly notificationService: INotificationService,
     private readonly i18n: I18nService,
+    private readonly cancellationRegistry: JobCancellationRegistry,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -81,6 +83,12 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
         `source=${payload.source.type}`,
     );
 
+    // Fase 3 — registramos un AbortController propio. pg-boss v12 NO
+    // aborta job.signal cuando se llama boss.cancel() (solo cambia el
+    // state en BD), así que necesitamos nuestro propio canal. El
+    // controller invoca registry.abort(jobId) después de boss.cancel().
+    const cancelSignal = this.cancellationRegistry.register(job.id);
+
     let result: HybridScheduleResult;
     try {
       result = await this.commandBus.execute<
@@ -94,15 +102,22 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
           payload.shiftTemplateId,
           payload.locale,
           payload.departmentId,
+          cancelSignal,
         ),
       );
     } catch (err) {
       const ms = Date.now() - startedAt;
+      if (cancelSignal.aborted) {
+        this.logger.log(`Job=${job.id} cancelled by user after ${ms}ms`);
+        throw err; // pg-boss respeta state='cancelled' (ya seteado por boss.cancel)
+      }
       this.logger.error(
         `Job=${job.id} failed after ${ms}ms: ${(err as Error).message}`,
         (err as Error).stack,
       );
       throw err; // pg-boss decide si reintentar o mandar a dead-letter
+    } finally {
+      this.cancellationRegistry.unregister(job.id);
     }
 
     const ms = Date.now() - startedAt;

@@ -316,7 +316,15 @@ export class GenerateHybridScheduleHandler
       weekStart,
       companyId: command.companyId,
       runDepartmentId: command.departmentId,
+      signal: command.signal,
     });
+
+    // Cancel-check antes de tocar BD: si llegó cancel mientras corría
+    // build (o entre build y persist), no escribimos nada y dejamos
+    // que el lock release del finally limpie. El job se marca cancelled.
+    if (command.signal?.aborted) {
+      throw new Error('Job cancelled before persisting assignments');
+    }
 
     const allAssignments = buildResult.assignments;
 
