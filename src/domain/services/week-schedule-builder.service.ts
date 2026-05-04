@@ -139,6 +139,13 @@ export class WeekScheduleBuilder {
      * o employee dentro del run siguen aplicando.
      */
     runDepartmentId?: string;
+    /**
+     * Fase 3 — propaga la cancelación de un job activo. Se chequea
+     * entre intentos del verify-loop y se pasa al proposer (fetch
+     * subyacente). Si se aborta, throw para que el handler libere
+     * el lock y el worker marque el job como cancelado.
+     */
+    signal?: AbortSignal;
   }): Promise<BuildWithRetriesResult> {
     // Phase 14: cargar policies UNA vez (1 read DB) y reusarlas durante
     // el verify-loop. Si no hay PolicyEnforcementService, todo el bloque
@@ -190,6 +197,11 @@ export class WeekScheduleBuilder {
     let feedback: string | undefined;
 
     for (let attempt = 1; attempt <= WeekScheduleBuilder.MAX_LLM_ATTEMPTS; attempt++) {
+      // Cancel-check entre intentos: si llegó cancel mientras cooríamos
+      // verify(), evitamos disparar el siguiente fetch del LLM.
+      if (params.signal?.aborted) {
+        throw new Error('Job cancelled before next LLM attempt');
+      }
       const llmLines = await this.proposer.proposeLines({
         employees: params.employees,
         slots: params.slots,
@@ -198,6 +210,7 @@ export class WeekScheduleBuilder {
         weekStart: params.weekStart,
         feedback,
         policyPromptBlock,
+        signal: params.signal,
       });
 
       if (llmLines.size === 0) {

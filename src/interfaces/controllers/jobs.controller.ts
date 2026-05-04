@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { JobWithMetadata } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
+import { JobCancellationRegistry } from '../../infrastructure/queue/job-cancellation.registry';
 import { JOB_SCHEDULE_GENERATE } from '../../infrastructure/queue/job-names';
 import type { ScheduleGenerationJobPayload } from '../../infrastructure/queue/job-types';
 
@@ -55,7 +56,10 @@ export class JobsController {
     'active',
   ];
 
-  constructor(private readonly pgBoss: PgBossService) {}
+  constructor(
+    private readonly pgBoss: PgBossService,
+    private readonly cancellationRegistry: JobCancellationRegistry,
+  ) {}
 
   /**
    * GET /jobs/active?companyId=...
@@ -136,19 +140,37 @@ export class JobsController {
       throw new NotFoundException(`Job ${id} not found`);
     }
 
-    // Solo cancelar jobs que NO arrancaron (created/retry). Active +
-    // completed + failed son no-op desde el panel; cancel mid-execution
-    // se trabaja en Fase 3 con AbortController.
-    if (job.state !== 'created' && job.state !== 'retry') {
+    // Cancel disponible en created/retry/active (Fase 3). En active,
+    // pg-boss aborta job.signal y el worker propaga al fetch del LLM —
+    // si Qwen no responde de inmediato a la abort, el handler igual
+    // chequea signal.aborted en checkpoints (entre intentos del verify-
+    // loop, antes de persist) y bail-outs. Estados terminales (completed
+    // /failed/cancelled) son no-op.
+    if (
+      job.state !== 'created' &&
+      job.state !== 'retry' &&
+      job.state !== 'active'
+    ) {
       throw new ConflictException({
         error: 'job_not_cancellable',
         state: job.state,
         message:
-          'Only pending jobs can be cancelled. Active jobs require advanced cancellation (Phase 3).',
+          'Job is in a terminal state (completed/failed/cancelled). Cannot cancel.',
       });
     }
 
     await boss.cancel(JobsController.QUEUE_NAME, id);
+    // Si el job estaba `active`, además de marcar state='cancelled' en
+    // BD, abortamos el AbortController in-memory para que el worker
+    // propague el cancel al fetch del LLM y los checkpoints internos.
+    if (job.state === 'active') {
+      const aborted = this.cancellationRegistry.abort(id, 'user-cancel');
+      if (!aborted) {
+        // El worker pudo haber terminado entre nuestro getJobById y la
+        // llamada al registry — no es un error, el state ya está
+        // 'cancelled' en BD y la BD es la fuente de verdad.
+      }
+    }
   }
 
   private _toDto(job: JobWithMetadata<ScheduleGenerationJobPayload>): JobStateDTO {

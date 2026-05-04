@@ -35,7 +35,8 @@ export class LocalLLMService implements ILLMService {
     );
   }
 
-  async complete(prompt: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async complete(prompt: string, _signal?: AbortSignal): Promise<string> {
     return withExponentialBackoff(
       () => this.callLocal(prompt),
       'LocalLLMService',

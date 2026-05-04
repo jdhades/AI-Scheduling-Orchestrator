@@ -50,8 +50,14 @@ export class LLMLineProposerService {
      * inyecta al prompt en una sección dedicada (Hard / Soft / LLM-only).
      */
     policyPromptBlock?: string;
+    /**
+     * Fase 3 — propaga la cancelación de un job activo. Si el caller
+     * (worker pg-boss) lo aborta, el fetch del LLM se aborta también
+     * y `complete()` lanza un error que el builder propaga arriba.
+     */
+    signal?: AbortSignal;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
-    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock } = params;
+    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock, signal } = params;
 
     if (employees.length === 0 || slots.length === 0) {
       return new Map();
@@ -63,7 +69,7 @@ export class LLMLineProposerService {
         ...(rawRuleTexts ?? []),
       ]),
     ];
-    const englishRuleTexts = await this.translateRulesToEnglish(combinedRuleTexts);
+    const englishRuleTexts = await this.translateRulesToEnglish(combinedRuleTexts, signal);
 
     const { prompt, empMaps, templateMaps } = this.buildPrompt({
       employees,
@@ -80,8 +86,14 @@ export class LLMLineProposerService {
 
     let raw: string;
     try {
-      raw = await this.llm.complete(prompt);
+      raw = await this.llm.complete(prompt, signal);
     } catch (err) {
+      // Si fue cancel del usuario, propagamos hacia arriba para que el
+      // worker marque el job como cancelado en lugar de caer al
+      // determinístico (que escribiría assignments igual).
+      if (signal?.aborted) {
+        throw err;
+      }
       this.logger.warn(
         `LLM failed (${(err as Error).message}). Builder fallback a lógica determinística.`,
       );
@@ -110,7 +122,10 @@ export class LLMLineProposerService {
    * Cachea por input completo: en un loop de reintento con las mismas reglas
    * no re-llama al LLM.
    */
-  private async translateRulesToEnglish(texts: string[]): Promise<string[]> {
+  private async translateRulesToEnglish(
+    texts: string[],
+    signal?: AbortSignal,
+  ): Promise<string[]> {
     if (texts.length === 0) return [];
 
     const key = texts.join('\n---\n');
@@ -130,8 +145,9 @@ Expected output format:
 
     let raw: string;
     try {
-      raw = await this.llm.complete(prompt);
+      raw = await this.llm.complete(prompt, signal);
     } catch (err) {
+      if (signal?.aborted) throw err;
       this.logger.warn(
         `Rule translation failed (${(err as Error).message}); using originals`,
       );

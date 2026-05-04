@@ -30,21 +30,25 @@ export class QwenLLMService implements ILLMService {
     }
   }
 
-  async complete(prompt: string): Promise<string> {
+  async complete(prompt: string, signal?: AbortSignal): Promise<string> {
     if (!this.apiKey) {
       throw new Error('QwenLLMService: QWEN_API_KEY is not configured');
     }
 
     return withExponentialBackoff(
-      () => this.callQwen(prompt),
+      () => this.callQwen(prompt, signal),
       'QwenLLMService',
       { maxRetries: 3, initialDelayMs: 2000 }
     );
   }
 
-  private async callQwen(prompt: string): Promise<string> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
+  private async callQwen(prompt: string, externalSignal?: AbortSignal): Promise<string> {
+    // Si el caller pasó un signal externo (ej. cancel de un job), lo
+    // combinamos con el timeout interno: cualquiera de los dos aborta.
+    const timeoutSignal = AbortSignal.timeout(this.TIMEOUT_MS);
+    const fetchSignal = externalSignal
+      ? AbortSignal.any([timeoutSignal, externalSignal])
+      : timeoutSignal;
 
     let response: Response;
     try {
@@ -54,7 +58,7 @@ export class QwenLLMService implements ILLMService {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        signal: controller.signal,
+        signal: fetchSignal,
         body: JSON.stringify({
           model: this.model,
           messages: [{ role: 'user', content: prompt }],
@@ -68,8 +72,19 @@ export class QwenLLMService implements ILLMService {
           // extrae el bloque JSON del output mixto.
         }),
       });
-    } finally {
-      clearTimeout(timeoutId);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Distinguir cancel del usuario vs timeout interno re-lanzando
+        // un mensaje específico que el worker puede classificar.
+        const wasCancelled =
+          externalSignal?.aborted === true && timeoutSignal.aborted === false;
+        throw new Error(
+          wasCancelled
+            ? 'QwenLLMService: request cancelled by caller'
+            : `QwenLLMService: timeout after ${this.TIMEOUT_MS}ms`,
+        );
+      }
+      throw err;
     }
 
     if (!response.ok) {

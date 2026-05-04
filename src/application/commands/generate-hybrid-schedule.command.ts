@@ -22,5 +22,14 @@ export class GenerateHybridScheduleCommand {
      * concreto del mismo depto.
      */
     public readonly departmentId?: string,
+    /**
+     * Fase 3 — AbortSignal del job de pg-boss. Si el manager cancela
+     * desde el panel mientras el job está `active`, el signal aborta
+     * el fetch del LLM y el handler bail-outs limpio (libera lock,
+     * salta DB writes, propaga cancelled al worker).
+     *
+     * Path síncrono lo deja undefined; cancel solo aplica al async.
+     */
+    public readonly signal?: AbortSignal,
   ) {}
 }

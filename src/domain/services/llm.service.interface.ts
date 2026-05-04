@@ -11,7 +11,10 @@ export interface ILLMService {
    * Envía un prompt al LLM y retorna la respuesta cruda como string.
    * La interpretación del output es responsabilidad del llamador.
    *
+   * @param signal — opcional. Si se aborta, el provider debería
+   *   propagarlo al fetch HTTP subyacente para cancelar la request
+   *   en vuelo. Habilita cancelación de jobs `active` desde la cola.
    * @throws Error si el LLM no responde o supera el timeout
    */
-  complete(prompt: string): Promise<string>;
+  complete(prompt: string, signal?: AbortSignal): Promise<string>;
 }
