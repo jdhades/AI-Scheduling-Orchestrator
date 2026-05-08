@@ -18,6 +18,14 @@ export interface MoveAssignmentInput {
   newEmployeeId?: string;
   /** Nuevo date YYYY-MM-DD. Si es igual al actual, no cambia. */
   newDate?: string;
+  /**
+   * Nueva hora de inicio (Phase 19E.3 — resize). Si se pasa, override
+   * la hora-de-pared del template. Combinable con newDate (move + resize
+   * en una sola operación).
+   */
+  newActualStartTime?: Date;
+  /** Nueva hora de fin. Mismo contrato que newActualStartTime. */
+  newActualEndTime?: Date;
   /** Audit metadata. */
   editedByUserId?: string | null;
   reason?: string | null;
@@ -28,6 +36,7 @@ export type MoveConflictReason =
   | 'department_mismatch'
   | 'employee_not_found'
   | 'assignment_not_found'
+  | 'invalid_time_range'
   | 'no_change';
 
 export class MoveAssignmentConflictError extends Error {
@@ -94,13 +103,19 @@ export class ShiftAssignmentMoverService {
 
     const newEmployeeId = input.newEmployeeId ?? current.employeeId;
     const newDate = input.newDate ?? current.date;
-    if (
-      newEmployeeId === current.employeeId &&
-      newDate === current.date
-    ) {
+    const timesProvided =
+      !!input.newActualStartTime || !!input.newActualEndTime;
+    const noEmployeeChange = newEmployeeId === current.employeeId;
+    const noDateChange = newDate === current.date;
+    const noTimeChange =
+      (!input.newActualStartTime ||
+        input.newActualStartTime.getTime() === current.actualStartTime.getTime()) &&
+      (!input.newActualEndTime ||
+        input.newActualEndTime.getTime() === current.actualEndTime.getTime());
+    if (noEmployeeChange && noDateChange && (!timesProvided || noTimeChange)) {
       throw new MoveAssignmentConflictError(
         'no_change',
-        'Move requested but employee and date are unchanged',
+        'Move requested but employee, date and times are unchanged',
       );
     }
 
@@ -139,16 +154,26 @@ export class ShiftAssignmentMoverService {
     // requerido, max horas semanales, etc).
     const warnings: string[] = [];
 
-    // Re-construir la fecha actualStartTime/EndTime si cambia el date.
-    // El template define la hora-de-pared; armamos la nueva Date
-    // preservando esa hora pero en el nuevo día.
-    const { actualStartTime: newStart, actualEndTime: newEnd } =
-      this.shiftTimesForNewDate(
-        current.actualStartTime,
-        current.actualEndTime,
-        current.date,
-        newDate,
+    // Resolución de las nuevas horas:
+    //   1. Punto de partida: shiftear las horas actuales por el delta de
+    //      días (preserva hora-de-pared al cambiar fecha).
+    //   2. Si el caller pasó override explícito (resize), usar ese valor
+    //      pero manteniendo el delta de día — el frontend manda los
+    //      timestamps ISO del día NUEVO ya, así que el override pisa.
+    const shifted = this.shiftTimesForNewDate(
+      current.actualStartTime,
+      current.actualEndTime,
+      current.date,
+      newDate,
+    );
+    const newStart = input.newActualStartTime ?? shifted.actualStartTime;
+    const newEnd = input.newActualEndTime ?? shifted.actualEndTime;
+    if (newEnd.getTime() <= newStart.getTime()) {
+      throw new MoveAssignmentConflictError(
+        'invalid_time_range',
+        `New end time must be after start time (start=${newStart.toISOString()}, end=${newEnd.toISOString()})`,
       );
+    }
 
     const updated = ShiftAssignment.fromPersistence({
       id: current.id,
@@ -178,6 +203,10 @@ export class ShiftAssignmentMoverService {
         new_employee_id: newEmployeeId,
         old_date: current.date,
         new_date: newDate,
+        old_actual_start_time: current.actualStartTime.toISOString(),
+        old_actual_end_time: current.actualEndTime.toISOString(),
+        new_actual_start_time: newStart.toISOString(),
+        new_actual_end_time: newEnd.toISOString(),
         reason: input.reason ?? null,
       });
     if (auditError) {
@@ -195,7 +224,10 @@ export class ShiftAssignmentMoverService {
 
     this.logger.log(
       `Moved assignment ${current.id} ` +
-        `(employee ${current.employeeId}→${newEmployeeId}, date ${current.date}→${newDate})`,
+        `(employee ${current.employeeId}→${newEmployeeId}, ` +
+        `date ${current.date}→${newDate}, ` +
+        `times ${current.actualStartTime.toISOString()}–${current.actualEndTime.toISOString()}` +
+        ` → ${newStart.toISOString()}–${newEnd.toISOString()})`,
     );
 
     return { assignment: updated, warnings };
