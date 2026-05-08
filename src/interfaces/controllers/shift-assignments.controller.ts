@@ -2,10 +2,14 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
+  HttpCode,
+  HttpStatus,
   Inject,
   NotFoundException,
   Param,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { IsOptional, IsString, IsNotEmpty, Matches } from 'class-validator';
@@ -14,10 +18,15 @@ import {
   MoveAssignmentConflictError,
 } from '../../domain/services/shift-assignment-mover.service';
 import {
+  ShiftAssignmentCreatorService,
+  CreateAssignmentConflictError,
+} from '../../domain/services/shift-assignment-creator.service';
+import {
   SHIFT_ASSIGNMENT_REPOSITORY,
   type IShiftAssignmentRepository,
 } from '../../domain/repositories/shift-assignment.repository';
 import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -43,6 +52,23 @@ export class MoveAssignmentDto {
   reason?: string;
 }
 
+export class CreateAssignmentDto {
+  @IsString()
+  @IsNotEmpty()
+  employeeId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  templateId!: string;
+
+  @Matches(ISO_DATE, { message: 'date must be YYYY-MM-DD' })
+  date!: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 /**
  * ShiftAssignmentsController
  *
@@ -55,9 +81,65 @@ export class MoveAssignmentDto {
 export class ShiftAssignmentsController {
   constructor(
     private readonly mover: ShiftAssignmentMoverService,
+    private readonly creator: ShiftAssignmentCreatorService,
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly repo: IShiftAssignmentRepository,
+    private readonly notificationsGateway: NotificationsGateway,
   ) {}
+
+  /**
+   * POST /shift-assignments?companyId=...
+   *
+   * Crea una assignment manual. Hard rules: empleado existe,
+   * template existe, no doble-booking. Marca origin='override'.
+   */
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  async create(
+    @Query('companyId') companyId: string,
+    @Body() dto: CreateAssignmentDto,
+  ): Promise<{ assignment: object }> {
+    try {
+      const assignment = await this.creator.create({
+        companyId,
+        employeeId: dto.employeeId,
+        templateId: dto.templateId,
+        date: dto.date,
+        reason: dto.reason,
+      });
+      return { assignment: this.toDto(assignment) };
+    } catch (err) {
+      if (err instanceof CreateAssignmentConflictError) {
+        throw new ConflictException({
+          error: err.reason,
+          message: err.detail,
+          ...(err.meta ?? {}),
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * DELETE /shift-assignments/:id?companyId=...
+   *
+   * Borra una assignment. 204 si OK, 404 si no existe. Sin audit
+   * profundo en v1 — el WS event AssignmentChanged + el log dejan
+   * trace básico.
+   */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id') id: string,
+    @Query('companyId') companyId: string,
+  ): Promise<void> {
+    const existing = await this.repo.findById(id, companyId);
+    if (!existing) {
+      throw new NotFoundException(`Assignment ${id} not found`);
+    }
+    await this.repo.deleteById(id, companyId);
+    this.notificationsGateway.notifyAssignmentChanged(companyId);
+  }
 
   @Patch(':id')
   async patch(
