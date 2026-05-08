@@ -21,11 +21,12 @@ import { ShiftAssignmentsController } from './controllers/shift-assignments.cont
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
+import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
 @Module({
-  imports: [ApplicationModule, RepositoriesModule, SupabaseModule],
+  imports: [ApplicationModule, RepositoriesModule, SupabaseModule, WebsocketModule],
   controllers: [
     EmployeeController,
     HandshakeController,

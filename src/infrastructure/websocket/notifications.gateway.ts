@@ -59,6 +59,20 @@ export class NotificationsGateway
   }
 
   /**
+   * Broadcast genérico cuando se crea/borra una assignment manual.
+   * El front se suscribe y refresca el horario sin distinguir el
+   * tipo de cambio (granularidad fina podría diferenciarse en el
+   * futuro si hace falta UI distinta — toast con detalle, etc).
+   */
+  notifyAssignmentChanged(companyId: string) {
+    if (!this.server) return;
+    this.server.emit('AssignmentChanged', { companyId });
+    this.logger.log(
+      `Broadcasted AssignmentChanged company=${companyId}`,
+    );
+  }
+
+  /**
    * Broadcast del fallo terminal de un job `schedule.generate` (después
    * de exhaustar retries). El front muestra toast de error desde
    * cualquier página, sin que el manager tenga que estar en /generate.
