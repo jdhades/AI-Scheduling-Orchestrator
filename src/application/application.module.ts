@@ -62,6 +62,7 @@ import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
 import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
+import { ShiftAssignmentMoverService } from '../domain/services/shift-assignment-mover.service';
 import { ScheduleGenerationJobHandler } from './jobs/schedule-generation-job.handler';
 import { ScheduleGenerationDeadletterHandler } from './jobs/schedule-generation-deadletter.handler';
 import { ScheduleGenerationDispatcher } from './jobs/schedule-generation-dispatcher.service';
@@ -156,6 +157,9 @@ const DomainServices = [
   // serializa runs sincronicos de generate_schedule. Se va a complementar
   // con pg-boss singletonKey cuando entre la cola.
   ScheduleGenerationLockService,
+  // Phase 19 — drag & drop manual: mueve una assignment a otro
+  // empleado/día con validación de conflicto + audit en BD + WS event.
+  ShiftAssignmentMoverService,
   // Fase 1 async migration — dispatcher (encola con singletonKey),
   // worker (procesa) y dead-letter handler (notifica fallo terminal).
   // Los workers usan OnApplicationBootstrap para subscribir después

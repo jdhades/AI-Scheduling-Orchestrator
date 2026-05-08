@@ -46,6 +46,19 @@ export class NotificationsGateway
   }
 
   /**
+   * Broadcast cuando una assignment se mueve manualmente (drag & drop
+   * desde el panel). El front invalida la query del horario para que
+   * todos los managers viendo la grilla vean el cambio en vivo.
+   */
+  notifyAssignmentMoved(companyId: string, assignmentId: string) {
+    if (!this.server) return;
+    this.server.emit('AssignmentMoved', { companyId, assignmentId });
+    this.logger.log(
+      `Broadcasted AssignmentMoved company=${companyId} assignment=${assignmentId}`,
+    );
+  }
+
+  /**
    * Broadcast del fallo terminal de un job `schedule.generate` (después
    * de exhaustar retries). El front muestra toast de error desde
    * cualquier página, sin que el manager tenga que estar en /generate.
