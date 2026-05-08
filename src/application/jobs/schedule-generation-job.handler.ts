@@ -19,6 +19,7 @@ import {
   NOTIFICATION_SERVICE,
   type INotificationService,
 } from '../../domain/services/notification.service';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 /**
  * ScheduleGenerationJobHandler
@@ -50,6 +51,7 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     private readonly notificationService: INotificationService,
     private readonly i18n: I18nService,
     private readonly cancellationRegistry: JobCancellationRegistry,
+    private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -83,6 +85,16 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
         `source=${payload.source.type}`,
     );
 
+    // Phase 4 — broadcast del pickup (created/retry → active). El
+    // front cierra el "queued" del banner y abre el "active" sin
+    // esperar el polling. Idempotente: si pg-boss reintenta, este
+    // emit se repite (front re-invalida la query, no es harmful).
+    this.notificationsGateway.notifyScheduleGenerationStarted(
+      payload.companyId,
+      payload.weekStart,
+      job.id,
+    );
+
     // Fase 3 — registramos un AbortController propio. pg-boss v12 NO
     // aborta job.signal cuando se llama boss.cancel() (solo cambia el
     // state en BD), así que necesitamos nuestro propio canal. El
@@ -103,6 +115,10 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
           payload.locale,
           payload.departmentId,
           cancelSignal,
+          // Phase 4 — lockToken = jobId. Permite que el cancel del
+          // controller pre-libere el lock con la misma key sin pisar
+          // a un job posterior que lo retome.
+          job.id,
         ),
       );
     } catch (err) {

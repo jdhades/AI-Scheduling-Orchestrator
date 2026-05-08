@@ -1,5 +1,6 @@
 import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
 import { Inject, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
@@ -157,11 +158,20 @@ export class GenerateHybridScheduleHandler
   async execute(
     command: GenerateHybridScheduleCommand,
   ): Promise<HybridScheduleResult> {
+    // Phase 4 — token único para este intento. Lo guardamos en
+    // `acquired_by` así el cancel del controller puede pre-liberar
+    // sin pisar a futuros jobs (release con token = race-safe).
+    // Async path pasa el jobId; sync path genera UUID.
+    const lockToken = command.lockToken ?? randomUUID();
     // Fase 0 async migration — lock por (companyId, weekStart) para
     // rechazar disparos concurrentes. Si ya hay un run activo,
     // `acquire` lanza ScheduleGenerationLockedException; el caller
     // (REST controller / WhatsApp router) la traduce al user.
-    await this.lockService.acquire(command.companyId, command.weekStart, 'http');
+    await this.lockService.acquire(
+      command.companyId,
+      command.weekStart,
+      lockToken,
+    );
     try {
       const { result, usage } = await this.llmUsageTracker.run(() =>
         this.runGeneration(command),
@@ -172,7 +182,14 @@ export class GenerateHybridScheduleHandler
       );
       return { ...result, llmUsage: usage };
     } finally {
-      await this.lockService.release(command.companyId, command.weekStart);
+      // Release con token: si el cancel ya liberó (pre-release), o
+      // si otro job ya tomó el lock con un token distinto, este
+      // delete no afecta nada — la query filtra por acquired_by.
+      await this.lockService.release(
+        command.companyId,
+        command.weekStart,
+        lockToken,
+      );
     }
   }
 

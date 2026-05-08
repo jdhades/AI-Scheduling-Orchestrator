@@ -94,6 +94,50 @@ export class NotificationsGateway
   }
 
   /**
+   * Phase 4 — broadcast cuando el worker pickea un job (transición
+   * created/retry → active). El front lo usa para invalidar las
+   * queries `['jobs', 'active']` y `['jobs', id]` y refrescar el
+   * banner de "queued" → "active" sin esperar el polling de 2s.
+   */
+  notifyScheduleGenerationStarted(
+    companyId: string,
+    weekStart: string,
+    jobId: string,
+  ) {
+    if (!this.server) return;
+    this.server.emit('ScheduleGenerationStarted', {
+      companyId,
+      weekStart,
+      jobId,
+    });
+    this.logger.log(
+      `Broadcasted ScheduleGenerationStarted job=${jobId} company=${companyId} week=${weekStart}`,
+    );
+  }
+
+  /**
+   * Phase 4 — broadcast cuando el manager cancela un job desde el
+   * panel. Se emite después de `boss.cancel + registry.abort` en el
+   * controller, sin esperar a que el worker confirme el abort. El
+   * front cierra el banner inmediato.
+   */
+  notifyScheduleGenerationCancelled(
+    companyId: string,
+    weekStart: string,
+    jobId: string,
+  ) {
+    if (!this.server) return;
+    this.server.emit('ScheduleGenerationCancelled', {
+      companyId,
+      weekStart,
+      jobId,
+    });
+    this.logger.log(
+      `Broadcasted ScheduleGenerationCancelled job=${jobId} company=${companyId} week=${weekStart}`,
+    );
+  }
+
+  /**
    * Broadcasts that a new HR routing incident has occurred (e.g., employee absence).
    */
   notifyIncidentCreated(

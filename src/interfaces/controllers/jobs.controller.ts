@@ -14,6 +14,8 @@ import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
 import { JobCancellationRegistry } from '../../infrastructure/queue/job-cancellation.registry';
 import { JOB_SCHEDULE_GENERATE } from '../../infrastructure/queue/job-names';
 import type { ScheduleGenerationJobPayload } from '../../infrastructure/queue/job-types';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
 
 interface JobStateDTO {
   id: string;
@@ -59,6 +61,8 @@ export class JobsController {
   constructor(
     private readonly pgBoss: PgBossService,
     private readonly cancellationRegistry: JobCancellationRegistry,
+    private readonly notificationsGateway: NotificationsGateway,
+    private readonly lockService: ScheduleGenerationLockService,
   ) {}
 
   /**
@@ -170,7 +174,25 @@ export class JobsController {
         // llamada al registry — no es un error, el state ya está
         // 'cancelled' en BD y la BD es la fuente de verdad.
       }
+      // Phase 4 — pre-release de la lock para que el manager pueda
+      // re-disparar inmediato sin esperar a que el handler termine
+      // de propagar el abort (puede tardar minutos si el LLM no
+      // responde al signal). El handler usa lockToken=jobId, así su
+      // finally NO pisa un lock futuro tomado por otro job.
+      await this.lockService.release(
+        job.data.companyId,
+        job.data.weekStart,
+        id,
+      );
     }
+    // Phase 4 — broadcast del cancel para que el banner se cierre
+    // inmediato en todos los browsers conectados, sin esperar el
+    // polling. Idempotente con el state='cancelled' en BD.
+    this.notificationsGateway.notifyScheduleGenerationCancelled(
+      job.data.companyId,
+      job.data.weekStart,
+      id,
+    );
   }
 
   private _toDto(job: JobWithMetadata<ScheduleGenerationJobPayload>): JobStateDTO {
