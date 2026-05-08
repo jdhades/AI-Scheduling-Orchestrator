@@ -20,7 +20,7 @@ export class QwenConversationalService implements IConversationalService {
   private readonly baseUrl =
     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
 
-  private static readonly TEXT_MODEL = 'qwen-plus';
+  private static readonly TEXT_MODEL = 'qwen3.6-plus';
   private static readonly AUDIO_MODEL = 'qwen-audio-turbo-latest';
   private static readonly TIMEOUT_MS = 30_000;
 
@@ -246,7 +246,10 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
       messages: messages,
       temperature: 0.1,
       max_tokens: 4096,
-      response_format: { type: "json_object" } // Qwen2.5+ soporta json_object en dashscope
+      response_format: { type: "json_object" }, // Qwen2.5+ soporta json_object en dashscope
+      // qwen3+ trae reasoning interno; para clasificación de intent
+      // no aporta y duplica latencia/tokens. Desactivado vía flag.
+      enable_thinking: false,
     });
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
