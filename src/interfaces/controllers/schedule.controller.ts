@@ -3,6 +3,7 @@ import {
   ConflictException,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Post,
@@ -16,6 +17,20 @@ import type { HybridScheduleResult } from '../../application/handlers/generate-h
 import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationDispatcher } from '../../application/jobs/schedule-generation-dispatcher.service';
+
+/**
+ * Parsea el header Accept-Language y devuelve un código de 2 letras
+ * que el handler entiende ('en' | 'es'). Sin header válido → 'en'
+ * (idioma canónico del sistema). Acepta formatos típicos como
+ * "es-AR,es;q=0.9,en;q=0.8" → toma "es".
+ */
+function parseAcceptLanguage(header?: string): string {
+  if (!header) return 'en';
+  const first = header.split(',')[0]?.trim().toLowerCase();
+  if (!first) return 'en';
+  const code = first.split('-')[0];
+  return code === 'es' ? 'es' : 'en';
+}
 
 /**
  * ScheduleController
@@ -43,8 +58,14 @@ export class ScheduleController {
   async generate(
     @Body() dto: GenerateScheduleDto,
     @Query('companyId') companyId: string,
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<HybridScheduleResult | { jobId: string; status: 'queued' }> {
     const useAsync = process.env.USE_ASYNC_SCHEDULE_GEN === 'true';
+    // Locale del request — el frontend pasa Accept-Language acorde al
+    // i18n state. Default 'en' (idioma canónico del sistema). El
+    // handler usa esto para construir explanation + warnings en el
+    // idioma del manager.
+    const locale = parseAcceptLanguage(acceptLanguage);
 
     if (useAsync) {
       // Path async (Fase 1): encola y devuelve 202 + jobId. El cliente
@@ -55,7 +76,7 @@ export class ScheduleController {
           weekStart: dto.weekStart,
           shiftTemplateId: dto.shiftTemplateId,
           departmentId: dto.departmentId,
-          locale: 'es',
+          locale,
           source: { type: 'http' },
         });
         return { jobId, status: 'queued' };
@@ -81,7 +102,7 @@ export class ScheduleController {
           dto.weekStart,
           dto.maxFairnessDeviation,
           dto.shiftTemplateId,
-          undefined,
+          locale,
           dto.departmentId,
         ),
       );

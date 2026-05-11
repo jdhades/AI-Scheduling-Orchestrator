@@ -334,6 +334,7 @@ export class GenerateHybridScheduleHandler
       companyId: command.companyId,
       runDepartmentId: command.departmentId,
       signal: command.signal,
+      locale: command.locale,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría
@@ -428,13 +429,17 @@ export class GenerateHybridScheduleHandler
   private buildUpdatedHistories(
     assignments: ShiftAssignment[],
     slots: VirtualShiftSlot[],
-    existingHistories: FairnessHistoryVO[],
+    _existingHistories: FairnessHistoryVO[],
     weekStart: Date,
     companyId: string,
   ): FairnessHistoryVO[] {
-    const historyMap = new Map<string, FairnessHistoryVO>(
-      existingHistories.map((h) => [h.employeeId, h]),
-    );
+    // Cada regeneración SOBRESCRIBE la fairness de la semana — la
+    // fila es proyección de las assignments actuales, no acumulado
+    // histórico. Empezamos desde `empty()` por (empleado, semana);
+    // si reusábamos `_existingHistories`, las re-generaciones sumaban
+    // hasta valores imposibles (ej. 1032h/semana = 6× la realidad).
+    // El parámetro queda en la firma por compat con calls existentes.
+    const historyMap = new Map<string, FairnessHistoryVO>();
     const slotByKey = new Map(slots.map((s) => [s.slotKey, s]));
 
     for (const assignment of assignments) {
@@ -483,14 +488,29 @@ export class GenerateHybridScheduleHandler
     rests: number,
     underfilled: number,
     weekStart: Date,
-    _locale: string,
+    locale: string,
   ): string {
     const d = weekStart.toISOString().split('T')[0];
-    const parts = [
-      `Horario generado para la semana del ${d}: ${total} asignaciones.`,
-      `Días libres: ${rests}.`,
-    ];
-    if (underfilled > 0) parts.push(`${underfilled} slot(s) bajo su target.`);
+    // English por default (idioma canónico del sistema). 'es' para
+    // managers hispanos — flow WhatsApp/UI lo pasa via locale del
+    // empleado o request. Cualquier otro código → inglés (fallback).
+    const isEs = locale.toLowerCase().startsWith('es');
+    const parts = isEs
+      ? [
+          `Horario generado para la semana del ${d}: ${total} asignaciones.`,
+          `Días libres: ${rests}.`,
+        ]
+      : [
+          `Schedule generated for the week of ${d}: ${total} assignments.`,
+          `Days off: ${rests}.`,
+        ];
+    if (underfilled > 0) {
+      parts.push(
+        isEs
+          ? `${underfilled} slot(s) bajo su target.`
+          : `${underfilled} slot(s) below target.`,
+      );
+    }
     return parts.join(' ');
   }
 }
