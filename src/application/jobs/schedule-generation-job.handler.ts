@@ -20,6 +20,8 @@ import {
   type INotificationService,
 } from '../../domain/services/notification.service';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { ScheduleGenerationRunsService } from '../../domain/services/schedule-generation-runs.service';
+import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
 
 /**
  * ScheduleGenerationJobHandler
@@ -52,6 +54,8 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     private readonly i18n: I18nService,
     private readonly cancellationRegistry: JobCancellationRegistry,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly runsService: ScheduleGenerationRunsService,
+    private readonly usageLogger: LLMUsageLogger,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -103,28 +107,48 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
 
     let result: HybridScheduleResult;
     try {
-      result = await this.commandBus.execute<
-        GenerateHybridScheduleCommand,
-        HybridScheduleResult
-      >(
-        new GenerateHybridScheduleCommand(
-          payload.companyId,
-          payload.weekStart,
-          undefined,
-          payload.shiftTemplateId,
-          payload.locale,
-          payload.departmentId,
-          cancelSignal,
-          // Phase 4 — lockToken = jobId. Permite que el cancel del
-          // controller pre-libere el lock con la misma key sin pisar
-          // a un job posterior que lo retome.
-          job.id,
-        ),
+      // F.6 — withContext envuelve el execute para que cada llamada
+      // LLM dentro del scope quede etiquetada con operation +
+      // companyId + jobId en `llm_usage_log`.
+      result = await this.usageLogger.withContext(
+        {
+          operation: 'schedule_generation',
+          companyId: payload.companyId,
+          jobId: job.id,
+        },
+        () =>
+          this.commandBus.execute<
+            GenerateHybridScheduleCommand,
+            HybridScheduleResult
+          >(
+            new GenerateHybridScheduleCommand(
+              payload.companyId,
+              payload.weekStart,
+              undefined,
+              payload.shiftTemplateId,
+              payload.locale,
+              payload.departmentId,
+              cancelSignal,
+              // Phase 4 — lockToken = jobId. Permite que el cancel del
+              // controller pre-libere el lock con la misma key sin pisar
+              // a un job posterior que lo retome.
+              job.id,
+            ),
+          ),
       );
     } catch (err) {
       const ms = Date.now() - startedAt;
       if (cancelSignal.aborted) {
         this.logger.log(`Job=${job.id} cancelled by user after ${ms}ms`);
+        // F.6 — record cancelled run para que aparezca en el histórico.
+        await this.runsService.record({
+          companyId: payload.companyId,
+          weekStart: payload.weekStart,
+          jobId: job.id,
+          status: 'cancelled',
+          source: payload.source.type,
+          durationMs: ms,
+        });
         throw err; // pg-boss respeta state='cancelled' (ya seteado por boss.cancel)
       }
       this.logger.error(
@@ -140,6 +164,21 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     this.logger.log(
       `Job=${job.id} success in ${ms}ms — ${result.assignmentsCount} assignments, ${result.unfilledShiftsCount} unfilled`,
     );
+
+    // F.6 — record completed run con métricas LLM + warnings.
+    await this.runsService.record({
+      companyId: payload.companyId,
+      weekStart: payload.weekStart,
+      jobId: job.id,
+      status: 'completed',
+      source: payload.source.type,
+      durationMs: ms,
+      assignmentsCount: result.assignmentsCount,
+      unfilledCount: result.unfilledShiftsCount,
+      llm: result.llmUsage ?? null,
+      explanation: result.explanation,
+      warnings: result.warnings,
+    });
 
     // Notificar al originador (solo WhatsApp por ahora; HTTP usa polling).
     if (payload.source.type === 'whatsapp') {

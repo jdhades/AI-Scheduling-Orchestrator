@@ -31,7 +31,6 @@ import { GeminiEmbeddingService } from '../services/gemini-embedding.service';
 import { QwenLLMService } from '../services/qwen-llm.service';
 import { GeminiLLMService } from '../services/gemini-llm.service';
 import { LocalLLMService } from '../services/local-llm.service';
-import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { HANDSHAKE_REPOSITORY } from '../../domain/repositories/handshake.repository';
 import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
@@ -81,7 +80,8 @@ import { TenantModule } from '../tenant/tenant.module';
     QwenLLMService,
     GeminiLLMService,
     LocalLLMService,
-    LLMUsageTracker,
+    // LLMUsageTracker + LLMUsageLogger viven en ObservabilityModule
+    // (@Global) — único shared singleton para que el ALS funcione.
     {
       provide: EMBEDDING_SERVICE_TOKEN,
       inject: [ConfigService, QwenEmbeddingService, GeminiEmbeddingService],
@@ -168,7 +168,6 @@ import { TenantModule } from '../tenant/tenant.module';
     SHIFT_SWAP_REQUEST_REPOSITORY,
     ABSENCE_REPORT_REPOSITORY,
     DAY_OFF_REQUEST_REPOSITORY,
-    LLMUsageTracker,
   ],
 })
 export class RepositoriesModule {}

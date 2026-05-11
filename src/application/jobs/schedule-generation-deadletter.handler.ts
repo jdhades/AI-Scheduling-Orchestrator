@@ -14,6 +14,7 @@ import {
   type INotificationService,
 } from '../../domain/services/notification.service';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { ScheduleGenerationRunsService } from '../../domain/services/schedule-generation-runs.service';
 
 /**
  * ScheduleGenerationDeadletterHandler
@@ -40,6 +41,7 @@ export class ScheduleGenerationDeadletterHandler
     private readonly notificationService: INotificationService,
     private readonly notificationsGateway: NotificationsGateway,
     private readonly i18n: I18nService,
+    private readonly runsService: ScheduleGenerationRunsService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -66,6 +68,19 @@ export class ScheduleGenerationDeadletterHandler
         `company=${payload.companyId} week=${payload.weekStart} ` +
         `source=${payload.source.type} — notifying originator`,
     );
+
+    // F.6 — record failed run para el histórico. duration es desconocido
+    // en este punto (pg-boss no lo expone fácilmente al deadletter), así
+    // que pasamos 0 — el campo es informativo, no se filtra por él.
+    await this.runsService.record({
+      companyId: payload.companyId,
+      weekStart: payload.weekStart,
+      jobId: job.id,
+      status: 'failed',
+      source: payload.source.type,
+      durationMs: 0,
+      errorMessage: 'Job exhausted retries (dead-letter)',
+    });
 
     // WS broadcast — el dashboard muestra toast de error sin que el
     // manager tenga que estar en /generate.

@@ -16,6 +16,7 @@ import { JOB_SCHEDULE_GENERATE } from '../../infrastructure/queue/job-names';
 import type { ScheduleGenerationJobPayload } from '../../infrastructure/queue/job-types';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
+import { ScheduleGenerationRunsService } from '../../domain/services/schedule-generation-runs.service';
 
 interface JobStateDTO {
   id: string;
@@ -63,6 +64,7 @@ export class JobsController {
     private readonly cancellationRegistry: JobCancellationRegistry,
     private readonly notificationsGateway: NotificationsGateway,
     private readonly lockService: ScheduleGenerationLockService,
+    private readonly runsService: ScheduleGenerationRunsService,
   ) {}
 
   /**
@@ -193,6 +195,24 @@ export class JobsController {
       job.data.weekStart,
       id,
     );
+
+    // F.6 — pre-pickup cancel: el worker NUNCA va a procesar este
+    // job, por lo tanto el handler tampoco va a registrar el run.
+    // Acá lo escribimos para que aparezca en el histórico. Si el
+    // worker ya estaba activo, su catch path va a recordear de nuevo
+    // — el delete-by-jobId no aplica acá porque jobId es PK del run,
+    // pero un duplicate insert por race es muy improbable (state
+    // active+cancel ya está en el path del worker).
+    if (job.state === 'created' || job.state === 'retry') {
+      await this.runsService.record({
+        companyId: job.data.companyId,
+        weekStart: job.data.weekStart,
+        jobId: id,
+        status: 'cancelled',
+        source: job.data.source.type,
+        durationMs: 0,
+      });
+    }
   }
 
   private _toDto(job: JobWithMetadata<ScheduleGenerationJobPayload>): JobStateDTO {

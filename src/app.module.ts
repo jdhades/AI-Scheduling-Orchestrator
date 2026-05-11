@@ -11,6 +11,7 @@ import { TenantMiddleware } from './infrastructure/tenant/tenant.middleware';
 import { RepositoriesModule } from './infrastructure/repositories/repositories.module';
 import { InterfacesModule } from './interfaces/interfaces.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
+import { ObservabilityModule } from './infrastructure/observability/observability.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { QueueModule } from './infrastructure/queue/queue.module';
       resolvers: [AcceptLanguageResolver],
     }),
     AppConfigModule,
+    ObservabilityModule,
     QueueModule,
     ApplicationModule,
     TenantModule,

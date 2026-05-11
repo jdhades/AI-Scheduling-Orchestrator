@@ -18,6 +18,9 @@ import { ScopeTargetsController } from './controllers/scope-targets.controller';
 import { DepartmentsController } from './controllers/departments.controller';
 import { JobsController } from './controllers/jobs.controller';
 import { ShiftAssignmentsController } from './controllers/shift-assignments.controller';
+import { ScheduleGenerationRunsController } from './controllers/schedule-generation-runs.controller';
+import { LLMUsageController } from './controllers/llm-usage.controller';
+import { LLMModelBudgetsController } from './controllers/llm-model-budgets.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
@@ -48,6 +51,9 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     DepartmentsController,
     JobsController,
     ShiftAssignmentsController,
+    ScheduleGenerationRunsController,
+    LLMUsageController,
+    LLMModelBudgetsController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

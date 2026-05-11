@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { ILLMService } from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
+import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
 
 /**
  * QwenLLMService — Implementación concreta de ILLMService
@@ -21,6 +22,7 @@ export class QwenLLMService implements ILLMService {
   constructor(
     private readonly config: ConfigService,
     private readonly usageTracker: LLMUsageTracker,
+    private readonly usageLogger: LLMUsageLogger,
   ) {
     this.apiKey = this.config.get<string>('qwen.apiKey');
     if (!this.apiKey) {
@@ -50,6 +52,7 @@ export class QwenLLMService implements ILLMService {
       ? AbortSignal.any([timeoutSignal, externalSignal])
       : timeoutSignal;
 
+    const startedAt = Date.now();
     let response: Response;
     try {
       response = await fetch(this.baseUrl, {
@@ -106,6 +109,14 @@ export class QwenLLMService implements ILLMService {
         prompt: usage.prompt_tokens ?? 0,
         completion: usage.completion_tokens ?? 0,
         total: usage.total_tokens ?? 0,
+      });
+      // Persistencia para el dashboard de costos (lee contexto via ALS).
+      this.usageLogger.record({
+        model: this.model,
+        promptTokens: usage.prompt_tokens ?? 0,
+        completionTokens: usage.completion_tokens ?? 0,
+        totalTokens: usage.total_tokens ?? 0,
+        durationMs: Date.now() - startedAt,
       });
     }
 

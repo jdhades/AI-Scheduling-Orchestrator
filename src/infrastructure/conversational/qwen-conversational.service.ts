@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
 import type { IConversationalService } from '../../domain/services/conversational.service.interface';
 import {
   ConversationIntentVO,
@@ -24,7 +25,10 @@ export class QwenConversationalService implements IConversationalService {
   private static readonly AUDIO_MODEL = 'qwen-audio-turbo-latest';
   private static readonly TIMEOUT_MS = 30_000;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly usageLogger: LLMUsageLogger,
+  ) {
     this.apiKey = this.config.getOrThrow<string>('qwen.apiKey');
   }
 
@@ -296,6 +300,15 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
         this.logger.log(
           `🧠 Qwen Conversational Token Usage -> Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens}`,
         );
+        // Persistencia para el dashboard de costos. El contexto debe
+        // venir setteado por el caller (MessageRouter) — sino queda
+        // como operation='unknown'.
+        this.usageLogger.record({
+          model,
+          promptTokens: usage.prompt_tokens ?? 0,
+          completionTokens: usage.completion_tokens ?? 0,
+          totalTokens: usage.total_tokens ?? 0,
+        });
       }
 
       if (!text) throw new Error('Empty response from Qwen');
