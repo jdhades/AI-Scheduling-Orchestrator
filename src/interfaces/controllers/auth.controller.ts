@@ -21,6 +21,7 @@ import {
   IsUUID,
 } from 'class-validator';
 import { randomBytes } from 'crypto';
+import { Throttle } from '@nestjs/throttler';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
@@ -261,6 +262,10 @@ export class AuthController {
    */
   @Get('invitations/by-token/:token')
   @Public()
+  // 20/min/IP — defiende contra brute-force scanning de tokens
+  // (random 32 bytes = ~10^77 combos, igual queremos rate-limit
+  // estricto en el path público que no requiere auth).
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async previewInvitation(
     @Param('token') token: string,
   ): Promise<{

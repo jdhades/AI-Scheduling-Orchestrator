@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GenerateHybridScheduleCommand } from '../../application/commands/generate-hybrid-schedule.command';
 import { GetCompanyScheduleQuery } from '../../application/queries/get-company-schedule.query';
@@ -56,6 +57,10 @@ export class ScheduleController {
    */
   @Post('generate')
   @HttpCode(HttpStatus.OK)
+  // 3/min/IP — la generación cuesta tokens LLM reales. Manager
+  // normal dispara 1-2 veces por día; protege contra accidental
+  // loops o intentional abuse.
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   async generate(
     @Body() dto: GenerateScheduleDto,
     @CurrentCompany() companyId: string,

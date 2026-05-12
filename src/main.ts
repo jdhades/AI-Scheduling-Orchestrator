@@ -19,11 +19,50 @@ import { PostgresExceptionFilter } from './infrastructure/filters/postgres-excep
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Seguridad Baseline
-  app.use(helmet());
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+  // ─── Hardening transversal (PR 9 sprint Auth) ─────────────────────────
+  // Helmet: CSP + HSTS + frame-ancestors=none. Whitelist específico para
+  // permitir Turnstile (Cloudflare CAPTCHA — usado en /login en PR 11)
+  // y comunicación con Supabase Auth.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", 'https://challenges.cloudflare.com'],
+          frameSrc: ["'self'", 'https://challenges.cloudflare.com'],
+          connectSrc: [
+            "'self'",
+            process.env.SUPABASE_URL ?? '',
+            'https://challenges.cloudflare.com',
+          ],
+          frameAncestors: ["'none'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+        },
+      },
+      hsts: {
+        maxAge: 31536000, // 1 año
+        includeSubDomains: true,
+        preload: true,
+      },
+    }),
   );
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // descarta props no declaradas
+      forbidNonWhitelisted: true, // 400 si vienen props extra
+      transform: true, // auto-convierte primitives (string → number, etc)
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  // Warning si el bypass DEV está activo — debe estar OFF en producción.
+  if (process.env.DEV_AUTH_BYPASS === 'true') {
+    console.warn(
+      '⚠️  DEV_AUTH_BYPASS=true — JWT validation skipped when X-Company-Id ' +
+        'header is present. THIS MUST BE OFF IN PRODUCTION.',
+    );
+  }
 
   // Traduce errores de Postgres / no-HTTP a respuestas con `errorCode`
   // estable que el frontend resuelve via i18n.
