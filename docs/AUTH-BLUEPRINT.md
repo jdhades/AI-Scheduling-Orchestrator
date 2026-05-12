@@ -705,17 +705,23 @@ it('blocks 6th login attempt within 1 min', async () => {
 
 ## 9. Estado de implementación
 
-| PR | Status | Commit |
-|----|--------|--------|
-| 1 — Migrations | _en progreso_ | — |
-| 2 — JwtAuthGuard scaffold | TODO | — |
-| 3 — Frontend Supabase setup | TODO | — |
-| 4 — Custom claim hook + `/auth/me` | TODO | — |
-| 5 — Migrar endpoints | TODO | — |
-| 6 — RLS policies | TODO | — |
-| 7 — Invitations flow | TODO | — |
-| 8 — Employee view | TODO | — |
-| 9 — Hardening transversal | TODO | — |
-| 10 — WS auth | TODO | — |
-| 11 — Cloudflare | TODO | — |
-| 12 — MFA + audit log UI | TODO | — |
+| PR | Status | Commits |
+|----|--------|---------|
+| 1 — Migrations | ✅ | `d080e34` |
+| 2 — JwtAuthGuard scaffold | ✅ | `c7c8507` |
+| 3 — Frontend Supabase setup | ✅ | `383e74c` |
+| 4 — Custom claim hook + `/auth/me` | ✅ | `a1f1a25` + `d89805d` |
+| 5 — Migrar endpoints | ✅ | `2822fe7` |
+| 6 — RLS policies | ✅ | `05fa60d` |
+| 7 — Invitations flow | ✅ | `0b2be40` + `fc124c8` |
+| 8 — Employee view | ✅ | `5758bc9` + `41bf5c7` |
+| 9 — Hardening transversal | ✅ | `f11f388` |
+| 10 — WS auth | ✅ | `00744cb` + `2afdf6d` |
+| 11 — Cloudflare | ✅ | `42db67e` + `584e588` |
+| 12 — MFA + audit log UI | ✅ | `d8ba447` + `848baa0` |
+
+**Sprint cerrado 2026-05-11.** Todos los 12 PRs aplicados. Items pendientes operativos:
+- Activar el access token hook en Supabase Dashboard (`auth.custom_access_token_hook`).
+- Configurar Cloudflare según `docs/CLOUDFLARE-SETUP.md`.
+- Apagar `DEV_AUTH_BYPASS` en `.env` cuando el seed user de prod esté listo.
+- ProtectedRoute con role gating en frontend (follow-up cuando se cierre el bypass).
