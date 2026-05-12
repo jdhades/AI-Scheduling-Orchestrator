@@ -3,17 +3,42 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
+import { JwtValidatorService } from './services/jwt-validator.service';
+import type { AuthContext } from './auth-context';
 
+/**
+ * SupabaseAuthGuard — guard global aplicado vía APP_GUARD en
+ * `AuthModule`. Decide en este orden:
+ *
+ *   1. `@Public()`        → bypassa todo (endpoints abiertos: health, webhooks)
+ *   2. `DEV_AUTH_BYPASS`  → modo legacy del sprint actual. Resuelve
+ *                          companyId desde el header `X-Company-Id`.
+ *                          Se elimina cuando termine PR 5.
+ *   3. JWT Bearer         → valida firma local con `JwtValidatorService`
+ *                          (JWKS Supabase). Si el JWT trae custom claims
+ *                          (company_id, employee_role…) los usa directo.
+ *                          Sino, hace lookup contra `employees` por
+ *                          `auth_user_id` (path legacy hasta que el
+ *                          access token hook esté configurado).
+ *
+ * Popula `req.auth: AuthContext` para los decoradores `@CurrentUser()`
+ * y `@CurrentCompany()`. Esa es la API estable que los controllers
+ * consumen — `req.user` queda como alias por compat con código legacy.
+ */
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
+  private readonly logger = new Logger(SupabaseAuthGuard.name);
+
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
     private readonly reflector: Reflector,
+    private readonly jwtValidator: JwtValidatorService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -21,57 +46,86 @@ export class SupabaseAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-
-    if (isPublic) {
-      return true;
-    }
+    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
 
-    // DEV bypass: cuando DEV_AUTH_BYPASS=true y la request trae X-Company-Id
-    // (el patrón "internal/tests" que ya documenta TenantMiddleware), saltamos
-    // la verificación JWT. Deuda HIGH conocida — se quita cuando exista login real.
+    // ─── Modo dev (sprint en transición) ──────────────────────────
+    // X-Company-Id header + flag DEV_AUTH_BYPASS=true → bypass del JWT.
+    // Eliminar cuando PR 5 cierre — entonces TODOS los endpoints
+    // protected deben recibir un Bearer válido.
     if (
       process.env.DEV_AUTH_BYPASS === 'true' &&
       request.headers['x-company-id']
     ) {
-      request.user = { company_id: request.headers['x-company-id'] };
+      const auth: AuthContext = {
+        userId: null,
+        employeeId: null,
+        companyId: request.headers['x-company-id'],
+        role: null,
+        departmentId: null,
+      };
+      request.auth = auth;
+      // Alias para código legacy que lee `req.user`.
+      request.user = { company_id: auth.companyId };
       return true;
     }
 
+    const authHeader = request.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new UnauthorizedException(
         'Missing or invalid Authorization header',
       );
     }
-
     const token = authHeader.split(' ')[1];
 
-    // Verificamos el token criptográficamente contra Supabase
-    const {
-      data: { user },
-      error,
-    } = await this.supabase.auth.getUser(token);
-
-    if (error || !user) {
+    // ─── Validación JWT local (jose + JWKS) ───────────────────────
+    let claims;
+    try {
+      claims = await this.jwtValidator.verify(token);
+    } catch (err) {
       throw new UnauthorizedException(
-        `Invalid JWT token: ${error?.message || 'User not found'}`,
+        `Invalid JWT: ${(err as Error).message}`,
       );
     }
 
-    // Inyectamos el usuario decodificado para TenantMiddleware y los controladores
-    request.user = user;
-
-    // Supabase JWTs usually put custom claims in app_metadata or user_metadata
-    if (!request.user.company_id && user.app_metadata?.company_id) {
-      request.user.company_id = user.app_metadata.company_id;
+    // Path A: hook de Supabase ya inyecta custom claims → uso directo.
+    if (claims.company_id) {
+      const auth: AuthContext = {
+        userId: claims.sub,
+        employeeId: claims.employee_id ?? null,
+        companyId: claims.company_id,
+        role: claims.employee_role ?? null,
+        departmentId: claims.department_id ?? null,
+      };
+      request.auth = auth;
+      request.user = { id: claims.sub, company_id: auth.companyId };
+      return true;
     }
 
-    if (!request.user.company_id && user.user_metadata?.company_id) {
-      request.user.company_id = user.user_metadata.company_id;
+    // Path B: sin hook todavía — lookup en `employees` por auth_user_id.
+    // Costo: 1 query por request. Aceptable como bridge hasta que el
+    // hook entre (entonces este branch se vuelve dead code).
+    const { data: emp, error } = await this.supabase
+      .from('employees')
+      .select('id, company_id, role, department_id')
+      .eq('auth_user_id', claims.sub)
+      .maybeSingle();
+    if (error || !emp) {
+      this.logger.warn(
+        `JWT válido pero no linked a employee — user=${claims.sub}`,
+      );
+      throw new UnauthorizedException('User not linked to any employee');
     }
-
+    const auth: AuthContext = {
+      userId: claims.sub,
+      employeeId: emp.id,
+      companyId: emp.company_id,
+      role: emp.role,
+      departmentId: emp.department_id,
+    };
+    request.auth = auth;
+    request.user = { id: claims.sub, company_id: auth.companyId };
     return true;
   }
 }
