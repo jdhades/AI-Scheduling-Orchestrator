@@ -19,6 +19,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  MinLength,
+  Matches,
 } from 'class-validator';
 import { randomBytes } from 'crypto';
 import { Throttle } from '@nestjs/throttler';
@@ -58,6 +60,25 @@ const EMPLOYEE_PERMISSIONS = [
   'request:create',
   'request:view-self',
 ];
+
+export class SignupDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  // ≥1 dígito + ≥1 símbolo. Largo mínimo ya cubierto por MinLength.
+  // Definimos esto acá y en el frontend para evitar round-trips.
+  @Matches(/(?=.*\d)(?=.*[^A-Za-z0-9])/, {
+    message: 'password must contain at least one digit and one symbol',
+  })
+  password!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  name!: string;
+}
 
 export class CreateInvitationDto {
   @IsOptional()
@@ -109,7 +130,67 @@ export class AuthController {
 
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    // Anon client para signup público — respeta el flow nativo
+    // (rate-limit Supabase + email confirmation si está habilitada).
+    @Inject('SUPABASE_ANON_CLIENT')
+    private readonly supabaseAnon: SupabaseClient,
   ) {}
+
+  /**
+   * POST /auth/signup — público. Crea un user en Supabase Auth con
+   * metadata `signup_intent: 'self_signup'`. El trigger
+   * `auth.handle_new_user` detecta el intent y crea atómicamente la
+   * `companies` + `employees` (rol owner) + `onboarding_drafts` inicial.
+   *
+   * Rate limit aggressive (5/min/IP) — signup es endpoint sensible.
+   * Supabase Auth tiene su propio rate-limit como segunda barrera.
+   *
+   * Si Supabase tiene `email_confirm` ON, la respuesta llega sin session
+   * (`requiresEmailConfirm: true`). El frontend muestra "Revisá tu mail"
+   * y espera al click del link de verificación, que abre el browser con
+   * sesión activa y el wizard de onboarding listo.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('signup')
+  async signup(
+    @Body() body: SignupDto,
+  ): Promise<{
+    userId: string | null;
+    requiresEmailConfirm: boolean;
+  }> {
+    const { data, error } = await this.supabaseAnon.auth.signUp({
+      email: body.email,
+      password: body.password,
+      options: {
+        data: {
+          name: body.name,
+          signup_intent: 'self_signup',
+        },
+      },
+    });
+
+    if (error) {
+      // Mapping fino: email duplicado → 409, resto → 400.
+      // Supabase usa 'user_already_exists' (nuevo) o el legacy 422.
+      if (
+        error.status === 422 ||
+        error.code === 'user_already_exists' ||
+        /already (registered|in use)/i.test(error.message)
+      ) {
+        throw new ConflictException('Email already in use');
+      }
+      throw new BadRequestException(error.message);
+    }
+
+    return {
+      userId: data.user?.id ?? null,
+      // Sin session = email confirmation está activa, el user debe
+      // verificar antes de loguear.
+      requiresEmailConfirm: data.session === null,
+    };
+  }
 
   @Get('me')
   async me(@CurrentUser() user: AuthContext): Promise<MeResponse> {
@@ -141,8 +222,11 @@ export class AuthController {
     }
 
     const role = user.role ?? employee?.role ?? null;
+    // Owner hereda los permisos de manager (lo decidimos en el sprint de
+    // self-signup). Lo único owner-exclusivo viene cuando se agreguen
+    // capabilities específicas (Settings, promote, etc.).
     const permissions =
-      role === 'manager'
+      role === 'owner' || role === 'manager'
         ? MANAGER_PERMISSIONS
         : role === 'employee'
           ? EMPLOYEE_PERMISSIONS

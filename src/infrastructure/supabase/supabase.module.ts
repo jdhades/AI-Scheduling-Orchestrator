@@ -24,7 +24,20 @@ import { createClient } from '@supabase/supabase-js';
           config.getOrThrow<string>('SUPABASE_SERVICE_ROLE_KEY'),
         ),
     },
+    // Anon client — para endpoints públicos que necesitan respetar el
+    // flow nativo de auth (signUp con email verification, etc.).
+    // SERVICE_ROLE bypasea RLS y skipea verificación — NO usarlo desde
+    // un endpoint público porque permitiría side-effects no controlados.
+    {
+      provide: 'SUPABASE_ANON_CLIENT',
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        createClient(
+          config.getOrThrow<string>('SUPABASE_URL'),
+          config.getOrThrow<string>('SUPABASE_ANON_KEY'),
+        ),
+    },
   ],
-  exports: ['SUPABASE_CLIENT'],
+  exports: ['SUPABASE_CLIENT', 'SUPABASE_ANON_CLIENT'],
 })
 export class SupabaseModule {}
