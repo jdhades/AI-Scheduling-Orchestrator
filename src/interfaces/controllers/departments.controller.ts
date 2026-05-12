@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -81,7 +82,7 @@ export class DepartmentsController {
   @HttpCode(HttpStatus.OK)
   async update(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpdateDepartmentDto,
   ): Promise<DepartmentMutateResponse> {
     const existing = await this.supabase

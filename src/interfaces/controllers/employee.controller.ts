@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -83,11 +84,8 @@ export class EmployeeController {
    */
   @Get()
   async getEmployees(
-    @Headers('x-company-id') companyIdHeader: string,
-    @Query('companyId') companyIdQuery: string,
+    @CurrentCompany() companyId: string,
   ): Promise<unknown> {
-    // Fallback for easy testing from frontend without setting headers
-    const companyId = companyIdHeader || companyIdQuery;
     return this.queryBus.execute(new GetCompanyEmployeesQuery(companyId));
   }
 

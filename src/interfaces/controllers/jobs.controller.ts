@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   ConflictException,
   Controller,
@@ -14,6 +15,9 @@ import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
 import { JobCancellationRegistry } from '../../infrastructure/queue/job-cancellation.registry';
 import { JOB_SCHEDULE_GENERATE } from '../../infrastructure/queue/job-names';
 import type { ScheduleGenerationJobPayload } from '../../infrastructure/queue/job-types';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
+import { ScheduleGenerationRunsService } from '../../domain/services/schedule-generation-runs.service';
 
 interface JobStateDTO {
   id: string;
@@ -59,6 +63,9 @@ export class JobsController {
   constructor(
     private readonly pgBoss: PgBossService,
     private readonly cancellationRegistry: JobCancellationRegistry,
+    private readonly notificationsGateway: NotificationsGateway,
+    private readonly lockService: ScheduleGenerationLockService,
+    private readonly runsService: ScheduleGenerationRunsService,
   ) {}
 
   /**
@@ -74,7 +81,7 @@ export class JobsController {
    */
   @Get('active')
   async getActive(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<JobStateDTO[]> {
     if (!this.pgBoss.isEnabled()) return [];
     const boss = this.pgBoss.getInstance();
@@ -101,7 +108,7 @@ export class JobsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<JobStateDTO> {
     if (!this.pgBoss.isEnabled()) {
       throw new NotFoundException('Queue not enabled');
@@ -125,7 +132,7 @@ export class JobsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async cancel(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     if (!this.pgBoss.isEnabled()) {
       throw new NotFoundException('Queue not enabled');
@@ -170,6 +177,42 @@ export class JobsController {
         // llamada al registry — no es un error, el state ya está
         // 'cancelled' en BD y la BD es la fuente de verdad.
       }
+      // Phase 4 — pre-release de la lock para que el manager pueda
+      // re-disparar inmediato sin esperar a que el handler termine
+      // de propagar el abort (puede tardar minutos si el LLM no
+      // responde al signal). El handler usa lockToken=jobId, así su
+      // finally NO pisa un lock futuro tomado por otro job.
+      await this.lockService.release(
+        job.data.companyId,
+        job.data.weekStart,
+        id,
+      );
+    }
+    // Phase 4 — broadcast del cancel para que el banner se cierre
+    // inmediato en todos los browsers conectados, sin esperar el
+    // polling. Idempotente con el state='cancelled' en BD.
+    this.notificationsGateway.notifyScheduleGenerationCancelled(
+      job.data.companyId,
+      job.data.weekStart,
+      id,
+    );
+
+    // F.6 — pre-pickup cancel: el worker NUNCA va a procesar este
+    // job, por lo tanto el handler tampoco va a registrar el run.
+    // Acá lo escribimos para que aparezca en el histórico. Si el
+    // worker ya estaba activo, su catch path va a recordear de nuevo
+    // — el delete-by-jobId no aplica acá porque jobId es PK del run,
+    // pero un duplicate insert por race es muy improbable (state
+    // active+cancel ya está en el path del worker).
+    if (job.state === 'created' || job.state === 'retry') {
+      await this.runsService.record({
+        companyId: job.data.companyId,
+        weekStart: job.data.weekStart,
+        jobId: id,
+        status: 'cancelled',
+        source: job.data.source.type,
+        durationMs: 0,
+      });
     }
   }
 

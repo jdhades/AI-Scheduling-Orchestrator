@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
 import type { IConversationalService } from '../../domain/services/conversational.service.interface';
 import {
   ConversationIntentVO,
@@ -20,11 +21,14 @@ export class QwenConversationalService implements IConversationalService {
   private readonly baseUrl =
     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
 
-  private static readonly TEXT_MODEL = 'qwen-plus';
+  private static readonly TEXT_MODEL = 'qwen3.6-plus';
   private static readonly AUDIO_MODEL = 'qwen-audio-turbo-latest';
   private static readonly TIMEOUT_MS = 30_000;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly usageLogger: LLMUsageLogger,
+  ) {
     this.apiKey = this.config.getOrThrow<string>('qwen.apiKey');
   }
 
@@ -246,7 +250,10 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
       messages: messages,
       temperature: 0.1,
       max_tokens: 4096,
-      response_format: { type: "json_object" } // Qwen2.5+ soporta json_object en dashscope
+      response_format: { type: "json_object" }, // Qwen2.5+ soporta json_object en dashscope
+      // qwen3+ trae reasoning interno; para clasificación de intent
+      // no aporta y duplica latencia/tokens. Desactivado vía flag.
+      enable_thinking: false,
     });
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -293,6 +300,15 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
         this.logger.log(
           `🧠 Qwen Conversational Token Usage -> Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens} | Total: ${usage.total_tokens}`,
         );
+        // Persistencia para el dashboard de costos. El contexto debe
+        // venir setteado por el caller (MessageRouter) — sino queda
+        // como operation='unknown'.
+        this.usageLogger.record({
+          model,
+          promptTokens: usage.prompt_tokens ?? 0,
+          completionTokens: usage.completion_tokens ?? 0,
+          totalTokens: usage.total_tokens ?? 0,
+        });
       }
 
       if (!text) throw new Error('Empty response from Qwen');

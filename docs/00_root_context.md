@@ -3,7 +3,18 @@
 > **MANDATORY LOAD ORDER**: This file MUST be read before any agent or skill file.
 > Priority: `docs/ > .agents/ > .agents/skills/`
 >
-> Generated: 2026-04-11 | Last update: 2026-04-27 (Company Policies sprint) | Strict mode: ON
+> Generated: 2026-04-11 | Last update: 2026-05-09 (Auth sprint kickoff) | Strict mode: ON
+
+## ⚡ Sprint activo: Auth + Multi-tenant + Vista Empleado
+
+Plan completo en [AUTH-BLUEPRINT.md](AUTH-BLUEPRINT.md). 12 PRs en orden de dependencia. **Objetivo**: cerrar la deuda HIGH de seguridad (sin JWT, cross-tenant lookup) + agregar vista del empleado.
+
+Capas tocadas:
+- **DB**: nuevas tablas `auth_audit_log`, `auth_invitations`. RLS en TODAS las tablas tenant-scoped.
+- **Backend**: `JwtAuthGuard` global + `@Public()` para excepciones (`/health`, webhooks). Custom claims con `company_id`/`employee_role` via Supabase access token hook.
+- **Frontend**: Supabase Auth client. `AuthContext` + JWT en memory (NO localStorage). Quitar `TENANT_ID` hardcoded. Split rutas por rol.
+- **Cloudflare (free-tier only)**: proxy DNS + Bot Fight Mode + Turnstile (CAPTCHA en `/login`) + Cloudflare Tunnel (oculta IP del origin) + WAF Managed Ruleset OWASP.
+- **Hardening**: Helmet + ValidationPipe global + Throttler + CORS estricto.
 
 ---
 

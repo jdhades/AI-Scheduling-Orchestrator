@@ -7,10 +7,26 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { JwtValidatorService } from '../auth/services/jwt-validator.service';
 
+/**
+ * NotificationsGateway — eventos en tiempo real al frontend.
+ *
+ * PR 10 — auth + scoping por tenant:
+ *   1. handleConnection valida JWT del handshake.auth.token. Si falla
+ *      → disconnect. DEV_AUTH_BYPASS=true + companyId en handshake
+ *      permite conexiones sin JWT (compat con dev path).
+ *   2. Cada socket entra a la room `company:${companyId}`. Los emits
+ *      pasan de `server.emit()` (broadcast global) a
+ *      `server.to(room).emit()` — isolation por tenant garantizada.
+ *
+ * CORS: el origin viene de `FRONTEND_URL` env. Sin variable → wildcard
+ * (dev only). En prod nunca debería quedar sin setear.
+ */
 @WebSocketGateway({
   cors: {
-    origin: '*', // Permitir cualquier origen por ahora para integración local
+    origin: process.env.FRONTEND_URL ?? '*',
+    credentials: true,
   },
 })
 export class NotificationsGateway
@@ -21,12 +37,65 @@ export class NotificationsGateway
   @WebSocketServer()
   server: Server;
 
-  afterInit(server: Server) {
+  constructor(private readonly jwtValidator: JwtValidatorService) {}
+
+  afterInit(_server: Server) {
     this.logger.log('WebSocket Gateway Initialized');
   }
 
-  handleConnection(client: Socket) {
-    this.logger.log(`Client connected: ${client.id}`);
+  async handleConnection(client: Socket): Promise<void> {
+    const token =
+      (client.handshake.auth?.token as string | undefined) ??
+      (client.handshake.headers.authorization as string | undefined)?.replace(
+        /^Bearer\s+/i,
+        '',
+      );
+    const devCompanyId =
+      (client.handshake.auth?.companyId as string | undefined) ??
+      (client.handshake.headers['x-company-id'] as string | undefined);
+
+    // ─── DEV bypass ────────────────────────────────────────────────────
+    if (
+      process.env.DEV_AUTH_BYPASS === 'true' &&
+      devCompanyId &&
+      !token
+    ) {
+      void client.join(`company:${devCompanyId}`);
+      client.data.companyId = devCompanyId;
+      this.logger.log(
+        `Client ${client.id} connected via DEV bypass (company=${devCompanyId})`,
+      );
+      return;
+    }
+
+    if (!token) {
+      this.logger.warn(`Client ${client.id} rejected — no auth token`);
+      client.disconnect(true);
+      return;
+    }
+
+    try {
+      const claims = await this.jwtValidator.verify(token);
+      const companyId = claims.company_id;
+      if (!companyId) {
+        this.logger.warn(
+          `Client ${client.id} rejected — JWT without company_id claim`,
+        );
+        client.disconnect(true);
+        return;
+      }
+      void client.join(`company:${companyId}`);
+      client.data.companyId = companyId;
+      client.data.userId = claims.sub;
+      this.logger.log(
+        `Client ${client.id} connected (company=${companyId} user=${claims.sub})`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Client ${client.id} rejected — invalid JWT: ${(err as Error).message}`,
+      );
+      client.disconnect(true);
+    }
   }
 
   handleDisconnect(client: Socket) {
@@ -34,12 +103,25 @@ export class NotificationsGateway
   }
 
   /**
+   * Emite a la room del tenant — todos los sockets autenticados con
+   * ese companyId reciben. Reemplaza al `server.emit()` global de
+   * pre-PR 10 que llegaba a sockets de TODOS los tenants.
+   */
+  private emitToCompany(
+    companyId: string,
+    event: string,
+    payload: object,
+  ): void {
+    if (!this.server) return;
+    this.server.to(`company:${companyId}`).emit(event, payload);
+  }
+
+  /**
    * Broadcasts that a new schedule has been successfully generated.
    * Clients should listen to 'ScheduleGenerated' to invalidate their caches.
    */
   notifyScheduleGenerated(companyId: string, weekStart: string) {
-    if (!this.server) return; // contextos sin WebSocket (scripts, tests)
-    this.server.emit('ScheduleGenerated', { companyId, weekStart });
+    this.emitToCompany(companyId, 'ScheduleGenerated', { companyId, weekStart });
     this.logger.log(
       `Broadcasted ScheduleGenerated for company ${companyId}, week ${weekStart}`,
     );
@@ -51,8 +133,10 @@ export class NotificationsGateway
    * todos los managers viendo la grilla vean el cambio en vivo.
    */
   notifyAssignmentMoved(companyId: string, assignmentId: string) {
-    if (!this.server) return;
-    this.server.emit('AssignmentMoved', { companyId, assignmentId });
+    this.emitToCompany(companyId, 'AssignmentMoved', {
+      companyId,
+      assignmentId,
+    });
     this.logger.log(
       `Broadcasted AssignmentMoved company=${companyId} assignment=${assignmentId}`,
     );
@@ -65,11 +149,8 @@ export class NotificationsGateway
    * futuro si hace falta UI distinta — toast con detalle, etc).
    */
   notifyAssignmentChanged(companyId: string) {
-    if (!this.server) return;
-    this.server.emit('AssignmentChanged', { companyId });
-    this.logger.log(
-      `Broadcasted AssignmentChanged company=${companyId}`,
-    );
+    this.emitToCompany(companyId, 'AssignmentChanged', { companyId });
+    this.logger.log(`Broadcasted AssignmentChanged company=${companyId}`);
   }
 
   /**
@@ -82,14 +163,55 @@ export class NotificationsGateway
     weekStart: string,
     reason?: string,
   ) {
-    if (!this.server) return;
-    this.server.emit('ScheduleGenerationFailed', {
+    this.emitToCompany(companyId, 'ScheduleGenerationFailed', {
       companyId,
       weekStart,
       reason,
     });
     this.logger.log(
       `Broadcasted ScheduleGenerationFailed for company ${companyId}, week ${weekStart}`,
+    );
+  }
+
+  /**
+   * Phase 4 — broadcast cuando el worker pickea un job (transición
+   * created/retry → active). El front lo usa para invalidar las
+   * queries `['jobs', 'active']` y `['jobs', id]` y refrescar el
+   * banner de "queued" → "active" sin esperar el polling de 2s.
+   */
+  notifyScheduleGenerationStarted(
+    companyId: string,
+    weekStart: string,
+    jobId: string,
+  ) {
+    this.emitToCompany(companyId, 'ScheduleGenerationStarted', {
+      companyId,
+      weekStart,
+      jobId,
+    });
+    this.logger.log(
+      `Broadcasted ScheduleGenerationStarted job=${jobId} company=${companyId} week=${weekStart}`,
+    );
+  }
+
+  /**
+   * Phase 4 — broadcast cuando el manager cancela un job desde el
+   * panel. Se emite después de `boss.cancel + registry.abort` en el
+   * controller, sin esperar a que el worker confirme el abort. El
+   * front cierra el banner inmediato.
+   */
+  notifyScheduleGenerationCancelled(
+    companyId: string,
+    weekStart: string,
+    jobId: string,
+  ) {
+    this.emitToCompany(companyId, 'ScheduleGenerationCancelled', {
+      companyId,
+      weekStart,
+      jobId,
+    });
+    this.logger.log(
+      `Broadcasted ScheduleGenerationCancelled job=${jobId} company=${companyId} week=${weekStart}`,
     );
   }
 
@@ -101,7 +223,7 @@ export class NotificationsGateway
     message: string,
     severity: 'warning' | 'critical',
   ) {
-    this.server.emit('IncidentCreated', {
+    this.emitToCompany(companyId, 'IncidentCreated', {
       companyId,
       message,
       severity,

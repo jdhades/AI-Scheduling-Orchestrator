@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -64,7 +65,7 @@ export class DayOffRequestsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateDayOffRequestDto,
   ): Promise<object> {
     const req = DayOffRequest.create({
@@ -80,7 +81,7 @@ export class DayOffRequestsController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('employeeId') employeeId?: string,
     @Query('status') status?: string,
     @Query('from') fromDate?: string,
@@ -111,7 +112,7 @@ export class DayOffRequestsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
@@ -133,7 +134,7 @@ export class DayOffRequestsController {
   @HttpCode(HttpStatus.OK)
   async approve(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<{
     deletedAssignmentIds: string[];
     rulesCreated: Array<{ startDate: string; endDate: string; ruleText: string }>;
@@ -172,7 +173,7 @@ export class DayOffRequestsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);

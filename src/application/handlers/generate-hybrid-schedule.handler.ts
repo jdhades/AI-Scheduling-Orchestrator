@@ -1,5 +1,6 @@
 import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
 import { Inject, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { SemanticRetrievalService } from '../../domain/services/semantic-retrieval.service';
@@ -157,11 +158,20 @@ export class GenerateHybridScheduleHandler
   async execute(
     command: GenerateHybridScheduleCommand,
   ): Promise<HybridScheduleResult> {
+    // Phase 4 — token único para este intento. Lo guardamos en
+    // `acquired_by` así el cancel del controller puede pre-liberar
+    // sin pisar a futuros jobs (release con token = race-safe).
+    // Async path pasa el jobId; sync path genera UUID.
+    const lockToken = command.lockToken ?? randomUUID();
     // Fase 0 async migration — lock por (companyId, weekStart) para
     // rechazar disparos concurrentes. Si ya hay un run activo,
     // `acquire` lanza ScheduleGenerationLockedException; el caller
     // (REST controller / WhatsApp router) la traduce al user.
-    await this.lockService.acquire(command.companyId, command.weekStart, 'http');
+    await this.lockService.acquire(
+      command.companyId,
+      command.weekStart,
+      lockToken,
+    );
     try {
       const { result, usage } = await this.llmUsageTracker.run(() =>
         this.runGeneration(command),
@@ -172,7 +182,14 @@ export class GenerateHybridScheduleHandler
       );
       return { ...result, llmUsage: usage };
     } finally {
-      await this.lockService.release(command.companyId, command.weekStart);
+      // Release con token: si el cancel ya liberó (pre-release), o
+      // si otro job ya tomó el lock con un token distinto, este
+      // delete no afecta nada — la query filtra por acquired_by.
+      await this.lockService.release(
+        command.companyId,
+        command.weekStart,
+        lockToken,
+      );
     }
   }
 
@@ -317,6 +334,7 @@ export class GenerateHybridScheduleHandler
       companyId: command.companyId,
       runDepartmentId: command.departmentId,
       signal: command.signal,
+      locale: command.locale,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría
@@ -411,13 +429,17 @@ export class GenerateHybridScheduleHandler
   private buildUpdatedHistories(
     assignments: ShiftAssignment[],
     slots: VirtualShiftSlot[],
-    existingHistories: FairnessHistoryVO[],
+    _existingHistories: FairnessHistoryVO[],
     weekStart: Date,
     companyId: string,
   ): FairnessHistoryVO[] {
-    const historyMap = new Map<string, FairnessHistoryVO>(
-      existingHistories.map((h) => [h.employeeId, h]),
-    );
+    // Cada regeneración SOBRESCRIBE la fairness de la semana — la
+    // fila es proyección de las assignments actuales, no acumulado
+    // histórico. Empezamos desde `empty()` por (empleado, semana);
+    // si reusábamos `_existingHistories`, las re-generaciones sumaban
+    // hasta valores imposibles (ej. 1032h/semana = 6× la realidad).
+    // El parámetro queda en la firma por compat con calls existentes.
+    const historyMap = new Map<string, FairnessHistoryVO>();
     const slotByKey = new Map(slots.map((s) => [s.slotKey, s]));
 
     for (const assignment of assignments) {
@@ -466,14 +488,29 @@ export class GenerateHybridScheduleHandler
     rests: number,
     underfilled: number,
     weekStart: Date,
-    _locale: string,
+    locale: string,
   ): string {
     const d = weekStart.toISOString().split('T')[0];
-    const parts = [
-      `Horario generado para la semana del ${d}: ${total} asignaciones.`,
-      `Días libres: ${rests}.`,
-    ];
-    if (underfilled > 0) parts.push(`${underfilled} slot(s) bajo su target.`);
+    // English por default (idioma canónico del sistema). 'es' para
+    // managers hispanos — flow WhatsApp/UI lo pasa via locale del
+    // empleado o request. Cualquier otro código → inglés (fallback).
+    const isEs = locale.toLowerCase().startsWith('es');
+    const parts = isEs
+      ? [
+          `Horario generado para la semana del ${d}: ${total} asignaciones.`,
+          `Días libres: ${rests}.`,
+        ]
+      : [
+          `Schedule generated for the week of ${d}: ${total} assignments.`,
+          `Days off: ${rests}.`,
+        ];
+    if (underfilled > 0) {
+      parts.push(
+        isEs
+          ? `${underfilled} slot(s) bajo su target.`
+          : `${underfilled} slot(s) below target.`,
+      );
+    }
     return parts.join(' ');
   }
 }

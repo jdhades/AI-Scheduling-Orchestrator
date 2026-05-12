@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -65,7 +66,7 @@ export class ShiftMembershipsController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('employeeId') employeeId?: string,
     @Query('templateId') templateId?: string,
     @Query('date') date?: string,
@@ -81,7 +82,7 @@ export class ShiftMembershipsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const m = await this.membershipRepo.findById(id, companyId);
     if (!m) throw new NotFoundException(`ShiftMembership ${id} not found`);
@@ -91,7 +92,7 @@ export class ShiftMembershipsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateShiftMembershipDto,
   ): Promise<object> {
     const membership = ShiftMembership.create({
@@ -110,7 +111,7 @@ export class ShiftMembershipsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.membershipRepo.findById(id, companyId);
     if (!existing) throw new NotFoundException(`ShiftMembership ${id} not found`);

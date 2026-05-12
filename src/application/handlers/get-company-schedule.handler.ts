@@ -72,12 +72,17 @@ export class GetCompanyScheduleHandler
 
     const templateById = new Map(templates.map((t) => [t.id, t]));
 
-    const filtered = query.departmentId
+    let filtered = query.departmentId
       ? assignments.filter((a) => {
           const tpl = templateById.get(a.templateId);
           return tpl?.departmentId === query.departmentId;
         })
       : assignments;
+
+    // Filtro por empleado — usado por la vista `/my` del empleado.
+    if (query.employeeId) {
+      filtered = filtered.filter((a) => a.employeeId === query.employeeId);
+    }
 
     return filtered.map((a) => {
       const tpl = templateById.get(a.templateId);

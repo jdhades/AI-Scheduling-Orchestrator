@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Controller,
   Get,
@@ -46,7 +47,7 @@ export class WorkingTimePolicyController {
   @Get(':id/working-time-policy')
   async getPolicy(
     @Param('id') employeeId: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const employee = await this.employeeRepo.findById(employeeId, companyId);
     if (!employee) {

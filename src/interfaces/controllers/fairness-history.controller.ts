@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   BadRequestException,
   Controller,
@@ -35,7 +36,7 @@ export class FairnessHistoryController {
 
   @Get()
   async listByWeek(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('weekStart') weekStart: string,
   ): Promise<object[]> {
     const week = this.parseWeekStart(weekStart);
@@ -46,7 +47,7 @@ export class FairnessHistoryController {
   @Get(':employeeId')
   async getByEmployee(
     @Param('employeeId') employeeId: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('weekStart') weekStart: string,
   ): Promise<object> {
     const week = this.parseWeekStart(weekStart);

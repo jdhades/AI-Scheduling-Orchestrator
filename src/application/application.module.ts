@@ -62,6 +62,8 @@ import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
 import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
+import { ScheduleGenerationRunsService } from '../domain/services/schedule-generation-runs.service';
+import { LLMModelBudgetService } from '../domain/services/llm-model-budget.service';
 import { ShiftAssignmentMoverService } from '../domain/services/shift-assignment-mover.service';
 import { ShiftAssignmentCreatorService } from '../domain/services/shift-assignment-creator.service';
 import { ScheduleGenerationJobHandler } from './jobs/schedule-generation-job.handler';
@@ -158,6 +160,12 @@ const DomainServices = [
   // serializa runs sincronicos de generate_schedule. Se va a complementar
   // con pg-boss singletonKey cuando entre la cola.
   ScheduleGenerationLockService,
+  // F.6 — historial de runs (completed/failed/cancelled) para el
+  // dashboard. Worker handler escribe al cerrar el job.
+  ScheduleGenerationRunsService,
+  // F.6 — budgets de tokens por modelo LLM. CRUD para que el manager
+  // configure el techo mensual; el dashboard muestra consumido vs total.
+  LLMModelBudgetService,
   // Phase 19 — drag & drop manual: mueve una assignment a otro
   // empleado/día con validación de conflicto + audit en BD + WS event.
   ShiftAssignmentMoverService,

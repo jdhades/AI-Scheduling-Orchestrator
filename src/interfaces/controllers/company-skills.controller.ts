@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -45,7 +46,7 @@ export class CompanySkillsController {
   ) {}
 
   @Get()
-  async list(@Query('companyId') companyId: string): Promise<object[]> {
+  async list(@CurrentCompany() companyId: string): Promise<object[]> {
     const rows = await this.skillRepo.findAllByCompany(companyId);
     return rows.map(this.toDto);
   }
@@ -53,7 +54,7 @@ export class CompanySkillsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const s = await this.skillRepo.findById(id, companyId);
     if (!s) throw new NotFoundException(`CompanySkill ${id} not found`);
@@ -63,7 +64,7 @@ export class CompanySkillsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateCompanySkillDto,
   ): Promise<object> {
     const skill = await this.skillRepo.create(companyId, dto.name);
@@ -74,7 +75,7 @@ export class CompanySkillsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.skillRepo.findById(id, companyId);
     if (!existing) throw new NotFoundException(`CompanySkill ${id} not found`);

@@ -31,5 +31,13 @@ export class GenerateHybridScheduleCommand {
      * Path síncrono lo deja undefined; cancel solo aplica al async.
      */
     public readonly signal?: AbortSignal,
+    /**
+     * Phase 4 — token de adquisición del lock. Permite release
+     * race-safe: si el cancel pre-libera el lock y otro job lo toma
+     * después, el handler viejo (al terminar tarde) NO borra el
+     * nuevo. Para path async pasar `jobId`; para sync, undefined
+     * → handler genera UUID.
+     */
+    public readonly lockToken?: string,
   ) {}
 }

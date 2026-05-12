@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { Controller, Get, Inject, Query } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -25,7 +26,7 @@ export class ScopeTargetsController {
   ) {}
 
   @Get('branches')
-  async listBranches(@Query('companyId') companyId: string): Promise<ScopeTarget[]> {
+  async listBranches(@CurrentCompany() companyId: string): Promise<ScopeTarget[]> {
     const { data, error } = await this.supabase
       .from('branches')
       .select('id, name')
@@ -37,7 +38,7 @@ export class ScopeTargetsController {
 
   @Get('departments')
   async listDepartments(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<DepartmentDto[]> {
     const { data, error } = await this.supabase
       .from('departments')

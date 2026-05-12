@@ -19,6 +19,9 @@ import {
   NOTIFICATION_SERVICE,
   type INotificationService,
 } from '../../domain/services/notification.service';
+import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { ScheduleGenerationRunsService } from '../../domain/services/schedule-generation-runs.service';
+import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
 
 /**
  * ScheduleGenerationJobHandler
@@ -50,6 +53,9 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     private readonly notificationService: INotificationService,
     private readonly i18n: I18nService,
     private readonly cancellationRegistry: JobCancellationRegistry,
+    private readonly notificationsGateway: NotificationsGateway,
+    private readonly runsService: ScheduleGenerationRunsService,
+    private readonly usageLogger: LLMUsageLogger,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -60,16 +66,35 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
       return;
     }
     const boss = this.pgBoss.getInstance();
+    // Concurrency configurable vía env. Default 2 — permite que
+    // empresa A esté generando con LLM mientras empresa B arranca
+    // sin esperar 2-3 min (caso multi-tenant discutido al final del
+    // sprint dashboard). El cap razonable es 3-4: cada job hace
+    // varios calls al LLM serializados internamente, y DashScope
+    // tiene rate-limit por cuenta — más concurrencia satura.
+    const concurrency = Math.max(
+      1,
+      Math.min(parseInt(process.env.SCHEDULE_WORKER_CONCURRENCY ?? '2', 10) || 2, 10),
+    );
     await boss.work<ScheduleGenerationJobPayload>(
       JOB_SCHEDULE_GENERATE,
-      { batchSize: 1, pollingIntervalSeconds: 1 },
+      {
+        // batchSize        = jobs fetched per poll
+        // localConcurrency = workers que corren en paralelo en este nodo
+        batchSize: concurrency,
+        localConcurrency: concurrency,
+        pollingIntervalSeconds: 1,
+      },
       async (jobs) => {
-        for (const job of jobs) {
-          await this._handleJob(job);
-        }
+        // localConcurrency arma N workers en paralelo en este nodo, cada
+        // uno corriendo este handler con un job a la vez. allSettled
+        // protege la invocación si por algún motivo `jobs` trae >1.
+        await Promise.allSettled(jobs.map((job) => this._handleJob(job)));
       },
     );
-    this.logger.log(`Worker registered for ${JOB_SCHEDULE_GENERATE}`);
+    this.logger.log(
+      `Worker registered for ${JOB_SCHEDULE_GENERATE} (concurrency=${concurrency})`,
+    );
   }
 
   private async _handleJob(
@@ -83,6 +108,16 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
         `source=${payload.source.type}`,
     );
 
+    // Phase 4 — broadcast del pickup (created/retry → active). El
+    // front cierra el "queued" del banner y abre el "active" sin
+    // esperar el polling. Idempotente: si pg-boss reintenta, este
+    // emit se repite (front re-invalida la query, no es harmful).
+    this.notificationsGateway.notifyScheduleGenerationStarted(
+      payload.companyId,
+      payload.weekStart,
+      job.id,
+    );
+
     // Fase 3 — registramos un AbortController propio. pg-boss v12 NO
     // aborta job.signal cuando se llama boss.cancel() (solo cambia el
     // state en BD), así que necesitamos nuestro propio canal. El
@@ -91,24 +126,48 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
 
     let result: HybridScheduleResult;
     try {
-      result = await this.commandBus.execute<
-        GenerateHybridScheduleCommand,
-        HybridScheduleResult
-      >(
-        new GenerateHybridScheduleCommand(
-          payload.companyId,
-          payload.weekStart,
-          undefined,
-          payload.shiftTemplateId,
-          payload.locale,
-          payload.departmentId,
-          cancelSignal,
-        ),
+      // F.6 — withContext envuelve el execute para que cada llamada
+      // LLM dentro del scope quede etiquetada con operation +
+      // companyId + jobId en `llm_usage_log`.
+      result = await this.usageLogger.withContext(
+        {
+          operation: 'schedule_generation',
+          companyId: payload.companyId,
+          jobId: job.id,
+        },
+        () =>
+          this.commandBus.execute<
+            GenerateHybridScheduleCommand,
+            HybridScheduleResult
+          >(
+            new GenerateHybridScheduleCommand(
+              payload.companyId,
+              payload.weekStart,
+              undefined,
+              payload.shiftTemplateId,
+              payload.locale,
+              payload.departmentId,
+              cancelSignal,
+              // Phase 4 — lockToken = jobId. Permite que el cancel del
+              // controller pre-libere el lock con la misma key sin pisar
+              // a un job posterior que lo retome.
+              job.id,
+            ),
+          ),
       );
     } catch (err) {
       const ms = Date.now() - startedAt;
       if (cancelSignal.aborted) {
         this.logger.log(`Job=${job.id} cancelled by user after ${ms}ms`);
+        // F.6 — record cancelled run para que aparezca en el histórico.
+        await this.runsService.record({
+          companyId: payload.companyId,
+          weekStart: payload.weekStart,
+          jobId: job.id,
+          status: 'cancelled',
+          source: payload.source.type,
+          durationMs: ms,
+        });
         throw err; // pg-boss respeta state='cancelled' (ya seteado por boss.cancel)
       }
       this.logger.error(
@@ -124,6 +183,21 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     this.logger.log(
       `Job=${job.id} success in ${ms}ms — ${result.assignmentsCount} assignments, ${result.unfilledShiftsCount} unfilled`,
     );
+
+    // F.6 — record completed run con métricas LLM + warnings.
+    await this.runsService.record({
+      companyId: payload.companyId,
+      weekStart: payload.weekStart,
+      jobId: job.id,
+      status: 'completed',
+      source: payload.source.type,
+      durationMs: ms,
+      assignmentsCount: result.assignmentsCount,
+      unfilledCount: result.unfilledShiftsCount,
+      llm: result.llmUsage ?? null,
+      explanation: result.explanation,
+      warnings: result.warnings,
+    });
 
     // Notificar al originador (solo WhatsApp por ahora; HTTP usa polling).
     if (payload.source.type === 'whatsapp') {

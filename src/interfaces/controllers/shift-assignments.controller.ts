@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   ConflictException,
@@ -12,7 +13,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsOptional, IsString, IsNotEmpty, Matches } from 'class-validator';
+import { IsOptional, IsString, IsNotEmpty, Matches, IsISO8601 } from 'class-validator';
 import {
   ShiftAssignmentMoverService,
   MoveAssignmentConflictError,
@@ -33,8 +34,13 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * MoveAssignmentDto
  *
- * Body del PATCH. Al menos uno de `employeeId` / `date` debe venir;
- * el service rechaza con `no_change` si ambos son iguales al actual.
+ * Body del PATCH. Al menos uno de `employeeId` / `date` /
+ * `actualStartTime` / `actualEndTime` debe venir; el service rechaza
+ * con `no_change` si todos son iguales al estado actual.
+ *
+ * Resize (Phase 19E.3): el manager puede mandar solo
+ * `actualStartTime`/`actualEndTime` para shrink/stretch del turno
+ * sin cambiar empleado ni fecha.
  */
 export class MoveAssignmentDto {
   @IsOptional()
@@ -45,6 +51,16 @@ export class MoveAssignmentDto {
   @IsOptional()
   @Matches(ISO_DATE, { message: 'date must be YYYY-MM-DD' })
   date?: string;
+
+  /** ISO 8601 datetime UTC. */
+  @IsOptional()
+  @IsISO8601()
+  actualStartTime?: string;
+
+  /** ISO 8601 datetime UTC. */
+  @IsOptional()
+  @IsISO8601()
+  actualEndTime?: string;
 
   /** Texto libre opcional (audit log). */
   @IsOptional()
@@ -96,7 +112,7 @@ export class ShiftAssignmentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateAssignmentDto,
   ): Promise<{ assignment: object }> {
     try {
@@ -131,7 +147,7 @@ export class ShiftAssignmentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.repo.findById(id, companyId);
     if (!existing) {
@@ -144,14 +160,19 @@ export class ShiftAssignmentsController {
   @Patch(':id')
   async patch(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: MoveAssignmentDto,
   ): Promise<{ assignment: object; warnings: string[] }> {
-    if (!dto.employeeId && !dto.date) {
+    if (
+      !dto.employeeId &&
+      !dto.date &&
+      !dto.actualStartTime &&
+      !dto.actualEndTime
+    ) {
       throw new ConflictException({
         error: 'invalid_request',
         message:
-          'At least one of `employeeId` or `date` must be provided.',
+          'At least one of `employeeId`, `date`, `actualStartTime`, `actualEndTime` must be provided.',
       });
     }
     try {
@@ -160,6 +181,12 @@ export class ShiftAssignmentsController {
         assignmentId: id,
         newEmployeeId: dto.employeeId,
         newDate: dto.date,
+        newActualStartTime: dto.actualStartTime
+          ? new Date(dto.actualStartTime)
+          : undefined,
+        newActualEndTime: dto.actualEndTime
+          ? new Date(dto.actualEndTime)
+          : undefined,
         reason: dto.reason,
         // Sin JWT auth todavía. Cuando entre, leer del context.
         editedByUserId: null,

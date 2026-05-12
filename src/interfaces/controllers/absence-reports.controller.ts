@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -95,7 +96,7 @@ export class AbsenceReportsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateAbsenceReportDto,
   ): Promise<object> {
     const result = await this.creator.create({
@@ -120,7 +121,7 @@ export class AbsenceReportsController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('employeeId') employeeId?: string,
     @Query('isUrgent') isUrgent?: string,
     @Query('from') fromISO?: string,
@@ -147,7 +148,7 @@ export class AbsenceReportsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`AbsenceReport ${id} not found`);
@@ -165,7 +166,7 @@ export class AbsenceReportsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.repo.findById(id, companyId);
     if (!existing) {

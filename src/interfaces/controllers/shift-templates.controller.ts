@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -171,7 +172,7 @@ export class ShiftTemplatesController {
    * Returns all active templates for the company, sorted by day + time.
    */
   @Get()
-  async list(@Query('companyId') companyId: string): Promise<object[]> {
+  async list(@CurrentCompany() companyId: string): Promise<object[]> {
     const templates = await this.templateRepo.findAllByCompany(companyId);
     return templates.map(this.toDto);
   }
@@ -182,7 +183,7 @@ export class ShiftTemplatesController {
    */
   @Post()
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateShiftTemplateDto,
   ): Promise<object> {
     const template = ShiftTemplate.create({
@@ -216,7 +217,7 @@ export class ShiftTemplatesController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const t = await this.templateRepo.findById(id, companyId);
     if (!t) throw new NotFoundException(`ShiftTemplate ${id} not found`);
@@ -231,7 +232,7 @@ export class ShiftTemplatesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async update(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpdateShiftTemplateDto,
   ): Promise<void> {
     const existing = await this.templateRepo.findById(id, companyId);
@@ -247,7 +248,7 @@ export class ShiftTemplatesController {
   @Delete(':id')
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<{ success: boolean }> {
     await this.templateRepo.delete(id, companyId);
     return { success: true };

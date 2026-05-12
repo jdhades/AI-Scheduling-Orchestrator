@@ -144,20 +144,37 @@ export class ScheduleGenerationLockService {
    * Libera el lock. Idempotente — si la fila ya no existe, no falla.
    * Errores se loguean pero no se propagan: la liberación nunca debe
    * romper el flow del caller.
+   *
+   * `expectedAcquiredBy` (opcional) — si se pasa, solo borra si el
+   * lock fue adquirido por ese token. Evita la race donde el handler
+   * de un job cancelado libera el lock de un job NUEVO (mismo
+   * company, week) que ya lo tomó. Pasar el `jobId` o un UUID único
+   * por intento. Sin token: borra incondicional (legacy path).
    */
-  async release(companyId: string, weekStart: string): Promise<void> {
+  async release(
+    companyId: string,
+    weekStart: string,
+    expectedAcquiredBy?: string,
+  ): Promise<void> {
     const monday = ScheduleGenerationLockService.toMonday(weekStart);
-    const { error } = await this.supabase
+    let query = this.supabase
       .from('schedule_generation_locks')
       .delete()
       .eq('company_id', companyId)
       .eq('week_start', monday);
+    if (expectedAcquiredBy !== undefined) {
+      query = query.eq('acquired_by', expectedAcquiredBy);
+    }
+    const { error } = await query;
     if (error) {
       this.logger.warn(
         `Failed to release lock company=${companyId} week=${monday}: ${error.message}`,
       );
       return;
     }
-    this.logger.log(`Lock released company=${companyId} week=${monday}`);
+    this.logger.log(
+      `Lock released company=${companyId} week=${monday}` +
+        (expectedAcquiredBy ? ` (token=${expectedAcquiredBy})` : ''),
+    );
   }
 }

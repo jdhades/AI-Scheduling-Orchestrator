@@ -1,13 +1,16 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   ConflictException,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GenerateHybridScheduleCommand } from '../../application/commands/generate-hybrid-schedule.command';
 import { GetCompanyScheduleQuery } from '../../application/queries/get-company-schedule.query';
@@ -16,6 +19,20 @@ import type { HybridScheduleResult } from '../../application/handlers/generate-h
 import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationDispatcher } from '../../application/jobs/schedule-generation-dispatcher.service';
+
+/**
+ * Parsea el header Accept-Language y devuelve un código de 2 letras
+ * que el handler entiende ('en' | 'es'). Sin header válido → 'en'
+ * (idioma canónico del sistema). Acepta formatos típicos como
+ * "es-AR,es;q=0.9,en;q=0.8" → toma "es".
+ */
+function parseAcceptLanguage(header?: string): string {
+  if (!header) return 'en';
+  const first = header.split(',')[0]?.trim().toLowerCase();
+  if (!first) return 'en';
+  const code = first.split('-')[0];
+  return code === 'es' ? 'es' : 'en';
+}
 
 /**
  * ScheduleController
@@ -40,11 +57,21 @@ export class ScheduleController {
    */
   @Post('generate')
   @HttpCode(HttpStatus.OK)
+  // 3/min/IP — la generación cuesta tokens LLM reales. Manager
+  // normal dispara 1-2 veces por día; protege contra accidental
+  // loops o intentional abuse.
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   async generate(
     @Body() dto: GenerateScheduleDto,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<HybridScheduleResult | { jobId: string; status: 'queued' }> {
     const useAsync = process.env.USE_ASYNC_SCHEDULE_GEN === 'true';
+    // Locale del request — el frontend pasa Accept-Language acorde al
+    // i18n state. Default 'en' (idioma canónico del sistema). El
+    // handler usa esto para construir explanation + warnings en el
+    // idioma del manager.
+    const locale = parseAcceptLanguage(acceptLanguage);
 
     if (useAsync) {
       // Path async (Fase 1): encola y devuelve 202 + jobId. El cliente
@@ -55,7 +82,7 @@ export class ScheduleController {
           weekStart: dto.weekStart,
           shiftTemplateId: dto.shiftTemplateId,
           departmentId: dto.departmentId,
-          locale: 'es',
+          locale,
           source: { type: 'http' },
         });
         return { jobId, status: 'queued' };
@@ -81,7 +108,7 @@ export class ScheduleController {
           dto.weekStart,
           dto.maxFairnessDeviation,
           dto.shiftTemplateId,
-          undefined,
+          locale,
           dto.departmentId,
         ),
       );
@@ -107,11 +134,17 @@ export class ScheduleController {
   @Get()
   async getSchedule(
     @Query('weekStart') weekStart: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('departmentId') departmentId?: string,
+    @Query('employeeId') employeeId?: string,
   ): Promise<CompanyScheduleAssignmentDTO[]> {
     return this.queryBus.execute(
-      new GetCompanyScheduleQuery(companyId, weekStart, departmentId),
+      new GetCompanyScheduleQuery(
+        companyId,
+        weekStart,
+        departmentId,
+        employeeId,
+      ),
     );
   }
 }

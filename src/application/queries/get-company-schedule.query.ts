@@ -12,5 +12,12 @@ export class GetCompanyScheduleQuery implements IQuery {
     public readonly weekStart: string,
     /** Opcional — filtra assignments al departamento dado. */
     public readonly departmentId?: string,
+    /**
+     * Opcional — filtra assignments a un solo empleado.
+     * Usado por la vista del empleado (`/my` PR 8) que solo necesita
+     * sus propios shifts. Backend hace el filter post-fetch (cliente
+     * Supabase con service_role bypassa RLS).
+     */
+    public readonly employeeId?: string,
   ) {}
 }

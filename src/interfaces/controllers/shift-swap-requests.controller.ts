@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   BadRequestException,
   Body,
@@ -69,7 +70,7 @@ export class ShiftSwapRequestsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateShiftSwapRequestDto,
   ): Promise<object> {
     // Phase 15.2 — cross-department swap guard. Si los dos employees
@@ -141,7 +142,7 @@ export class ShiftSwapRequestsController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('requesterId') requesterId?: string,
     @Query('targetId') targetId?: string,
     @Query('status') status?: string,
@@ -173,7 +174,7 @@ export class ShiftSwapRequestsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<object> {
     const req = await this.repo.findById(id, companyId);
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
@@ -184,7 +185,7 @@ export class ShiftSwapRequestsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async approve(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const req = await this.repo.findById(id, companyId);
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
@@ -196,7 +197,7 @@ export class ShiftSwapRequestsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const req = await this.repo.findById(id, companyId);
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);

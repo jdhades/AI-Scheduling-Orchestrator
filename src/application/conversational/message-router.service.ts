@@ -44,6 +44,7 @@ import {
 import { PolicyScopeResolver } from './policy-scope-resolver.service';
 import type { PolicyScope } from '../../domain/aggregates/company-policy.aggregate';
 import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
+import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
 import { I18nService } from 'nestjs-i18n';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -97,6 +98,7 @@ export class MessageRouterService {
     private readonly companyPolicyCreator: CompanyPolicyCreator,
     private readonly policyScopeResolver: PolicyScopeResolver,
     private readonly llmUsageTracker: LLMUsageTracker,
+    private readonly llmUsageLogger: LLMUsageLogger,
     /**
      * Phase 18.4 — habilita el flow nuevo de report_absence:
      *   - manager-on-behalf via targetEmployeeName.
@@ -1441,15 +1443,27 @@ export class MessageRouterService {
       return ConversationIntentVO.unknown('unsupported');
     }
 
-    const { result, usage } = await this.llmUsageTracker.run(async () => {
-      if (isText) return this.conversationalService.processText(msg.body!);
-      return this.conversationalService.processAudio(
-        msg.mediaUrl!,
-        msg.mimeType!,
-        msg.twilioSid,
-        msg.twilioToken,
-      );
-    });
+    const { result, usage } = await this.llmUsageTracker.run(() =>
+      // F.6 — etiqueta cada call del classifier con
+      // operation='whatsapp_classify' + companyId del mensaje. Los
+      // tokens persistidos alimentan el dashboard de costo por
+      // subsistema.
+      this.llmUsageLogger.withContext(
+        {
+          operation: isAudio ? 'whatsapp_classify_audio' : 'whatsapp_classify',
+          companyId: msg.companyId,
+        },
+        async () => {
+          if (isText) return this.conversationalService.processText(msg.body!);
+          return this.conversationalService.processAudio(
+            msg.mediaUrl!,
+            msg.mimeType!,
+            msg.twilioSid,
+            msg.twilioToken,
+          );
+        },
+      ),
+    );
     this.lastClassifierUsage = usage;
     return result;
   }

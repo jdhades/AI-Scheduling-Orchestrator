@@ -133,19 +133,20 @@ export class GetMyScheduleHandler
 
     type Row = {
       assignment: ShiftAssignment;
-      start: Date;
-      end: Date;
+      startStr: string; // 'HH:MM' literal, sin conversión TZ
+      endStr: string;
     };
     const byDay = new Map<number, Row[]>();
     for (const a of assignments) {
       const tpl = templates.get(a.templateId);
       if (!tpl) continue;
-      const start = this._combine(a.date, tpl.startTime);
-      let end = this._combine(a.date, tpl.endTime);
-      if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
-      const day = start.getDay();
+      const startStr = tpl.startTime.slice(0, 5);
+      const endStr = tpl.endTime.slice(0, 5);
+      // Día de la semana resuelto desde la fecha UTC del slot — evita
+      // el shift de un día cuando el server corre en TZ no-UTC.
+      const day = new Date(`${a.date}T00:00:00Z`).getUTCDay();
       if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day)!.push({ assignment: a, start, end });
+      byDay.get(day)!.push({ assignment: a, startStr, endStr });
     }
 
     const code = locale === 'en' ? 'en-US' : 'es-ES';
@@ -164,18 +165,10 @@ export class GetMyScheduleHandler
         lines.push(`${emoji} ${dayName} — Día Libre 🌴`);
       } else {
         const rows = byDay.get(dayIndex)!;
-        rows.sort((a, b) => a.start.getTime() - b.start.getTime());
+        rows.sort((a, b) => a.startStr.localeCompare(b.startStr));
         for (const item of rows) {
-          const startTime = item.start.toLocaleTimeString(code, {
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          const endTime = item.end.toLocaleTimeString(code, {
-            hour: '2-digit',
-            minute: '2-digit',
-          });
           lines.push(
-            `${emoji} ${dayName} — ${startTime} a ${endTime} (ID: ${item.assignment.id.substring(0, 6)})`,
+            `${emoji} ${dayName} — ${item.startStr} a ${item.endStr} (ID: ${item.assignment.id.substring(0, 6)})`,
           );
         }
       }
@@ -184,13 +177,6 @@ export class GetMyScheduleHandler
 
     lines.push('', this.i18n.t('bot.schedule.anything_else', { lang: locale }));
     return lines.join('\n');
-  }
-
-  private _combine(dateISO: string, hhmm: string): Date {
-    const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
-    const d = new Date(`${dateISO}T00:00:00Z`);
-    d.setUTCHours(h, m, 0, 0);
-    return d;
   }
 
   private _getCurrentMonday(): Date {
