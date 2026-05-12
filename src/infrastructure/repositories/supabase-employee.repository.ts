@@ -198,7 +198,10 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       companyId: row.company_id,
       name: row.name,
       role: row.role || 'employee',
-      phoneNumber: PhoneNumber.create(row.phone_number),
+      // phone_number es nullable desde PR 7 (manager corporativo signup
+      // por email no tiene WhatsApp). Sin valor → placeholder mínimo
+      // ('+0') que pasa la validación regex pero marca "sin phone".
+      phoneNumber: PhoneNumber.create(row.phone_number ?? '+0'),
       experience: new ExperienceLevel(
         row.experience_months,
         DEFAULT_EXPERIENCE_RANGES,

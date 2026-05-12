@@ -28,23 +28,32 @@ export class TenantMiddleware implements NestMiddleware {
   constructor(private readonly tenantContext: TenantContext) {}
 
   use(req: Request, _res: Response, next: NextFunction): void {
-    // Estrategia 1: header explícito (para llamadas internas/tests)
+    // Estrategia 1: header explícito (para llamadas internas/tests + DEV bypass)
     const headerTenantId = req.headers['x-company-id'] as string | undefined;
 
-    // Estrategia 2: JWT claims (cuando AuthGuard procesa el token)
-    // El AuthGuard de Supabase adjunta el usuario decodificado al request
-    const jwtTenantId = (req as any).user?.company_id as string | undefined;
+    // Estrategia 2: JWT claims (si AuthGuard ya corrió y populó req.auth)
+    // Express middleware se ejecuta ANTES que los NestJS guards, así que
+    // típicamente req.auth está undefined acá. Lo dejamos como fallback
+    // por si algún día se invierte el orden.
+    const jwtTenantId =
+      ((req as any).auth?.companyId as string | undefined) ??
+      ((req as any).user?.company_id as string | undefined);
 
-    // PRIORIDAD: JWT validado DEBE tener precedencia sobre header no confiable
     const tenantId = jwtTenantId ?? headerTenantId;
 
-    if (!tenantId) {
+    if (tenantId) {
+      this.tenantContext.set(tenantId);
+    } else if (req.headers.authorization?.startsWith('Bearer ')) {
+      // Hay JWT presente — el SupabaseAuthGuard lo va a validar y
+      // populará req.auth.companyId. El TenantContext lo seteará otro
+      // componente (futuro: interceptor post-guard); mientras tanto los
+      // controllers consumen el companyId via @CurrentCompany() del JWT.
+      // No throw — dejamos pasar y el guard decide.
+    } else {
       throw new UnauthorizedException(
         'Missing tenant identifier: provide X-Company-Id header or a valid JWT with company_id',
       );
     }
-
-    this.tenantContext.set(tenantId);
     next();
   }
 }
