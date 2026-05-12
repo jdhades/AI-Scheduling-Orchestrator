@@ -59,12 +59,17 @@ export class SupabaseAuthGuard implements CanActivate {
       request.headers['x-company-id']
     ) {
       // Role inferido del header opcional `X-Employee-Role`. Sin él,
-      // asumimos 'manager' — el path DEV es para devs/tests que
-      // necesitan acceso completo. En prod (PR 9) este bypass se
-      // elimina y `role` viene SIEMPRE del JWT custom claim.
+      // asumimos 'owner' — el path DEV es para devs/tests que necesitan
+      // acceso completo, y owner hereda todo lo de manager. En prod
+      // (PR 9) este bypass se elimina y `role` viene SIEMPRE del JWT
+      // custom claim.
       const headerRole = request.headers['x-employee-role'];
-      const role: 'manager' | 'employee' =
-        headerRole === 'employee' ? 'employee' : 'manager';
+      const role: 'owner' | 'manager' | 'employee' =
+        headerRole === 'employee'
+          ? 'employee'
+          : headerRole === 'manager'
+            ? 'manager'
+            : 'owner';
       const auth: AuthContext = {
         userId: null,
         employeeId: null,

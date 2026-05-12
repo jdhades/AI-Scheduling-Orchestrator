@@ -34,7 +34,7 @@ interface MeResponse {
   employee: {
     id: string | null;
     name: string | null;
-    role: 'manager' | 'employee' | null;
+    role: 'owner' | 'manager' | 'employee' | null;
     departmentId: string | null;
   };
   company: { id: string; name: string | null };
@@ -70,7 +70,7 @@ export class CreateInvitationDto {
   phoneNumber?: string;
 
   @IsIn(['manager', 'employee'])
-  role!: 'manager' | 'employee';
+  role!: 'owner' | 'manager' | 'employee';
 
   @IsOptional()
   @IsUUID()
@@ -81,7 +81,7 @@ interface InvitationRow {
   id: string;
   email: string | null;
   phoneNumber: string | null;
-  role: 'manager' | 'employee';
+  role: 'owner' | 'manager' | 'employee';
   departmentId: string | null;
   token: string;
   expiresAt: string;
@@ -166,7 +166,7 @@ export class AuthController {
    * Solo manager — el employee no debería ver el roster de invitados.
    */
   @Get('invitations')
-  @Roles('manager')
+  @Roles('owner', 'manager')
   async listInvitations(
     @CurrentCompany() companyId: string,
   ): Promise<InvitationRow[]> {
@@ -189,7 +189,7 @@ export class AuthController {
    * el manager copy-pastea el link manualmente.
    */
   @Post('invitations')
-  @Roles('manager')
+  @Roles('owner', 'manager')
   @HttpCode(HttpStatus.CREATED)
   async createInvitation(
     @CurrentUser() user: AuthContext,
@@ -235,7 +235,7 @@ export class AuthController {
    * tenant del caller (no revelar existencia).
    */
   @Delete('invitations/:id')
-  @Roles('manager')
+  @Roles('owner', 'manager')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteInvitation(
     @Param('id') id: string,
@@ -271,7 +271,7 @@ export class AuthController {
   ): Promise<{
     email: string | null;
     phoneNumber: string | null;
-    role: 'manager' | 'employee';
+    role: 'owner' | 'manager' | 'employee';
     companyName: string | null;
     expiresAt: string;
   }> {
@@ -309,7 +309,7 @@ export class AuthController {
     id: r.id as string,
     email: (r.email as string | null) ?? null,
     phoneNumber: (r.phone_number as string | null) ?? null,
-    role: r.role as 'manager' | 'employee',
+    role: r.role as 'owner' | 'manager' | 'employee',
     departmentId: (r.department_id as string | null) ?? null,
     token: r.token as string,
     expiresAt: r.expires_at as string,

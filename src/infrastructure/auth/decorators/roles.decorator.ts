@@ -1,6 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
-export type AppRole = 'manager' | 'employee';
+export type AppRole = 'owner' | 'manager' | 'employee';
 export const ROLES_KEY = 'roles';
 
 /**
@@ -9,7 +9,7 @@ export const ROLES_KEY = 'roles';
  * está en la lista.
  *
  * Uso:
- *   @Roles('manager')
+ *   @Roles('owner', 'manager')
  *   @Post()
  *   create(...) { ... }
  *
