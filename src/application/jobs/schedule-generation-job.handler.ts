@@ -66,16 +66,35 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
       return;
     }
     const boss = this.pgBoss.getInstance();
+    // Concurrency configurable vía env. Default 2 — permite que
+    // empresa A esté generando con LLM mientras empresa B arranca
+    // sin esperar 2-3 min (caso multi-tenant discutido al final del
+    // sprint dashboard). El cap razonable es 3-4: cada job hace
+    // varios calls al LLM serializados internamente, y DashScope
+    // tiene rate-limit por cuenta — más concurrencia satura.
+    const concurrency = Math.max(
+      1,
+      Math.min(parseInt(process.env.SCHEDULE_WORKER_CONCURRENCY ?? '2', 10) || 2, 10),
+    );
     await boss.work<ScheduleGenerationJobPayload>(
       JOB_SCHEDULE_GENERATE,
-      { batchSize: 1, pollingIntervalSeconds: 1 },
+      {
+        // batchSize        = jobs fetched per poll
+        // localConcurrency = workers que corren en paralelo en este nodo
+        batchSize: concurrency,
+        localConcurrency: concurrency,
+        pollingIntervalSeconds: 1,
+      },
       async (jobs) => {
-        for (const job of jobs) {
-          await this._handleJob(job);
-        }
+        // localConcurrency arma N workers en paralelo en este nodo, cada
+        // uno corriendo este handler con un job a la vez. allSettled
+        // protege la invocación si por algún motivo `jobs` trae >1.
+        await Promise.allSettled(jobs.map((job) => this._handleJob(job)));
       },
     );
-    this.logger.log(`Worker registered for ${JOB_SCHEDULE_GENERATE}`);
+    this.logger.log(
+      `Worker registered for ${JOB_SCHEDULE_GENERATE} (concurrency=${concurrency})`,
+    );
   }
 
   private async _handleJob(
