@@ -21,6 +21,7 @@ import { ShiftAssignmentsController } from './controllers/shift-assignments.cont
 import { ScheduleGenerationRunsController } from './controllers/schedule-generation-runs.controller';
 import { LLMUsageController } from './controllers/llm-usage.controller';
 import { AuthController } from './controllers/auth.controller';
+import { AuditController } from './controllers/audit.controller';
 import { LLMModelBudgetsController } from './controllers/llm-model-budgets.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
@@ -56,6 +57,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     LLMUsageController,
     LLMModelBudgetsController,
     AuthController,
+    AuditController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto
