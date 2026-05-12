@@ -131,9 +131,15 @@ export class ScheduleController {
     @Query('weekStart') weekStart: string,
     @CurrentCompany() companyId: string,
     @Query('departmentId') departmentId?: string,
+    @Query('employeeId') employeeId?: string,
   ): Promise<CompanyScheduleAssignmentDTO[]> {
     return this.queryBus.execute(
-      new GetCompanyScheduleQuery(companyId, weekStart, departmentId),
+      new GetCompanyScheduleQuery(
+        companyId,
+        weekStart,
+        departmentId,
+        employeeId,
+      ),
     );
   }
 }
