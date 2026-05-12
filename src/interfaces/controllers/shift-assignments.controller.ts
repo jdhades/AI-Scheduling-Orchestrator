@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   ConflictException,
@@ -111,7 +112,7 @@ export class ShiftAssignmentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateAssignmentDto,
   ): Promise<{ assignment: object }> {
     try {
@@ -146,7 +147,7 @@ export class ShiftAssignmentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.repo.findById(id, companyId);
     if (!existing) {
@@ -159,7 +160,7 @@ export class ShiftAssignmentsController {
   @Patch(':id')
   async patch(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: MoveAssignmentDto,
   ): Promise<{ assignment: object; warnings: string[] }> {
     if (

@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -153,7 +154,7 @@ export class CompanyPoliciesController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<CompanyPolicyResponse[]> {
     const policies = await this.policyRepo.findAllByCompany(companyId);
     return policies.map((p) => this.toDto(p));
@@ -162,7 +163,7 @@ export class CompanyPoliciesController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<CompanyPolicyResponse> {
     const policy = await this.policyRepo.findById(id, companyId);
     if (!policy) {
@@ -174,7 +175,7 @@ export class CompanyPoliciesController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: CreateCompanyPolicyDto,
   ): Promise<CreateCompanyPolicyResponse> {
     // Toda la lógica vive en CompanyPolicyCreator (commit P1) — el
@@ -212,7 +213,7 @@ export class CompanyPoliciesController {
   @HttpCode(HttpStatus.OK)
   async update(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpdateCompanyPolicyDto,
   ): Promise<CompanyPolicyResponse> {
     const policy = await this.policyRepo.findById(id, companyId);
@@ -251,7 +252,7 @@ export class CompanyPoliciesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.policyRepo.findById(id, companyId);
     if (!existing) {

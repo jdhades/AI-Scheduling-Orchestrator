@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -70,11 +71,8 @@ export class IncidentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Body() dto: CreateIncidentDto,
-    @Headers('x-company-id') companyIdHeader: string,
-    @Query('companyId') companyIdQuery?: string,
+    @Body() dto: CreateIncidentDto,    @CurrentCompany() companyId: string,
   ): Promise<{ success: boolean }> {
-    const companyId = companyIdHeader || companyIdQuery || '';
     await this.commandBus.execute(
       new CreateIncidentCommand(
         companyId,
@@ -87,14 +85,11 @@ export class IncidentsController {
   }
 
   @Get()
-  async list(
-    @Headers('x-company-id') companyIdHeader: string,
-    @Query('companyId') companyIdQuery?: string,
+  async list(    @CurrentCompany() companyId: string,
     @Query('employeeId') employeeId?: string,
     @Query('status') status?: string,
     @Query('managerEmployeeId') managerEmployeeId?: string,
   ): Promise<unknown[]> {
-    const companyId = companyIdHeader || companyIdQuery || '';
     const statusList = status
       ? (status.split(',').map((s) => s.trim()) as IncidentStatus[])
       : undefined;
@@ -116,11 +111,8 @@ export class IncidentsController {
 
   @Get(':id')
   async getById(
-    @Param('id') id: string,
-    @Headers('x-company-id') companyIdHeader: string,
-    @Query('companyId') companyIdQuery?: string,
+    @Param('id') id: string,    @CurrentCompany() companyId: string,
   ): Promise<unknown> {
-    const companyId = companyIdHeader || companyIdQuery || '';
     return this.queryBus.execute(new GetIncidentByIdQuery(id, companyId));
   }
 
@@ -132,11 +124,8 @@ export class IncidentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,
-    @Body() dto: RejectIncidentDto,
-    @Headers('x-company-id') companyIdHeader: string,
-    @Query('companyId') companyIdQuery?: string,
+    @Body() dto: RejectIncidentDto,    @CurrentCompany() companyId: string,
   ): Promise<void> {
-    const companyId = companyIdHeader || companyIdQuery || '';
     await this.commandBus.execute(
       new RejectIncidentCommand(id, companyId, dto.reason),
     );
@@ -150,11 +139,8 @@ export class IncidentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async resolve(
     @Param('id') id: string,
-    @Body() dto: ResolveIncidentDto,
-    @Headers('x-company-id') companyIdHeader: string,
-    @Query('companyId') companyIdQuery?: string,
+    @Body() dto: ResolveIncidentDto,    @CurrentCompany() companyId: string,
   ): Promise<void> {
-    const companyId = companyIdHeader || companyIdQuery || '';
     await this.commandBus.execute(
       new ResolveIncidentCommand(id, companyId, dto.details),
     );

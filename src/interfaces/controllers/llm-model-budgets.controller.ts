@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -51,14 +52,14 @@ export class LLMModelBudgetsController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<LLMModelBudget[]> {
     return this.budgetService.listForCompany(companyId);
   }
 
   @Put()
   async upsert(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpsertBudgetDto,
   ): Promise<LLMModelBudget> {
     const result = await this.budgetService.upsert({
@@ -79,7 +80,7 @@ export class LLMModelBudgetsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     const ok = await this.budgetService.deleteById(id, companyId);
     if (!ok) {

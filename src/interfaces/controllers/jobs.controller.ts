@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   ConflictException,
   Controller,
@@ -80,7 +81,7 @@ export class JobsController {
    */
   @Get('active')
   async getActive(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<JobStateDTO[]> {
     if (!this.pgBoss.isEnabled()) return [];
     const boss = this.pgBoss.getInstance();
@@ -107,7 +108,7 @@ export class JobsController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<JobStateDTO> {
     if (!this.pgBoss.isEnabled()) {
       throw new NotFoundException('Queue not enabled');
@@ -131,7 +132,7 @@ export class JobsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async cancel(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     if (!this.pgBoss.isEnabled()) {
       throw new NotFoundException('Queue not enabled');

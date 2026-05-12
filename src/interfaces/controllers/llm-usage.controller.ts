@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { Controller, Get, Query } from '@nestjs/common';
 import {
   LLMUsageLogger,
@@ -22,8 +23,8 @@ export class LLMUsageController {
 
   @Get('summary')
   async summary(
+    @CurrentCompany() companyId: string,
     @Query('days') days?: string,
-    @Query('companyId') companyId?: string,
   ): Promise<UsageSummary> {
     const n = Math.min(Math.max(parseInt(days ?? '7', 10) || 7, 1), 90);
     return this.logger.summary(n, companyId);
@@ -38,8 +39,8 @@ export class LLMUsageController {
    */
   @Get('daily')
   async daily(
+    @CurrentCompany() companyId: string,
     @Query('days') days?: string,
-    @Query('companyId') companyId?: string,
   ): Promise<
     Array<{
       date: string;

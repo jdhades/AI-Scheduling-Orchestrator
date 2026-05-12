@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   Controller,
@@ -59,7 +60,7 @@ export class RuleController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() dto: CreateSemanticRuleDto,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<CreateSemanticRuleResult> {
     return this.commandBus.execute(
       new CreateSemanticRuleCommand(
@@ -81,7 +82,7 @@ export class RuleController {
    */
   @Get()
   async findAll(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('ruleType') ruleType?: 'restriction' | 'preference' | 'requirement',
   ): Promise<SemanticRuleDto[]> {
     return this.queryBus.execute(
@@ -98,7 +99,7 @@ export class RuleController {
   @Get(':id')
   async getById(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<unknown> {
     return this.queryBus.execute(new GetSemanticRuleByIdQuery(id, companyId));
   }
@@ -114,7 +115,7 @@ export class RuleController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async updateMetadata(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpdateSemanticRuleMetadataDto,
   ): Promise<void> {
     const patch = {
@@ -145,7 +146,7 @@ export class RuleController {
   @Patch(':id/text')
   async updateText(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpdateSemanticRuleTextDto,
   ): Promise<unknown> {
     return this.commandBus.execute(
@@ -163,7 +164,7 @@ export class RuleController {
   @Delete(':id')
   async remove(
     @Param('id') id: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<{ deleted: boolean }> {
     const result = await this.commandBus.execute(
       new DeleteSemanticRuleCommand(id, companyId),

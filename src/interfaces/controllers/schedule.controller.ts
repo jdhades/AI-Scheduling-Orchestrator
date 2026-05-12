@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   Body,
   ConflictException,
@@ -57,7 +58,7 @@ export class ScheduleController {
   @HttpCode(HttpStatus.OK)
   async generate(
     @Body() dto: GenerateScheduleDto,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Headers('accept-language') acceptLanguage?: string,
   ): Promise<HybridScheduleResult | { jobId: string; status: 'queued' }> {
     const useAsync = process.env.USE_ASYNC_SCHEDULE_GEN === 'true';
@@ -128,7 +129,7 @@ export class ScheduleController {
   @Get()
   async getSchedule(
     @Query('weekStart') weekStart: string,
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('departmentId') departmentId?: string,
   ): Promise<CompanyScheduleAssignmentDTO[]> {
     return this.queryBus.execute(

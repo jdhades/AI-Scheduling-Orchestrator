@@ -1,3 +1,4 @@
+import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { Controller, Get, Query } from '@nestjs/common';
 import {
   ScheduleGenerationRunsService,
@@ -20,7 +21,7 @@ export class ScheduleGenerationRunsController {
 
   @Get()
   async list(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('limit') limit?: string,
   ): Promise<ScheduleGenerationRunRow[]> {
     const n = Math.min(Math.max(parseInt(limit ?? '20', 10) || 20, 1), 100);
