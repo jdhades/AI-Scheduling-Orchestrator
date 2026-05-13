@@ -55,6 +55,9 @@ interface MeResponse {
     trialEndsAt: string | null;
   };
   permissions: string[];
+  /** true si el caller está en `platform_admins`. El frontend usa esto
+   * para mostrar el link a /admin y para evitar fetchs innecesarios. */
+  isPlatformAdmin: boolean;
 }
 
 const MANAGER_PERMISSIONS = [
@@ -225,10 +228,22 @@ export class AuthController {
           .eq('id', user.employeeId)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null });
+    const platformAdminP = user.userId
+      ? this.supabase
+          .from('platform_admins')
+          .select('id')
+          .eq('auth_user_id', user.userId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null });
 
-    const [companyRes, employeeRes] = await Promise.all([companyP, employeeP]);
+    const [companyRes, employeeRes, platformAdminRes] = await Promise.all([
+      companyP,
+      employeeP,
+      platformAdminP,
+    ]);
     const company = companyRes.data;
     const employee = employeeRes.data;
+    const isPlatformAdmin = !!platformAdminRes.data;
 
     let email: string | null = null;
     if (user.userId) {
@@ -265,6 +280,7 @@ export class AuthController {
         trialEndsAt: company?.trial_ends_at ?? null,
       },
       permissions,
+      isPlatformAdmin,
     };
   }
 

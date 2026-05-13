@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { SupabaseAuthGuard } from './supabase-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { TrialGuard } from './guards/trial.guard';
+import { PlatformAdminGuard } from './guards/platform-admin.guard';
 import { JwtValidatorService } from './services/jwt-validator.service';
 import { SupabaseModule } from '../supabase/supabase.module';
 
@@ -37,6 +38,10 @@ import { SupabaseModule } from '../supabase/supabase.module';
     {
       provide: APP_GUARD,
       useClass: TrialGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PlatformAdminGuard,
     },
   ],
   exports: [JwtValidatorService],
