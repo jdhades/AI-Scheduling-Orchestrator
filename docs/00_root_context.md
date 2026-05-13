@@ -238,7 +238,7 @@ Organization
 | **Postgres exception filter (errorCode mapping)** | `src/infrastructure/filters/postgres-exception.filter.ts` |
 | **CompanyPolicy aggregate** | `src/domain/aggregates/company-policy.aggregate.ts` |
 | **PolicyInterpreterRegistry** | `src/domain/services/policy-interpreter-registry.ts` |
-| **PolicyEnforcementService (MVP, no wireado al solver)** | `src/domain/services/policy-enforcement.service.ts` |
+| **PolicyEnforcementService** (no wireado al solver activo todavía) | `src/domain/services/policy-enforcement.service.ts` |
 | **CompanyPolicyCreator (controller + WhatsApp comparten)** | `src/domain/services/company-policy-creator.service.ts` |
 | **Suggestion-loop policies (LLM-backed)** | `src/domain/services/llm-rule-rephrase.service.ts` |
 | **Suggestion-loop semantic rules** | `src/domain/services/llm-semantic-rule-rephrase.service.ts` |

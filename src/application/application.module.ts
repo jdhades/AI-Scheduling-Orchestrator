@@ -142,9 +142,9 @@ const DomainServices = [
   PolicyInterpreterRegistry,
   LlmRuleRephraseService,
   CompanyPolicyCreator,
-  // MVP de integración solver: el WeekScheduleBuilder lo puede inyectar
-  // cuando esté listo para consumir policies activas (evaluate() para
-  // verificación post-generation, formatForPrompt() para el LLM repair).
+  // Integración solver: el WeekScheduleBuilder lo inyecta para
+  // consumir policies activas (evaluate() para verificación
+  // post-generation, formatForPrompt() para el LLM repair).
   PolicyEnforcementService,
   // Phase 15.2 — resuelve "qué empleados ve un manager" para filtrar
   // las listas de approvals (swap/absence/incident/day-off).

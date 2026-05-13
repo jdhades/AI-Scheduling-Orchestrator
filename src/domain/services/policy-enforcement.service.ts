@@ -24,12 +24,11 @@ export interface PolicyEvaluationResult {
 }
 
 /**
- * PolicyEnforcementService — Domain Service (MVP de integración solver).
+ * PolicyEnforcementService — Domain Service.
  *
- * Pieza ready-to-plug para el WeekScheduleBuilder cuando esté listo
- * para consumir policies. NO invade el solver activo (Phase 13/3.5);
- * provee dos métodos pure-function que el solver llama cuando
- * corresponda:
+ * Pieza ready-to-plug para el WeekScheduleBuilder. NO invade el solver
+ * activo (Phase 13/3.5); provee dos métodos pure-function que el
+ * solver llama cuando corresponda:
  *
  *   - evaluate(): corre cada interpreter.apply() contra el schedule
  *     propuesto y agrupa violaciones por severity. Lo policies LLM-only

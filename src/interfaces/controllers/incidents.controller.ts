@@ -30,7 +30,7 @@ export class CreateIncidentDto {
   @IsString()
   message?: string;
 
-  /** URL al archivo evidencia (imagen/PDF). Puede ir vacío en MVP. */
+  /** URL al archivo evidencia (imagen/PDF). Opcional. */
   @IsOptional()
   @IsUrl({ require_tld: false })
   mediaUrl?: string;
