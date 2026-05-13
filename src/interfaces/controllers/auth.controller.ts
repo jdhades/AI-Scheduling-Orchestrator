@@ -39,7 +39,14 @@ interface MeResponse {
     role: 'owner' | 'manager' | 'employee' | null;
     departmentId: string | null;
   };
-  company: { id: string; name: string | null };
+  company: {
+    id: string;
+    name: string | null;
+    /** ISO timestamp cuando el owner completó el wizard de onboarding;
+     * null mientras no esté completado. El frontend redirige a
+     * /onboarding cuando owner + onboardedAt=null. */
+    onboardedAt: string | null;
+  };
   permissions: string[];
 }
 
@@ -200,7 +207,7 @@ export class AuthController {
 
     const companyP = this.supabase
       .from('companies')
-      .select('id, name')
+      .select('id, name, onboarded_at')
       .eq('id', user.companyId)
       .maybeSingle();
     const employeeP = user.employeeId
@@ -240,7 +247,11 @@ export class AuthController {
         role,
         departmentId: employee?.department_id ?? user.departmentId ?? null,
       },
-      company: { id: user.companyId, name: company?.name ?? null },
+      company: {
+        id: user.companyId,
+        name: company?.name ?? null,
+        onboardedAt: company?.onboarded_at ?? null,
+      },
       permissions,
     };
   }
