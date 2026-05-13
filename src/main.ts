@@ -17,7 +17,12 @@ import { ValidationPipe } from '@nestjs/common';
 import { PostgresExceptionFilter } from './infrastructure/filters/postgres-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // `rawBody: true` retiene el Buffer original del body para que el
+  // StripeWebhookController pueda verificar la firma. Stripe firma
+  // bytes exactos; si Nest parsea a JSON antes, la firma falla.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
 
   // ─── Hardening transversal (PR 9 sprint Auth) ─────────────────────────
   // Helmet: CSP + HSTS + frame-ancestors=none. Whitelist específico para

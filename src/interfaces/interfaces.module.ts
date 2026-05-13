@@ -24,6 +24,8 @@ import { AuthController } from './controllers/auth.controller';
 import { AuditController } from './controllers/audit.controller';
 import { OnboardingController } from './controllers/onboarding.controller';
 import { AdminController } from './controllers/admin.controller';
+import { StripeWebhookController } from './controllers/stripe-webhook.controller';
+import { BillingController } from './controllers/billing.controller';
 import { LLMModelBudgetsController } from './controllers/llm-model-budgets.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
@@ -62,6 +64,8 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AuditController,
     OnboardingController,
     AdminController,
+    StripeWebhookController,
+    BillingController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto
