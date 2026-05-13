@@ -2,17 +2,21 @@ import { Module, Global } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { SupabaseAuthGuard } from './supabase-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
+import { TrialGuard } from './guards/trial.guard';
 import { JwtValidatorService } from './services/jwt-validator.service';
 import { SupabaseModule } from '../supabase/supabase.module';
 
 /**
- * AuthModule — registra los dos guards globales en orden correcto:
+ * AuthModule — registra los guards globales en orden correcto:
  *
  *   SupabaseAuthGuard  →  identidad (auth)
- *   RolesGuard          →  autorización (authz, requiere SupabaseAuthGuard arriba)
+ *   RolesGuard          →  autorización por rol
+ *   TrialGuard          →  bloquea cuando companies.subscription_status
+ *                         ='trialing' AND trial_ends_at < now(), o
+ *                         ='canceled'. Endpoints con @AllowExpiredTrial
+ *                         lo saltean (/auth/me, /onboarding/*, /billing/*)
  *
- * APP_GUARD aplica TODOS los guards listados en orden. Acá Supabase
- * primero (popula req.auth) y Roles después (lee req.auth.role).
+ * APP_GUARD aplica TODOS los guards listados en orden.
  *
  * Marcado `@Global()` para que `JwtValidatorService` y los decoradores
  * sean importables desde cualquier módulo sin re-declarar el import.
@@ -29,6 +33,10 @@ import { SupabaseModule } from '../supabase/supabase.module';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: TrialGuard,
     },
   ],
   exports: [JwtValidatorService],

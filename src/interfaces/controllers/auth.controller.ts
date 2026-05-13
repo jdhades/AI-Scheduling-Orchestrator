@@ -29,6 +29,7 @@ import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.d
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { Roles } from '../../infrastructure/auth/decorators/roles.decorator';
 import { Public } from '../../infrastructure/auth/decorators/public.decorator';
+import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 
 interface MeResponse {
@@ -46,6 +47,12 @@ interface MeResponse {
      * null mientras no esté completado. El frontend redirige a
      * /onboarding cuando owner + onboardedAt=null. */
     onboardedAt: string | null;
+    /** 'trialing' | 'active' | 'past_due' | 'canceled'. El banner del
+     * frontend lee esto para mostrar "Trial ends in N days" o equivalente. */
+    subscriptionStatus: 'trialing' | 'active' | 'past_due' | 'canceled';
+    /** ISO timestamp cuando el trial vence. Solo relevante si
+     * subscriptionStatus='trialing'. */
+    trialEndsAt: string | null;
   };
   permissions: string[];
 }
@@ -200,6 +207,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @AllowExpiredTrial()
   async me(@CurrentUser() user: AuthContext): Promise<MeResponse> {
     if (!user || !user.companyId) {
       throw new NotFoundException('No authenticated context');
@@ -207,7 +215,7 @@ export class AuthController {
 
     const companyP = this.supabase
       .from('companies')
-      .select('id, name, onboarded_at')
+      .select('id, name, onboarded_at, subscription_status, trial_ends_at')
       .eq('id', user.companyId)
       .maybeSingle();
     const employeeP = user.employeeId
@@ -251,6 +259,10 @@ export class AuthController {
         id: user.companyId,
         name: company?.name ?? null,
         onboardedAt: company?.onboarded_at ?? null,
+        subscriptionStatus:
+          (company?.subscription_status as MeResponse['company']['subscriptionStatus']) ??
+          'trialing',
+        trialEndsAt: company?.trial_ends_at ?? null,
       },
       permissions,
     };

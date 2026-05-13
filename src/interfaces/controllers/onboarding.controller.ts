@@ -22,6 +22,7 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Roles } from '../../infrastructure/auth/decorators/roles.decorator';
+import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 
 /**
@@ -65,6 +66,7 @@ interface DraftRow {
 }
 
 @Controller('onboarding')
+@AllowExpiredTrial()
 export class OnboardingController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
