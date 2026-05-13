@@ -63,6 +63,9 @@ export class AppModule implements NestModule {
         '/auth/(.*)',
         '/webhooks/whatsapp',
         '/webhooks/twilio',
+        // Stripe webhook: viene sin X-Company-Id ni JWT, autenticación
+        // es la firma `stripe-signature` validada en el controller.
+        '/webhooks/stripe',
       )
       .forRoutes('*');
   }
