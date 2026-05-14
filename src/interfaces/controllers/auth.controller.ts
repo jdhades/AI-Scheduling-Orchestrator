@@ -4,12 +4,14 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
   Inject,
   NotFoundException,
   Param,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
@@ -77,6 +79,13 @@ const EMPLOYEE_PERMISSIONS = [
   'request:create',
   'request:view-self',
 ];
+
+export class UpdateMeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  name!: string;
+}
 
 export class SignupDto {
   @IsEmail()
@@ -282,6 +291,38 @@ export class AuthController {
       permissions,
       isPlatformAdmin,
     };
+  }
+
+  /**
+   * PATCH /auth/me — self-service edit del propio employee. Hoy solo
+   * `name`. Email + password los maneja el cliente directo contra
+   * Supabase Auth (updateUser) porque ahí pasa el flow de verificación
+   * y re-auth de Supabase nativo.
+   *
+   * @AllowExpiredTrial — el user con trial expirado igual debe poder
+   * editar su perfil (caso típico: cambiar nombre antes de pagar).
+   */
+  @Patch('me')
+  @AllowExpiredTrial()
+  @HttpCode(HttpStatus.OK)
+  async updateMe(
+    @CurrentUser() user: AuthContext,
+    @Body() body: UpdateMeDto,
+  ): Promise<{ id: string; name: string }> {
+    if (!user?.employeeId) {
+      throw new ForbiddenException(
+        'No employee linked to this auth user — cannot edit profile',
+      );
+    }
+    const { data, error } = await this.supabase
+      .from('employees')
+      .update({ name: body.name })
+      .eq('id', user.employeeId)
+      .select('id, name')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Employee not found');
+    return { id: data.id as string, name: data.name as string };
   }
 
   /**
