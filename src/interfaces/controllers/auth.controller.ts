@@ -60,6 +60,12 @@ interface MeResponse {
   /** true si el caller está en `platform_admins`. El frontend usa esto
    * para mostrar el link a /admin y para evitar fetchs innecesarios. */
   isPlatformAdmin: boolean;
+  /** Lista de capabilities efectivas del caller — unión de
+   * company_role_capabilities[role] + employee_capabilities (overrides).
+   * El frontend la usa para gatear UI (ocultar Settings si no tiene
+   * settings:manage, etc.). Backend igualmente valida en cada endpoint
+   * via @Requires + CapabilityGuard. */
+  capabilities: string[];
 }
 
 const MANAGER_PERMISSIONS = [
@@ -244,15 +250,43 @@ export class AuthController {
           .eq('auth_user_id', user.userId)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null });
+    // Role-level capabilities del user en esta company
+    const roleCapsP = user.role
+      ? this.supabase
+          .from('company_role_capabilities')
+          .select('capability')
+          .eq('company_id', user.companyId)
+          .eq('role', user.role)
+      : Promise.resolve({ data: [], error: null });
+    // User-level overrides (extras)
+    const overridesP = user.employeeId
+      ? this.supabase
+          .from('employee_capabilities')
+          .select('capability')
+          .eq('employee_id', user.employeeId)
+      : Promise.resolve({ data: [], error: null });
 
-    const [companyRes, employeeRes, platformAdminRes] = await Promise.all([
-      companyP,
-      employeeP,
-      platformAdminP,
-    ]);
+    const [companyRes, employeeRes, platformAdminRes, roleCapsRes, overridesRes] =
+      await Promise.all([
+        companyP,
+        employeeP,
+        platformAdminP,
+        roleCapsP,
+        overridesP,
+      ]);
     const company = companyRes.data;
     const employee = employeeRes.data;
     const isPlatformAdmin = !!platformAdminRes.data;
+    const capabilities = Array.from(
+      new Set([
+        ...((roleCapsRes.data ?? []).map(
+          (r: { capability: string }) => r.capability,
+        ) as string[]),
+        ...((overridesRes.data ?? []).map(
+          (r: { capability: string }) => r.capability,
+        ) as string[]),
+      ]),
+    );
 
     let email: string | null = null;
     if (user.userId) {
@@ -290,6 +324,7 @@ export class AuthController {
       },
       permissions,
       isPlatformAdmin,
+      capabilities,
     };
   }
 
