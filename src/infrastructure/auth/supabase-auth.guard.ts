@@ -51,12 +51,20 @@ export class SupabaseAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
 
     // ─── Modo dev (sprint en transición) ──────────────────────────
-    // X-Company-Id header + flag DEV_AUTH_BYPASS=true → bypass del JWT.
-    // Eliminar cuando PR 5 cierre — entonces TODOS los endpoints
-    // protected deben recibir un Bearer válido.
+    // X-Company-Id header + flag DEV_AUTH_BYPASS=true + SIN Bearer
+    // → bypass del JWT (path legacy de tests/curl sin sesión).
+    //
+    // Si hay Bearer, ignoramos el bypass y validamos el JWT real.
+    // Sin esta condición, el frontend con sesión Supabase activa
+    // también caía en el bypass (porque axios interceptor manda BOTH
+    // headers) y `employeeId` quedaba null → /auth/me PATCH rompía.
+    const hasBearer = (request.headers.authorization ?? '').startsWith(
+      'Bearer ',
+    );
     if (
       process.env.DEV_AUTH_BYPASS === 'true' &&
-      request.headers['x-company-id']
+      request.headers['x-company-id'] &&
+      !hasBearer
     ) {
       // Role inferido del header opcional `X-Employee-Role`. Sin él,
       // asumimos 'owner' — el path DEV es para devs/tests que necesitan
