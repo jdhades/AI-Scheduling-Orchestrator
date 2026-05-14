@@ -1,14 +1,20 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import { ScopeService } from '../../infrastructure/auth/services/scope.service';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   Body,
+  ConflictException,
   Controller,
+  Delete,
   HttpCode,
   HttpStatus,
   Inject,
   NotFoundException,
   Param,
   Patch,
-  Query,
+  Post,
   BadRequestException,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -17,6 +23,8 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
+  MinLength,
   ValidateIf,
 } from 'class-validator';
 
@@ -62,11 +70,114 @@ export class UpdateDepartmentDto {
   swapAutoApprove?: boolean;
 }
 
+export class CreateDepartmentDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  name!: string;
+
+  @IsUUID()
+  branchId!: string;
+}
+
 @Controller('departments')
 export class DepartmentsController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    private readonly scope: ScopeService,
   ) {}
+
+  @Post()
+  @Requires('departments:write')
+  @HttpCode(HttpStatus.CREATED)
+  async create(
+    @CurrentUser() user: AuthContext,
+    @CurrentCompany() companyId: string,
+    @Body() dto: CreateDepartmentDto,
+  ): Promise<DepartmentMutateResponse> {
+    // Validar que la branch pertenece al tenant + scope check.
+    const { data: branch, error: bErr } = await this.supabase
+      .from('branches')
+      .select('id')
+      .eq('id', dto.branchId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (bErr) throw new BadRequestException(bErr.message);
+    if (!branch) throw new NotFoundException('Branch not found in this tenant');
+
+    // Manager scope: si la branch no está en su scope, 403
+    if (user.role !== 'owner') {
+      const visibleBranches = await this.scope.visibleBranchIds(user);
+      if (visibleBranches !== null && !visibleBranches.includes(dto.branchId)) {
+        throw new BadRequestException(
+          'Branch is not in your scope — cannot create department here',
+        );
+      }
+    }
+
+    const { data, error } = await this.supabase
+      .from('departments')
+      .insert({
+        company_id: companyId,
+        branch_id: dto.branchId,
+        name: dto.name.trim(),
+      })
+      .select('id, name, manager_employee_id, swap_auto_approve')
+      .single();
+    if (error) {
+      if ((error as { code?: string }).code === '23505') {
+        throw new ConflictException('Department name already exists in this branch');
+      }
+      throw new BadRequestException(error.message);
+    }
+    return {
+      id: data.id as string,
+      name: data.name as string,
+      managerEmployeeId: (data.manager_employee_id as string | null) ?? null,
+      swapAutoApprove: (data.swap_auto_approve as boolean | null) ?? false,
+    };
+  }
+
+  @Delete(':id')
+  @Requires('departments:write')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthContext,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    // Pre-check: dept existe en este tenant + en scope del user
+    const { data: dept, error: dErr } = await this.supabase
+      .from('departments')
+      .select('id, branch_id')
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (dErr) throw new BadRequestException(dErr.message);
+    if (!dept) throw new NotFoundException('Department not found');
+
+    if (user.role !== 'owner') {
+      await this.scope.assertDeptInScope(user, id);
+    }
+
+    // Check: tiene empleados? Bloquear con error claro.
+    const { count } = await this.supabase
+      .from('employees')
+      .select('id', { count: 'exact', head: true })
+      .eq('department_id', id);
+    if ((count ?? 0) > 0) {
+      throw new BadRequestException(
+        `Cannot delete department with ${count} employee(s) — reassign them first`,
+      );
+    }
+
+    const { error } = await this.supabase
+      .from('departments')
+      .delete()
+      .eq('id', id)
+      .eq('company_id', companyId);
+    if (error) throw new BadRequestException(error.message);
+  }
 
   /**
    * PATCH /departments/:id?companyId=...
@@ -79,6 +190,7 @@ export class DepartmentsController {
    * no es el lugar para reglas de negocio).
    */
   @Patch(':id')
+  @Requires('departments:write')
   @HttpCode(HttpStatus.OK)
   async update(
     @Param('id') id: string,
