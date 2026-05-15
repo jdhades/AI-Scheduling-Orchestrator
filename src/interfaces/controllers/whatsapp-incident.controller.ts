@@ -9,6 +9,7 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import type { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { CommandBus } from '@nestjs/cqrs';
@@ -18,6 +19,12 @@ import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.reposito
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Twilio = require('twilio');
+
+// Hash truncado del número para logs: permite correlación sin exponer PII.
+const redactPhone = (raw: string | undefined): string =>
+  raw
+    ? `phone:${createHash('sha256').update(raw).digest('hex').slice(0, 8)}`
+    : 'phone:?';
 
 @Public()
 @Controller('webhooks/twilio')
@@ -76,7 +83,9 @@ export class WhatsAppIncidentController {
 
       // 1. Verify required fields (Must have a document)
       if (!From || !MediaUrl0 || !MediaContentType0) {
-        this.logger.warn(`Missing required payload fields from ${From}`);
+        this.logger.warn(
+          `Missing required payload fields from ${redactPhone(From)}`,
+        );
         res.status(HttpStatus.BAD_REQUEST).send('Bad Request: Missing Media');
         return;
       }
@@ -84,7 +93,7 @@ export class WhatsAppIncidentController {
       // 2. Validate Media Type
       if (!this.ALLOWED_MEDIA_TYPES.includes(MediaContentType0)) {
         this.logger.warn(
-          `Invalid media type ${MediaContentType0} from ${From}`,
+          `Invalid media type ${MediaContentType0} from ${redactPhone(From)}`,
         );
         res
           .status(HttpStatus.BAD_REQUEST)
@@ -101,7 +110,7 @@ export class WhatsAppIncidentController {
 
       if (!employee) {
         this.logger.warn(
-          `Phone number ${cleanPhone} not registered in our system.`,
+          `Phone number ${redactPhone(cleanPhone)} not registered in our system.`,
         );
         res
           .status(HttpStatus.BAD_REQUEST)
@@ -128,7 +137,7 @@ export class WhatsAppIncidentController {
           )
           .catch((error) => {
             this.logger.error(
-              `Failed to process CreateIncidentCommand for ${From}`,
+              `Failed to process CreateIncidentCommand for ${redactPhone(From)}`,
               error.stack,
             );
           });

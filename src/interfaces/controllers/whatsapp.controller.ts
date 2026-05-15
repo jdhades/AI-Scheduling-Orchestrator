@@ -68,8 +68,10 @@ export class WhatsAppController {
   ): Promise<void> {
     const dto = req.body as WhatsappWebhookDto;
     const rawBody = req.body as Record<string, string>;
+    // Sin logear el body raw — puede contener PII del empleado.
+    // Solo metadata: longitud + flag de media.
     this.logger.log(
-      `📩 Incoming WhatsApp webhook — From: ${dto.From}, Body: "${dto.Body ?? '(empty)'}"`,
+      `📩 Incoming WhatsApp webhook — bodyLen=${dto.Body?.length ?? 0}, hasMedia=${!!dto.MediaUrl0}`,
     );
 
     // 1. Validate Twilio signature (skip in test/development env)
