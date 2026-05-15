@@ -1,6 +1,7 @@
 import { Public } from '../../infrastructure/auth/decorators/public.decorator';
 import {
   Controller,
+  Headers,
   Post,
   Req,
   Res,
@@ -9,15 +10,22 @@ import {
   Inject,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { CommandBus } from '@nestjs/cqrs';
 import { CreateIncidentCommand } from '../../application/commands/create-incident.command';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Twilio = require('twilio');
+
 @Public()
 @Controller('webhooks/twilio')
 export class WhatsAppIncidentController {
   private readonly logger = new Logger(WhatsAppIncidentController.name);
+  private readonly twilioToken: string;
+  private readonly webhookUrl: string;
+  private readonly env: string;
 
   // Consider allowed MIME types for Medical Certificates
   private readonly ALLOWED_MEDIA_TYPES = [
@@ -28,16 +36,42 @@ export class WhatsAppIncidentController {
 
   constructor(
     private readonly commandBus: CommandBus,
+    private readonly config: ConfigService,
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,
-  ) {}
+  ) {
+    this.twilioToken = this.config.get<string>('twilio.authToken') ?? '';
+    this.webhookUrl = this.config.get<string>('twilio.webhookUrl') ?? '';
+    this.env = this.config.get<string>('app.env') ?? 'production';
+  }
 
   @Post()
   async handleWhatsAppIncoming(
     @Req() req: Request,
     @Res() res: Response,
+    @Headers('x-twilio-signature') twilioSignature: string,
+    @Headers('host') host: string,
   ): Promise<void> {
     try {
+      const rawBody = req.body as Record<string, string>;
+
+      // 0. Validate Twilio signature (skip in test/development env)
+      const skipValidation = this.env === 'test' || this.env === 'development';
+      if (!skipValidation) {
+        const url = this.webhookUrl || `https://${host}/webhooks/twilio`;
+        const isValid = Twilio.validateRequest(
+          this.twilioToken,
+          twilioSignature,
+          url,
+          rawBody,
+        );
+        if (!isValid) {
+          this.logger.warn('Invalid Twilio signature — request rejected');
+          res.status(HttpStatus.FORBIDDEN).send('Invalid Twilio signature');
+          return;
+        }
+      }
+
       const { From, Body, MediaUrl0, MediaContentType0 } = req.body;
 
       // 1. Verify required fields (Must have a document)
