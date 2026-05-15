@@ -9,6 +9,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { Public } from '../../infrastructure/auth/decorators/public.decorator';
@@ -57,7 +58,11 @@ export class StripeWebhookController {
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
 
+  // Stripe sends from a small IP fleet; 50 events/min/IP is plenty para
+  // high-volume merchants y baja el techo de abuso si la firma falla.
+  // Stripe re-trya con backoff si recibe 429.
   @Post()
+  @Throttle({ default: { limit: 50, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async handle(
     @Req() req: Request & { rawBody?: Buffer },

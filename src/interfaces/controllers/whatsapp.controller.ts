@@ -10,6 +10,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { MessageRouterService } from '../../application/conversational/message-router.service';
@@ -58,8 +59,11 @@ export class WhatsAppController {
   /**
    * POST /webhooks/whatsapp
    * Twilio sends a signed POST request for every incoming WhatsApp message.
+   * Throttle agresivo: el volumen legítimo es bajo (empleados, no apps)
+   * y Twilio retry-ea con backoff si recibe 429.
    */
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async receive(
     @Req() req: Request,

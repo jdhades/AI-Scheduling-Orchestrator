@@ -9,6 +9,7 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { createHash } from 'crypto';
 import type { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -52,7 +53,10 @@ export class WhatsAppIncidentController {
     this.env = this.config.get<string>('app.env') ?? 'production';
   }
 
+  // Throttle agresivo: el volumen legítimo es bajo (medical certificates
+  // por empleado) y Twilio retry-ea con backoff si recibe 429.
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async handleWhatsAppIncoming(
     @Req() req: Request,
     @Res() res: Response,
