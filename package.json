@@ -5,6 +5,7 @@
   "author": "jean newman",
   "private": true,
   "license": "UNLICENSED",
+  "packageManager": "pnpm@11.1.2",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -66,6 +67,7 @@
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^11.0.0",
+    "dotenv": "^17.4.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
