@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   Controller,
@@ -131,6 +132,7 @@ export class DayOffRequestsController {
    * El reason de la rule es "día libre aprobado: <razón original>".
    */
   @Post(':id/approve')
+  @Requires('dayoffs:approve')
   @HttpCode(HttpStatus.OK)
   async approve(
     @Param('id') id: string,
@@ -170,6 +172,7 @@ export class DayOffRequestsController {
   }
 
   @Post(':id/reject')
+  @Requires('dayoffs:approve')
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,

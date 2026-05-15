@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   BadRequestException,
   Body,
@@ -182,6 +183,7 @@ export class ShiftSwapRequestsController {
   }
 
   @Post(':id/approve')
+  @Requires('swaps:approve')
   @HttpCode(HttpStatus.NO_CONTENT)
   async approve(
     @Param('id') id: string,
@@ -194,6 +196,7 @@ export class ShiftSwapRequestsController {
   }
 
   @Post(':id/reject')
+  @Requires('swaps:approve')
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,

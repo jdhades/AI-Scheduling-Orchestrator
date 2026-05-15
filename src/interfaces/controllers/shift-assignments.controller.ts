@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   ConflictException,
@@ -110,6 +111,7 @@ export class ShiftAssignmentsController {
    * template existe, no doble-booking. Marca origin='override'.
    */
   @Post()
+  @Requires('schedule:write')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
@@ -144,6 +146,7 @@ export class ShiftAssignmentsController {
    * trace básico.
    */
   @Delete(':id')
+  @Requires('schedule:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
@@ -158,6 +161,7 @@ export class ShiftAssignmentsController {
   }
 
   @Patch(':id')
+  @Requires('schedule:write')
   async patch(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,

@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Roles } from '../../infrastructure/auth/decorators/roles.decorator';
 import {
   Body,
   Controller,
@@ -163,6 +164,7 @@ export class AbsenceReportsController {
    * regenera el slot con el bot de generación. Devuelve 204 NO_CONTENT.
    */
   @Delete(':id')
+  @Roles('owner', 'manager')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,

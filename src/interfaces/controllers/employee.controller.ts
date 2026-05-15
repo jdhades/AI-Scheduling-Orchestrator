@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   Controller,
@@ -52,6 +53,7 @@ export class EmployeeController {
    * Registra un nuevo empleado en la empresa del tenant actual.
    */
   @Post()
+  @Requires('employees:write')
   @HttpCode(HttpStatus.CREATED)
   async register(
     @Body() dto: RegisterEmployeeDto,
@@ -127,6 +129,7 @@ export class EmployeeController {
    * intactos. Para limpiar un nullable, mandar `null` explícito.
    */
   @Patch(':id')
+  @Requires('employees:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async update(
     @Param('id') employeeId: string,
@@ -143,6 +146,7 @@ export class EmployeeController {
    * Soft delete: marca `is_active=false` + `deleted_at=NOW()`.
    */
   @Delete(':id')
+  @Requires('employees:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
     @Param('id') employeeId: string,

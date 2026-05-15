@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   Controller,
@@ -173,6 +174,7 @@ export class CompanyPoliciesController {
   }
 
   @Post()
+  @Requires('policies:write')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
@@ -210,6 +212,7 @@ export class CompanyPoliciesController {
   }
 
   @Patch(':id')
+  @Requires('policies:write')
   @HttpCode(HttpStatus.OK)
   async update(
     @Param('id') id: string,
@@ -249,6 +252,7 @@ export class CompanyPoliciesController {
   }
 
   @Delete(':id')
+  @Requires('policies:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,
