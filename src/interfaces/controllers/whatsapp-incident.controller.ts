@@ -12,6 +12,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { createHash } from 'crypto';
 import type { Request, Response } from 'express';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 import { CommandBus } from '@nestjs/cqrs';
 import { CreateIncidentCommand } from '../../application/commands/create-incident.command';
@@ -47,6 +48,8 @@ export class WhatsAppIncidentController {
     private readonly config: ConfigService,
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {
     this.twilioToken = this.config.get<string>('twilio.authToken') ?? '';
     this.webhookUrl = this.config.get<string>('twilio.webhookUrl') ?? '';
@@ -83,7 +86,29 @@ export class WhatsAppIncidentController {
         }
       }
 
-      const { From, Body, MediaUrl0, MediaContentType0 } = req.body;
+      const { From, Body, MediaUrl0, MediaContentType0, MessageSid } = req.body;
+
+      // 0.5. Dedup: si Twilio retry-ea con el mismo MessageSid, evitar
+      //      crear incidents duplicados. upsert con ignoreDuplicates
+      //      devuelve data vacío cuando el sid ya existe.
+      if (MessageSid) {
+        const { data, error: dedupErr } = await this.supabase
+          .from('whatsapp_events')
+          .upsert(
+            { message_sid: MessageSid, source: 'twilio-incident' },
+            { onConflict: 'message_sid', ignoreDuplicates: true },
+          )
+          .select('message_sid');
+        if (dedupErr) {
+          this.logger.error(
+            `whatsapp_events upsert failed: ${dedupErr.message}`,
+          );
+        } else if (!data || data.length === 0) {
+          // Dup ya procesado — 200 OK silencioso.
+          res.status(HttpStatus.OK).send();
+          return;
+        }
+      }
 
       // 1. Verify required fields (Must have a document)
       if (!From || !MediaUrl0 || !MediaContentType0) {
