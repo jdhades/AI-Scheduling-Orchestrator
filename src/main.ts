@@ -52,6 +52,17 @@ async function bootstrap() {
     }),
   );
 
+  // Cache-Control: no-store por default en TODAS las respuestas API.
+  // Defensa contra CDNs / proxies / browsers que cacheen respuestas
+  // tenant-specific (ej. /auth/me, /employees) y se sirvan al user
+  // equivocado. Endpoints que SÍ quieran ser cacheables (estáticos,
+  // assets) pueden override-ear con `res.setHeader('Cache-Control', ...)`
+  // antes de responder.
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // descarta props no declaradas
