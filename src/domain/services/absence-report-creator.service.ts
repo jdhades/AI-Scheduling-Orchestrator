@@ -250,25 +250,17 @@ export class AbsenceReportCreator {
       (d) => d.assignmentIds.length === 0,
     );
 
-    // 2. Borrar assignments de los días "histórico/consumado".
-    const deleted: Array<{ id: string; templateId: string; date: string }> = [];
-    for (const d of daysWithAssignments) {
-      for (const id of d.assignmentIds) {
-        const a = await this.assignmentRepo.findById(id, companyId);
-        try {
-          await this.assignmentRepo.deleteById(id, companyId);
-          if (a) {
-            deleted.push({ id, templateId: a.templateId, date: a.date });
-          } else {
-            deleted.push({ id, templateId: '', date: d.date });
-          }
-        } catch (err) {
-          this.logger.warn(
-            `applyUnavailability: failed to delete assignment ${id}: ${(err as Error).message}`,
-          );
-        }
-      }
-    }
+    // 2. Borrar atómicamente todos los assignments del rango con una
+    //    sola SQL statement. Postgres garantiza all-or-nothing — si una
+    //    fila falla el constraint, ninguna se borra. Eso evita el
+    //    estado mixto del loop anterior (algunos deletes confirmados +
+    //    el resto huérfanos sin rule cubriendo) cuando el handler crashea
+    //    a mitad. Single round-trip vs N+N round-trips también.
+    const idsToDelete = daysWithAssignments.flatMap((d) => d.assignmentIds);
+    const deleted =
+      idsToDelete.length > 0
+        ? await this.assignmentRepo.deleteByIdsBatch(idsToDelete, companyId)
+        : [];
 
     // 3. isUrgent — algún assignment afectado empieza < 2h.
     let isUrgent = false;

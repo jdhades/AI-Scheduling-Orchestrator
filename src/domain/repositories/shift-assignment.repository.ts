@@ -22,6 +22,21 @@ export interface IShiftAssignmentRepository {
   deleteById(id: string, companyId: string): Promise<void>;
 
   /**
+   * Borra atómicamente N assignments por id, scoped al tenant. Single
+   * SQL DELETE ... WHERE id IN (...) — Postgres garantiza all-or-nothing
+   * sin necesidad de transacción explícita. Devuelve los refs de las
+   * que se borraron (id + templateId + date) para que el caller pueda
+   * computar side-effects (ej. isUrgent post-delete) sin re-querying.
+   *
+   * IDs que no existen o pertenecen a otra company simplemente no
+   * aparecen en el resultado — no es error.
+   */
+  deleteByIdsBatch(
+    ids: string[],
+    companyId: string,
+  ): Promise<Array<{ id: string; templateId: string; date: string }>>;
+
+  /**
    * Borra assignments del rango.
    *
    * Sin `templateIds` → borra TODAS las del rango (re-generación full).

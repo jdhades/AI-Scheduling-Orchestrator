@@ -63,6 +63,7 @@ describe('ReportAbsenceHandler', () => {
     mockAssignmentRepo = {
       save: jest.fn(),
       deleteById: jest.fn(),
+      deleteByIdsBatch: jest.fn().mockResolvedValue([]),
       deleteByDateRange: jest.fn(),
       findById: jest.fn(),
       findByEmployeeAndDateRange: jest.fn(),

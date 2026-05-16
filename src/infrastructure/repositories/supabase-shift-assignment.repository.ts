@@ -42,6 +42,29 @@ export class SupabaseShiftAssignmentRepository
     }
   }
 
+  async deleteByIdsBatch(
+    ids: string[],
+    companyId: string,
+  ): Promise<Array<{ id: string; templateId: string; date: string }>> {
+    if (ids.length === 0) return [];
+    const { data, error } = await this.supabase
+      .from('shift_assignments')
+      .delete()
+      .in('id', ids)
+      .eq('company_id', companyId)
+      .select('id, template_id, date');
+    if (error) {
+      throw new Error(
+        `ShiftAssignmentRepository.deleteByIdsBatch: ${error.message}`,
+      );
+    }
+    return (data ?? []).map((r) => ({
+      id: r.id as string,
+      templateId: r.template_id as string,
+      date: r.date as string,
+    }));
+  }
+
   async deleteByDateRange(
     companyId: string,
     fromDateISO: string,
