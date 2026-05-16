@@ -1,9 +1,11 @@
 # Reglas de seguridad — supply-chain + package manager
 
 > Trigger: ataque a `axios@1.14.1` (Oct 2025), publicación de
-> `plain-crypto-js`, y la oleada creciente de paquetes maliciosos en el
-> registro npm. Las reglas siguientes son obligatorias antes de cualquier
-> instalación o cambio de dependencia en este repo.
+> `plain-crypto-js`, ataque al paquete unscoped `tanstack@2.0.4-2.0.7`
+> (Apr 2026 — brand-squat de `@tanstack/*`), y la oleada creciente de
+> paquetes maliciosos en el registro npm. Las reglas siguientes son
+> obligatorias antes de cualquier instalación o cambio de dependencia
+> en este repo.
 
 ## Package manager: usar pnpm, NO npm
 
@@ -31,11 +33,18 @@
 
 1. Verificar que el paquete tenga **>1 000 descargas semanales** y **>7 días
    desde la última publicación**. (Evita typosquatting + 0-day publish.)
-2. Inspeccionar el `package.json` del paquete buscando `postinstall`,
+2. **Si la librería pertenece a un namespace scoped conocido (`@tanstack/*`,
+   `@nestjs/*`, `@supabase/*`, `@radix-ui/*`, etc.), instalar SIEMPRE la
+   versión scoped, NUNCA la unscoped del mismo nombre.** Los paquetes
+   unscoped con nombre de namespace conocido casi siempre son brand-squats
+   maliciosos. Ejemplo del ataque Apr 2026: `tanstack@2.0.4-2.0.7` (unscoped)
+   exfiltraba `.env` via postinstall, mientras `@tanstack/*` (scoped,
+   oficiales) son seguros.
+3. Inspeccionar el `package.json` del paquete buscando `postinstall`,
    `preinstall`, `install` y revisar qué hacen. Si descargan binarios
    (`curl`, `wget`, fetches a hosts no oficiales) → no instalar sin
    autorización.
-3. Si el paquete es nuevo y desconocido, instalarlo primero con
+4. Si el paquete es nuevo y desconocido, instalarlo primero con
    `pnpm add --ignore-scripts` y solo habilitar el script post-instalación
    tras revisar su contenido.
 
@@ -53,7 +62,8 @@
 
 | Paquete | Versión segura | Versión a EVITAR | Motivo |
 |---|---|---|---|
-| axios | `1.13.6` (pinneado vía `overrides`) | `1.14.1`, `0.30.4` | supply-chain Oct 2025 |
+| axios | `1.16.1` (pinneado vía `pnpm.overrides`) | `1.14.1`, `0.30.4`, `<1.15.2` | supply-chain Oct 2025 + CVE-2025-62718 + prototype pollution |
+| `tanstack` (unscoped) | — (no instalar; usar `@tanstack/*` scoped) | `2.0.4`–`2.0.7` (todas las versiones del paquete unscoped) | brand-squat de `@tanstack/*` con exfiltración de `.env` via postinstall (Apr 2026) |
 | plain-crypto-js | — (no instalar) | cualquiera | typosquatting de `crypto-js` |
 
 ## Por qué NO usamos `ignore-scripts` global
@@ -75,12 +85,19 @@ puntual, no como default.
 - Vulnerabilidades `critical` requieren fix o exception documentada
   antes de mergear a main.
 
-## Notas sobre `overrides`
+## Notas sobre `pnpm.overrides`
 
-Como `axios` es transitivo (vía `twilio`), el pin a `1.13.6` se aplica
-con `overrides` en `package.json`. pnpm soporta el mismo campo `overrides`
-así que el pin no requiere cambio al migrar. Cualquier dep nueva que
-reclame una versión incompatible va a fallar el resolve — eso es deseado.
+Como `axios` es transitivo (vía `twilio`), el pin se aplica con
+`pnpm.overrides` en `package.json` (NO `overrides` al nivel raíz —
+esa es sintaxis npm que pnpm IGNORA silenciosamente). Cualquier dep
+nueva que reclame una versión incompatible va a fallar el resolve —
+eso es deseado.
+
+Para agregar nuevos pins, editar:
+```json
+{ "pnpm": { "overrides": { "<pkg>": "<version>" } } }
+```
+y correr `pnpm install` para regenerar el lockfile.
 
 ## Ámbito
 
