@@ -13,7 +13,9 @@ import {
   Param,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   IsEmail,
   IsIn,
@@ -128,6 +130,33 @@ export class CreateInvitationDto {
   @IsOptional()
   @IsUUID()
   departmentId?: string;
+}
+
+/**
+ * Eventos que el cliente puede registrar tras una acción de auth
+ * exitosa. Restringido a eventos que el client *acaba de hacer* y que
+ * el JWT válido respalda — login_fail / permission_denied / role_changed
+ * NO entran acá (los maneja el server-side).
+ */
+type ClientAuditEvent =
+  | 'login_success'
+  | 'mfa_enrolled'
+  | 'mfa_disabled'
+  | 'password_reset'
+  | 'session_invalidated';
+
+export class CreateAuthAuditEventDto {
+  @IsIn([
+    'login_success',
+    'mfa_enrolled',
+    'mfa_disabled',
+    'password_reset',
+    'session_invalidated',
+  ])
+  event!: ClientAuditEvent;
+
+  @IsOptional()
+  metadata?: Record<string, unknown>;
 }
 
 interface InvitationRow {
@@ -500,6 +529,47 @@ export class AuthController {
       companyName: company?.name ?? null,
       expiresAt: data.expires_at,
     };
+  }
+
+  /**
+   * POST /auth/audit-event — el cliente reporta una acción de auth
+   * recién completada (login, MFA enroll, password change, logout).
+   * Requiere JWT válido: el `auth_user_id` y el `company_id` vienen
+   * del token, no del body — el cliente solo aporta el evento y
+   * metadata libre.
+   *
+   * Eventos NO postables desde acá (los emite el server):
+   *   - `login_fail`: pre-auth, no hay JWT. Para captura confiable se
+   *     necesita un Supabase Auth Hook (configurado en el dashboard)
+   *     posteando a este endpoint con service-role o a un endpoint
+   *     dedicado @Public con shared-secret.
+   *   - `permission_denied`: lo escribe `RolesGuard` cuando bloquea.
+   *   - `role_changed`: lo escribe el admin endpoint correspondiente.
+   *
+   * Throttle moderado: el cliente legítimo postea 1–2 por sesión.
+   * 30/min/IP deja margen para tests + reconnects sin abrir flood.
+   */
+  @Post('audit-event')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logAuditEvent(
+    @CurrentUser() user: AuthContext,
+    @Req() req: Request,
+    @Body() dto: CreateAuthAuditEventDto,
+  ): Promise<void> {
+    try {
+      await this.supabase.from('auth_audit_log').insert({
+        company_id: user.companyId,
+        auth_user_id: user.userId,
+        employee_id: user.employeeId,
+        event: dto.event,
+        ip_address: req.ip ?? null,
+        user_agent: req.headers['user-agent'] ?? null,
+        metadata: dto.metadata ?? null,
+      });
+    } catch {
+      // Auditing nunca debe bloquear el response al user.
+    }
   }
 
   private toInvitationRow = (
