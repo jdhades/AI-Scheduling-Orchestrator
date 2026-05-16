@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Roles } from '../../infrastructure/auth/decorators/roles.decorator';
 import {
   Body,
   Controller,
@@ -62,6 +63,7 @@ export class CompanySkillsController {
   }
 
   @Post()
+  @Roles('owner', 'manager')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
@@ -72,6 +74,7 @@ export class CompanySkillsController {
   }
 
   @Delete(':id')
+  @Roles('owner', 'manager')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,

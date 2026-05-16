@@ -1,7 +1,11 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -66,8 +70,21 @@ export class DayOffRequestsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateDayOffRequestDto,
   ): Promise<object> {
+    // Domain guard: un employee solo puede pedir SU propio día libre.
+    // Manager/owner pueden crear pedidos para otros (caso legítimo:
+    // gestión de equipo). Aprobar/rechazar va por endpoints separados
+    // con @Requires('dayoffs:approve').
+    if (
+      user?.role === 'employee' &&
+      dto.employeeId !== user.employeeId
+    ) {
+      throw new ForbiddenException(
+        'Cannot file day-off requests on behalf of another employee',
+      );
+    }
     const req = DayOffRequest.create({
       id: randomUUID(),
       companyId,
@@ -131,6 +148,7 @@ export class DayOffRequestsController {
    * El reason de la rule es "día libre aprobado: <razón original>".
    */
   @Post(':id/approve')
+  @Requires('dayoffs:approve')
   @HttpCode(HttpStatus.OK)
   async approve(
     @Param('id') id: string,
@@ -170,6 +188,7 @@ export class DayOffRequestsController {
   }
 
   @Post(':id/reject')
+  @Requires('dayoffs:approve')
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,

@@ -16,8 +16,8 @@ export interface AuthContext {
   employeeId: string | null;
   /** Tenant — siempre presente cuando el guard deja pasar. */
   companyId: string;
-  /** 'manager' | 'employee' — derivado de `employees.role`. */
-  role: 'manager' | 'employee' | null;
+  /** 'owner' | 'manager' | 'employee' — derivado de `employees.role`. */
+  role: 'owner' | 'manager' | 'employee' | null;
   /** `employees.department_id`. */
   departmentId: string | null;
 }

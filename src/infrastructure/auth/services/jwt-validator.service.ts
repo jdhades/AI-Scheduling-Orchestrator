@@ -14,7 +14,7 @@ export interface SupabaseJwtClaims extends JWTPayload {
   /** Custom claim injected by Postgres hook. */
   company_id?: string;
   employee_id?: string;
-  employee_role?: 'manager' | 'employee';
+  employee_role?: 'owner' | 'manager' | 'employee';
   department_id?: string | null;
   /** Supabase default. */
   email?: string;

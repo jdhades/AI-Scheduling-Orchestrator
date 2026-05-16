@@ -25,16 +25,9 @@ export class ScopeTargetsController {
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
 
-  @Get('branches')
-  async listBranches(@CurrentCompany() companyId: string): Promise<ScopeTarget[]> {
-    const { data, error } = await this.supabase
-      .from('branches')
-      .select('id, name')
-      .eq('company_id', companyId)
-      .order('name', { ascending: true });
-    if (error) throw new Error(error.message);
-    return (data ?? []) as ScopeTarget[];
-  }
+  // GET /branches movido a BranchesController — shape extendido
+  // (id, name, timezone, departmentCount). Quedaba acá como duplicado
+  // colisionando con la nueva ruta.
 
   @Get('departments')
   async listDepartments(

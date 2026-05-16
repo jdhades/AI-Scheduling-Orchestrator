@@ -1,6 +1,7 @@
 import { Public } from '../../infrastructure/auth/decorators/public.decorator';
 import {
   Controller,
+  Headers,
   Post,
   Req,
   Res,
@@ -8,16 +9,32 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { createHash } from 'crypto';
 import type { Request, Response } from 'express';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { ConfigService } from '@nestjs/config';
 import { CommandBus } from '@nestjs/cqrs';
 import { CreateIncidentCommand } from '../../application/commands/create-incident.command';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Twilio = require('twilio');
+
+// Hash truncado del número para logs: permite correlación sin exponer PII.
+const redactPhone = (raw: string | undefined): string =>
+  raw
+    ? `phone:${createHash('sha256').update(raw).digest('hex').slice(0, 8)}`
+    : 'phone:?';
+
 @Public()
 @Controller('webhooks/twilio')
 export class WhatsAppIncidentController {
   private readonly logger = new Logger(WhatsAppIncidentController.name);
+  private readonly twilioToken: string;
+  private readonly webhookUrl: string;
+  private readonly env: string;
 
   // Consider allowed MIME types for Medical Certificates
   private readonly ALLOWED_MEDIA_TYPES = [
@@ -28,21 +45,76 @@ export class WhatsAppIncidentController {
 
   constructor(
     private readonly commandBus: CommandBus,
+    private readonly config: ConfigService,
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,
-  ) {}
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
+  ) {
+    this.twilioToken = this.config.get<string>('twilio.authToken') ?? '';
+    this.webhookUrl = this.config.get<string>('twilio.webhookUrl') ?? '';
+    this.env = this.config.get<string>('app.env') ?? 'production';
+  }
 
+  // Throttle agresivo: el volumen legítimo es bajo (medical certificates
+  // por empleado) y Twilio retry-ea con backoff si recibe 429.
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async handleWhatsAppIncoming(
     @Req() req: Request,
     @Res() res: Response,
+    @Headers('x-twilio-signature') twilioSignature: string,
+    @Headers('host') host: string,
   ): Promise<void> {
     try {
-      const { From, Body, MediaUrl0, MediaContentType0 } = req.body;
+      const rawBody = req.body as Record<string, string>;
+
+      // 0. Validate Twilio signature (skip in test/development env)
+      const skipValidation = this.env === 'test' || this.env === 'development';
+      if (!skipValidation) {
+        const url = this.webhookUrl || `https://${host}/webhooks/twilio`;
+        const isValid = Twilio.validateRequest(
+          this.twilioToken,
+          twilioSignature,
+          url,
+          rawBody,
+        );
+        if (!isValid) {
+          this.logger.warn('Invalid Twilio signature — request rejected');
+          res.status(HttpStatus.FORBIDDEN).send('Invalid Twilio signature');
+          return;
+        }
+      }
+
+      const { From, Body, MediaUrl0, MediaContentType0, MessageSid } = req.body;
+
+      // 0.5. Dedup: si Twilio retry-ea con el mismo MessageSid, evitar
+      //      crear incidents duplicados. upsert con ignoreDuplicates
+      //      devuelve data vacío cuando el sid ya existe.
+      if (MessageSid) {
+        const { data, error: dedupErr } = await this.supabase
+          .from('whatsapp_events')
+          .upsert(
+            { message_sid: MessageSid, source: 'twilio-incident' },
+            { onConflict: 'message_sid', ignoreDuplicates: true },
+          )
+          .select('message_sid');
+        if (dedupErr) {
+          this.logger.error(
+            `whatsapp_events upsert failed: ${dedupErr.message}`,
+          );
+        } else if (!data || data.length === 0) {
+          // Dup ya procesado — 200 OK silencioso.
+          res.status(HttpStatus.OK).send();
+          return;
+        }
+      }
 
       // 1. Verify required fields (Must have a document)
       if (!From || !MediaUrl0 || !MediaContentType0) {
-        this.logger.warn(`Missing required payload fields from ${From}`);
+        this.logger.warn(
+          `Missing required payload fields from ${redactPhone(From)}`,
+        );
         res.status(HttpStatus.BAD_REQUEST).send('Bad Request: Missing Media');
         return;
       }
@@ -50,7 +122,7 @@ export class WhatsAppIncidentController {
       // 2. Validate Media Type
       if (!this.ALLOWED_MEDIA_TYPES.includes(MediaContentType0)) {
         this.logger.warn(
-          `Invalid media type ${MediaContentType0} from ${From}`,
+          `Invalid media type ${MediaContentType0} from ${redactPhone(From)}`,
         );
         res
           .status(HttpStatus.BAD_REQUEST)
@@ -67,7 +139,7 @@ export class WhatsAppIncidentController {
 
       if (!employee) {
         this.logger.warn(
-          `Phone number ${cleanPhone} not registered in our system.`,
+          `Phone number ${redactPhone(cleanPhone)} not registered in our system.`,
         );
         res
           .status(HttpStatus.BAD_REQUEST)
@@ -94,7 +166,7 @@ export class WhatsAppIncidentController {
           )
           .catch((error) => {
             this.logger.error(
-              `Failed to process CreateIncidentCommand for ${From}`,
+              `Failed to process CreateIncidentCommand for ${redactPhone(From)}`,
               error.stack,
             );
           });

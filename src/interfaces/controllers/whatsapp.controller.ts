@@ -10,8 +10,10 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { MessageRouterService } from '../../application/conversational/message-router.service';
 import { WhatsappWebhookDto } from '../dtos/whatsapp-webhook.dto';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -49,6 +51,8 @@ export class WhatsAppController {
     private readonly messageRouter: MessageRouterService,
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepo: IEmployeeRepository,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {
     this.twilioSid = this.config.get<string>('twilio.accountSid') ?? '';
     this.twilioToken = this.config.get<string>('twilio.authToken') ?? '';
@@ -58,8 +62,11 @@ export class WhatsAppController {
   /**
    * POST /webhooks/whatsapp
    * Twilio sends a signed POST request for every incoming WhatsApp message.
+   * Throttle agresivo: el volumen legítimo es bajo (empleados, no apps)
+   * y Twilio retry-ea con backoff si recibe 429.
    */
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async receive(
     @Req() req: Request,
@@ -68,8 +75,10 @@ export class WhatsAppController {
   ): Promise<void> {
     const dto = req.body as WhatsappWebhookDto;
     const rawBody = req.body as Record<string, string>;
+    // Sin logear el body raw — puede contener PII del empleado.
+    // Solo metadata: longitud + flag de media.
     this.logger.log(
-      `📩 Incoming WhatsApp webhook — From: ${dto.From}, Body: "${dto.Body ?? '(empty)'}"`,
+      `📩 Incoming WhatsApp webhook — bodyLen=${dto.Body?.length ?? 0}, hasMedia=${!!dto.MediaUrl0}`,
     );
 
     // 1. Validate Twilio signature (skip in test/development env)
@@ -89,7 +98,31 @@ export class WhatsAppController {
       }
     }
 
-    // 2. Normalize the "From" number (Twilio sends "whatsapp:+1234567890")
+    // 2. Dedup: Twilio retry-ea con backoff cuando el handler tarda > 15s
+    //    o responde !=2xx. Si el mismo MessageSid llega 2 veces y procesamos
+    //    ambas, el MessageRouter dispara doble. upsert con ignoreDuplicates
+    //    devuelve count=0 cuando el sid ya existe.
+    if (dto.MessageSid) {
+      const { data, error: dedupErr } = await this.supabase
+        .from('whatsapp_events')
+        .upsert(
+          { message_sid: dto.MessageSid, source: 'whatsapp' },
+          { onConflict: 'message_sid', ignoreDuplicates: true },
+        )
+        .select('message_sid');
+      if (dedupErr) {
+        // Error real — loguea pero deja procesar (prefiero reprocesar
+        // a perder el mensaje silenciosamente).
+        this.logger.error(
+          `whatsapp_events upsert failed: ${dedupErr.message}`,
+        );
+      } else if (!data || data.length === 0) {
+        // Dup ya procesado — 200 OK silencioso.
+        return;
+      }
+    }
+
+    // 3. Normalize the "From" number (Twilio sends "whatsapp:+1234567890")
     const rawFrom = dto.From ?? '';
     const phone = rawFrom.replace(/^whatsapp:/, '');
 
@@ -98,12 +131,12 @@ export class WhatsAppController {
       return;
     }
 
-    // 3. Look up employee by phone across all companies (multi-tenant lookup)
+    // 4. Look up employee by phone across all companies (multi-tenant lookup)
     //    Note: This query searches by phone — not by companyId yet
     const employee = await this._findEmployeeByPhone(phone);
 
     if (!employee) {
-      this.logger.log(`Unregistered number attempted to message: ${phone}`);
+      this.logger.log('Unregistered number attempted to message');
       // Fire-and-forget reply — cannot call MessageRouter yet (no company context)
       return;
     }

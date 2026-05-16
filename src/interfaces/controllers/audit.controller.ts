@@ -36,7 +36,7 @@ export class AuditController {
   ) {}
 
   @Get()
-  @Roles('manager')
+  @Roles('owner', 'manager')
   async list(
     @CurrentCompany() companyId: string,
     @Query('event') event?: string,

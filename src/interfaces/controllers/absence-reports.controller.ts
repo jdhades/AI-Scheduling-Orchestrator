@@ -1,8 +1,12 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Roles } from '../../infrastructure/auth/decorators/roles.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -97,8 +101,22 @@ export class AbsenceReportsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateAbsenceReportDto,
   ): Promise<object> {
+    // Domain guard: un empleado solo puede registrar SU propia ausencia.
+    // Manager/owner pueden registrar para otros del tenant (legítimo —
+    // ej. el manager registra la ausencia de un empleado que avisó por
+    // teléfono). El scope check de manager (depto) ya lo maneja
+    // ManagerScopeService en otros endpoints; acá basta el role gate.
+    if (
+      user?.role === 'employee' &&
+      dto.employeeId !== user.employeeId
+    ) {
+      throw new ForbiddenException(
+        'Cannot file absence reports on behalf of another employee',
+      );
+    }
     const result = await this.creator.create({
       companyId,
       employeeId: dto.employeeId,
@@ -163,6 +181,7 @@ export class AbsenceReportsController {
    * regenera el slot con el bot de generación. Devuelve 204 NO_CONTENT.
    */
   @Delete(':id')
+  @Roles('owner', 'manager')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') id: string,

@@ -1,8 +1,12 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -71,8 +75,19 @@ export class ShiftSwapRequestsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateShiftSwapRequestDto,
   ): Promise<object> {
+    // Domain guard: solo el propio empleado puede pedir un swap de SU
+    // shift — managers no inician swaps (aprueban/rechazan via
+    // /:id/approve|/reject con @Requires('swaps:approve')). Owner
+    // queda excluido del check también: no hay caso legítimo para que
+    // el owner cree un swap en nombre de alguien.
+    if (user?.employeeId && dto.requesterId !== user.employeeId) {
+      throw new ForbiddenException(
+        'Can only request swaps for your own shifts',
+      );
+    }
     // Phase 15.2 — cross-department swap guard. Si los dos employees
     // pertenecen a depts distintos rechazamos: el manager de cada depto
     // tendría que coordinar y la auditoría se vuelve confusa. Si uno (o
@@ -182,6 +197,7 @@ export class ShiftSwapRequestsController {
   }
 
   @Post(':id/approve')
+  @Requires('swaps:approve')
   @HttpCode(HttpStatus.NO_CONTENT)
   async approve(
     @Param('id') id: string,
@@ -194,6 +210,7 @@ export class ShiftSwapRequestsController {
   }
 
   @Post(':id/reject')
+  @Requires('swaps:approve')
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,

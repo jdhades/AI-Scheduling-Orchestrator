@@ -231,4 +231,20 @@ export class NotificationsGateway
     });
     this.logger.log(`Broadcasted IncidentCreated: [${severity}] ${message}`);
   }
+
+  /**
+   * Broadcast cuando una approval entity (swap, dayoff, absence, incident)
+   * se crea/aprueba/rechaza. El frontend lo usa para invalidar las queries
+   * del NotificationsBell sin polling.
+   *
+   * Payload mínimo: solo el companyId — el front re-fetchea las listas
+   * pendientes y actualiza count + items.
+   */
+  notifyApprovalsChanged(companyId: string, type?: string) {
+    this.emitToCompany(companyId, 'ApprovalsChanged', {
+      companyId,
+      type,
+      timestamp: new Date().toISOString(),
+    });
+  }
 }

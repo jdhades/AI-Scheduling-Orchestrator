@@ -17,7 +17,12 @@ import { ValidationPipe } from '@nestjs/common';
 import { PostgresExceptionFilter } from './infrastructure/filters/postgres-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // `rawBody: true` retiene el Buffer original del body para que el
+  // StripeWebhookController pueda verificar la firma. Stripe firma
+  // bytes exactos; si Nest parsea a JSON antes, la firma falla.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
 
   // ─── Hardening transversal (PR 9 sprint Auth) ─────────────────────────
   // Helmet: CSP + HSTS + frame-ancestors=none. Whitelist específico para
@@ -56,11 +61,31 @@ async function bootstrap() {
     }),
   );
 
-  // Warning si el bypass DEV está activo — debe estar OFF en producción.
-  if (process.env.DEV_AUTH_BYPASS === 'true') {
+  const isProdLike =
+    process.env.APP_ENV !== 'development' &&
+    process.env.APP_ENV !== 'test' &&
+    process.env.NODE_ENV !== 'development' &&
+    process.env.NODE_ENV !== 'test';
+
+  // DEV_AUTH_BYPASS — saltea JWT validation cuando hay X-Company-Id.
+  // Solo permitido fuera de prod. Si el flag llega activo a prod, el
+  // boot falla en vez de quedarse con un warning silencioso: una env
+  // mal seteada implicaría que cualquier request con X-Company-Id
+  // accede como owner.
+  const devBypass = process.env.DEV_AUTH_BYPASS === 'true';
+  if (devBypass && isProdLike) {
+    console.error(
+      '🚨 DEV_AUTH_BYPASS=true detected in non-dev/test environment ' +
+        `(APP_ENV=${process.env.APP_ENV}, NODE_ENV=${process.env.NODE_ENV}). ` +
+        'Refusing to boot — this would allow unauthenticated requests to ' +
+        'impersonate any tenant via X-Company-Id.',
+    );
+    process.exit(1);
+  }
+  if (devBypass) {
     console.warn(
       '⚠️  DEV_AUTH_BYPASS=true — JWT validation skipped when X-Company-Id ' +
-        'header is present. THIS MUST BE OFF IN PRODUCTION.',
+        'header is present. Dev/test only.',
     );
   }
 
@@ -78,11 +103,6 @@ async function bootstrap() {
   //  - En producción sin ALLOWED_ORIGIN, fallamos cerrado (false) para
   //    no exponer la API a cualquier origin por accidente de config.
   const allowedOrigin = process.env.ALLOWED_ORIGIN;
-  const isProdLike =
-    process.env.APP_ENV !== 'development' &&
-    process.env.APP_ENV !== 'test' &&
-    process.env.NODE_ENV !== 'development' &&
-    process.env.NODE_ENV !== 'test';
   let corsOrigin: string | string[] | boolean;
   if (allowedOrigin) {
     corsOrigin = allowedOrigin.includes(',')

@@ -14,6 +14,7 @@ import { RepositoriesModule } from './infrastructure/repositories/repositories.m
 import { InterfacesModule } from './interfaces/interfaces.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
 import { ObservabilityModule } from './infrastructure/observability/observability.module';
+import { StripeModule } from './infrastructure/stripe/stripe.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { ObservabilityModule } from './infrastructure/observability/observabilit
     RepositoriesModule,
     InterfacesModule,
     AuthModule,
+    StripeModule,
   ],
   controllers: [AppController],
   providers: [
@@ -61,6 +63,9 @@ export class AppModule implements NestModule {
         '/auth/(.*)',
         '/webhooks/whatsapp',
         '/webhooks/twilio',
+        // Stripe webhook: viene sin X-Company-Id ni JWT, autenticación
+        // es la firma `stripe-signature` validada en el controller.
+        '/webhooks/stripe',
       )
       .forRoutes('*');
   }

@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   Controller,
@@ -182,6 +183,7 @@ export class ShiftTemplatesController {
    * Creates a new shift template.
    */
   @Post()
+  @Requires('schedule:write')
   async create(
     @CurrentCompany() companyId: string,
     @Body() dto: CreateShiftTemplateDto,
@@ -229,6 +231,7 @@ export class ShiftTemplatesController {
    * Partial update. Omitted fields stay; `null` en nullable = clear.
    */
   @Patch(':id')
+  @Requires('schedule:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async update(
     @Param('id') id: string,
@@ -246,6 +249,7 @@ export class ShiftTemplatesController {
    * generados quedan intactos.
    */
   @Delete(':id')
+  @Requires('schedule:write')
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,

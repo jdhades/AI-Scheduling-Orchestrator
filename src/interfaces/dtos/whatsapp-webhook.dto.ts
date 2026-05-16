@@ -30,4 +30,9 @@ export class WhatsappWebhookDto {
   @IsOptional()
   @IsString()
   MediaContentType0?: string;
+
+  /** Twilio message SID (unique per message). Usado para dedup en retries. */
+  @IsOptional()
+  @IsString()
+  MessageSid?: string;
 }
