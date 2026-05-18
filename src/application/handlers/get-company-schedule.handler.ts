@@ -5,6 +5,10 @@ import {
   SHIFT_ASSIGNMENT_REPOSITORY,
   type IShiftAssignmentRepository,
 } from '../../domain/repositories/shift-assignment.repository';
+import {
+  SHIFT_ASSIGNMENT_BREAK_REPOSITORY,
+  type IShiftAssignmentBreakRepository,
+} from '../../domain/repositories/shift-assignment-break.repository';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 
 /**
@@ -13,6 +17,14 @@ import type { IShiftTemplateRepository } from '../../domain/repositories/shift-t
  * temporales viven directos en `shift_assignments.actual_start_time/
  * actual_end_time`. El template se resuelve via `template_id`.
  */
+export interface CompanyScheduleAssignmentBreakDTO {
+  id: string;
+  /** ISO UTC absoluto. */
+  startTime: string;
+  endTime: string;
+  isPaid: boolean;
+}
+
 export interface CompanyScheduleAssignmentDTO {
   id: string;
   employeeId: string;
@@ -25,6 +37,10 @@ export interface CompanyScheduleAssignmentDTO {
   /** ISO datetime UTC — fin real (puede cruzar medianoche para overnight). */
   actualEndTime: string;
   origin: 'membership' | 'override' | 'exception';
+  /** Breaks intra-shift del assignment. Lista ordenada por startTime
+   * ASC. Vacío si el shift no tiene descansos. Permite al frontend
+   * renderear el badge ☕ + count sin un fetch separado por bloque. */
+  breaks: CompanyScheduleAssignmentBreakDTO[];
 }
 
 /**
@@ -49,6 +65,8 @@ export class GetCompanyScheduleHandler
     private readonly assignmentRepo: IShiftAssignmentRepository,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
+    @Inject(SHIFT_ASSIGNMENT_BREAK_REPOSITORY)
+    private readonly breakRepo: IShiftAssignmentBreakRepository,
   ) {}
 
   async execute(
@@ -84,6 +102,29 @@ export class GetCompanyScheduleHandler
       filtered = filtered.filter((a) => a.employeeId === query.employeeId);
     }
 
+    // Hidratar breaks en un solo round-trip — sin esto, render del
+    // badge ☕ por bloque dispararía N queries (N = assignments en la
+    // semana). El repo expone findByAssignmentIds para esto.
+    const assignmentIds = filtered.map((a) => a.id);
+    const allBreaks = await this.breakRepo.findByAssignmentIds(
+      assignmentIds,
+      query.companyId,
+    );
+    const breaksByAssignmentId = new Map<
+      string,
+      CompanyScheduleAssignmentBreakDTO[]
+    >();
+    for (const b of allBreaks) {
+      const list = breaksByAssignmentId.get(b.assignmentId) ?? [];
+      list.push({
+        id: b.id,
+        startTime: b.startTime.toISOString(),
+        endTime: b.endTime.toISOString(),
+        isPaid: b.isPaid,
+      });
+      breaksByAssignmentId.set(b.assignmentId, list);
+    }
+
     return filtered.map((a) => {
       const tpl = templateById.get(a.templateId);
       return {
@@ -95,6 +136,7 @@ export class GetCompanyScheduleHandler
         actualStartTime: a.actualStartTime.toISOString(),
         actualEndTime: a.actualEndTime.toISOString(),
         origin: a.origin,
+        breaks: breaksByAssignmentId.get(a.id) ?? [],
       };
     });
   }
