@@ -17,8 +17,12 @@ import { IncidentRepository } from '../database/incident.repository';
 import { SupabaseShiftSwapRequestRepository } from './supabase-shift-swap-request.repository';
 import { SupabaseAbsenceReportRepository } from './supabase-absence-report.repository';
 import { SupabaseDayOffRequestRepository } from './supabase-day-off-request.repository';
+import { SupabaseShiftAssignmentBreakRepository } from './supabase-shift-assignment-break.repository';
+import { SupabaseShiftTemplateBreakRepository } from './supabase-shift-template-break.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
+import { SHIFT_ASSIGNMENT_BREAK_REPOSITORY } from '../../domain/repositories/shift-assignment-break.repository';
+import { SHIFT_TEMPLATE_BREAK_REPOSITORY } from '../../domain/repositories/shift-template-break.repository';
 import { COMPANY_SKILL_REPOSITORY } from '../../domain/repositories/company-skill.repository';
 import { COMPANY_POLICY_REPOSITORY } from '../../domain/repositories/company-policy.repository';
 import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../domain/repositories/whatsapp-pending-clarification.repository';
@@ -148,6 +152,14 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: DAY_OFF_REQUEST_REPOSITORY,
       useClass: SupabaseDayOffRequestRepository,
     },
+    {
+      provide: SHIFT_ASSIGNMENT_BREAK_REPOSITORY,
+      useClass: SupabaseShiftAssignmentBreakRepository,
+    },
+    {
+      provide: SHIFT_TEMPLATE_BREAK_REPOSITORY,
+      useClass: SupabaseShiftTemplateBreakRepository,
+    },
   ],
   exports: [
     EMPLOYEE_REPOSITORY,
@@ -168,6 +180,8 @@ import { TenantModule } from '../tenant/tenant.module';
     SHIFT_SWAP_REQUEST_REPOSITORY,
     ABSENCE_REPORT_REPOSITORY,
     DAY_OFF_REQUEST_REPOSITORY,
+    SHIFT_ASSIGNMENT_BREAK_REPOSITORY,
+    SHIFT_TEMPLATE_BREAK_REPOSITORY,
   ],
 })
 export class RepositoriesModule {}

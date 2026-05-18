@@ -18,6 +18,7 @@ import { ScopeTargetsController } from './controllers/scope-targets.controller';
 import { DepartmentsController } from './controllers/departments.controller';
 import { JobsController } from './controllers/jobs.controller';
 import { ShiftAssignmentsController } from './controllers/shift-assignments.controller';
+import { ShiftBreaksController } from './controllers/shift-breaks.controller';
 import { ScheduleGenerationRunsController } from './controllers/schedule-generation-runs.controller';
 import { LLMUsageController } from './controllers/llm-usage.controller';
 import { AuthController } from './controllers/auth.controller';
@@ -59,6 +60,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     DepartmentsController,
     JobsController,
     ShiftAssignmentsController,
+    ShiftBreaksController,
     ScheduleGenerationRunsController,
     LLMUsageController,
     LLMModelBudgetsController,

@@ -10,6 +10,7 @@ import {
 } from '../repositories/employee.repository';
 import type { IShiftTemplateRepository } from '../repositories/shift-template.repository';
 import { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
+import { ShiftBreakManager } from './shift-break-manager.service';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 export interface CreateAssignmentInput {
@@ -57,6 +58,7 @@ export class ShiftAssignmentCreatorService {
     private readonly employeeRepo: IEmployeeRepository,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
+    private readonly breakManager: ShiftBreakManager,
     private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
@@ -121,6 +123,16 @@ export class ShiftAssignmentCreatorService {
     });
 
     await this.assignmentRepo.save(assignment);
+    // Materializa los breaks default del template (si los hay) como
+    // breaks concretos del nuevo assignment. Best-effort — los que no
+    // fittean por shift más corto de lo esperado se skipean.
+    await this.breakManager.materializeTemplateDefaults({
+      assignmentId: assignment.id,
+      templateId: input.templateId,
+      companyId: input.companyId,
+      shiftStart: start,
+      shiftEnd: end,
+    });
     this.notificationsGateway.notifyAssignmentChanged(input.companyId);
 
     this.logger.log(

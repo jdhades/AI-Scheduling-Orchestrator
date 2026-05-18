@@ -66,6 +66,7 @@ import { ScheduleGenerationRunsService } from '../domain/services/schedule-gener
 import { LLMModelBudgetService } from '../domain/services/llm-model-budget.service';
 import { ShiftAssignmentMoverService } from '../domain/services/shift-assignment-mover.service';
 import { ShiftAssignmentCreatorService } from '../domain/services/shift-assignment-creator.service';
+import { ShiftBreakManager } from '../domain/services/shift-break-manager.service';
 import { ScheduleGenerationJobHandler } from './jobs/schedule-generation-job.handler';
 import { ScheduleGenerationDeadletterHandler } from './jobs/schedule-generation-deadletter.handler';
 import { ScheduleGenerationDispatcher } from './jobs/schedule-generation-dispatcher.service';
@@ -171,6 +172,11 @@ const DomainServices = [
   ShiftAssignmentMoverService,
   // Phase 19E — creación manual de assignments desde el panel.
   ShiftAssignmentCreatorService,
+  // Sprint Add-a-break: domain service que gestiona breaks intra-shift
+  // (validación de fit + no overlap + materialización de defaults del
+  // template). El controller lo inyecta directo, el creator lo usa
+  // para materializar defaults al crear un assignment.
+  ShiftBreakManager,
   // Fase 1 async migration — dispatcher (encola con singletonKey),
   // worker (procesa) y dead-letter handler (notifica fallo terminal).
   // Los workers usan OnApplicationBootstrap para subscribir después
