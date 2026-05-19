@@ -427,8 +427,9 @@ export class AuthController {
     if (!dto.email && !dto.phoneNumber) {
       throw new BadRequestException('Either email or phoneNumber is required');
     }
-    // En DEV bypass user.employeeId puede ser null — guardamos invited_by=null.
-    // Cuando PR 9 elimine el bypass, esto siempre tendrá valor.
+    // En DEV bypass user.employeeId puede ser null — guardamos
+    // invited_by=null. En prod nunca pasa (bypass deshabilitado al
+    // boot), así que invited_by siempre tendrá el employeeId del JWT.
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(
       Date.now() + AuthController.DEFAULT_TTL_HOURS * 60 * 60 * 1000,

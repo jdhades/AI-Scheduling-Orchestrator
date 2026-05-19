@@ -50,14 +50,19 @@ export class SupabaseAuthGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
 
-    // ─── Modo dev (sprint en transición) ──────────────────────────
+    // ─── DEV bypass ───────────────────────────────────────────────
     // X-Company-Id header + flag DEV_AUTH_BYPASS=true + SIN Bearer
-    // → bypass del JWT (path legacy de tests/curl sin sesión).
+    // → bypass del JWT (path para tests/curl/scripts sin sesión).
     //
     // Si hay Bearer, ignoramos el bypass y validamos el JWT real.
     // Sin esta condición, el frontend con sesión Supabase activa
     // también caía en el bypass (porque axios interceptor manda BOTH
     // headers) y `employeeId` quedaba null → /auth/me PATCH rompía.
+    //
+    // El bypass está protegido por hard-fail en main.ts: si APP_ENV o
+    // NODE_ENV son prod-like y DEV_AUTH_BYPASS=true, el server NO
+    // arranca (process.exit(1)). Garantiza que esto solo corre en
+    // dev/test environments.
     const hasBearer = (request.headers.authorization ?? '').startsWith(
       'Bearer ',
     );
@@ -69,8 +74,8 @@ export class SupabaseAuthGuard implements CanActivate {
       // Role inferido del header opcional `X-Employee-Role`. Sin él,
       // asumimos 'owner' — el path DEV es para devs/tests que necesitan
       // acceso completo, y owner hereda todo lo de manager. En prod
-      // (PR 9) este bypass se elimina y `role` viene SIEMPRE del JWT
-      // custom claim.
+      // el bypass NO se activa (hard-fail al boot si DEV_AUTH_BYPASS=true
+      // con APP_ENV prod-like) → `role` viene del JWT custom claim.
       const headerRole = request.headers['x-employee-role'];
       const role: 'owner' | 'manager' | 'employee' =
         headerRole === 'employee'
