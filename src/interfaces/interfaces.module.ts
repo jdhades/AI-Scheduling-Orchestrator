@@ -19,6 +19,8 @@ import { DepartmentsController } from './controllers/departments.controller';
 import { JobsController } from './controllers/jobs.controller';
 import { ShiftAssignmentsController } from './controllers/shift-assignments.controller';
 import { ShiftBreaksController } from './controllers/shift-breaks.controller';
+import { TasksController } from './controllers/tasks.controller';
+import { EntityHistoryController } from './controllers/entity-history.controller';
 import { ScheduleGenerationRunsController } from './controllers/schedule-generation-runs.controller';
 import { LLMUsageController } from './controllers/llm-usage.controller';
 import { AuthController } from './controllers/auth.controller';
@@ -61,6 +63,8 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     JobsController,
     ShiftAssignmentsController,
     ShiftBreaksController,
+    TasksController,
+    EntityHistoryController,
     ScheduleGenerationRunsController,
     LLMUsageController,
     LLMModelBudgetsController,

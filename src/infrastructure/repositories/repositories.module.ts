@@ -19,10 +19,14 @@ import { SupabaseAbsenceReportRepository } from './supabase-absence-report.repos
 import { SupabaseDayOffRequestRepository } from './supabase-day-off-request.repository';
 import { SupabaseShiftAssignmentBreakRepository } from './supabase-shift-assignment-break.repository';
 import { SupabaseShiftTemplateBreakRepository } from './supabase-shift-template-break.repository';
+import { SupabaseTaskRepository } from './supabase-task.repository';
+import { SupabaseEntityAuditService } from './supabase-entity-audit.service';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
 import { SHIFT_ASSIGNMENT_BREAK_REPOSITORY } from '../../domain/repositories/shift-assignment-break.repository';
 import { SHIFT_TEMPLATE_BREAK_REPOSITORY } from '../../domain/repositories/shift-template-break.repository';
+import { TASK_REPOSITORY } from '../../domain/repositories/task.repository';
+import { ENTITY_AUDIT_SERVICE } from '../../domain/audit/entity-audit.service';
 import { COMPANY_SKILL_REPOSITORY } from '../../domain/repositories/company-skill.repository';
 import { COMPANY_POLICY_REPOSITORY } from '../../domain/repositories/company-policy.repository';
 import { WHATSAPP_PENDING_CLARIFICATION_REPOSITORY } from '../../domain/repositories/whatsapp-pending-clarification.repository';
@@ -160,6 +164,14 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: SHIFT_TEMPLATE_BREAK_REPOSITORY,
       useClass: SupabaseShiftTemplateBreakRepository,
     },
+    {
+      provide: TASK_REPOSITORY,
+      useClass: SupabaseTaskRepository,
+    },
+    {
+      provide: ENTITY_AUDIT_SERVICE,
+      useClass: SupabaseEntityAuditService,
+    },
   ],
   exports: [
     EMPLOYEE_REPOSITORY,
@@ -182,6 +194,8 @@ import { TenantModule } from '../tenant/tenant.module';
     DAY_OFF_REQUEST_REPOSITORY,
     SHIFT_ASSIGNMENT_BREAK_REPOSITORY,
     SHIFT_TEMPLATE_BREAK_REPOSITORY,
+    TASK_REPOSITORY,
+    ENTITY_AUDIT_SERVICE,
   ],
 })
 export class RepositoriesModule {}
