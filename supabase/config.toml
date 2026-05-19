@@ -1,0 +1,19 @@
+# Supabase local config.
+#
+# Solo declara lo no-default: el access-token hook + project_id.
+# El resto (puertos, schemas, JWT, etc.) usa los defaults del CLI.
+#
+# El hook materializa `company_id`, `employee_id`, `employee_role` y
+# `department_id` como custom claims del JWT (Path A en `SupabaseAuthGuard`).
+# Sin esto, el guard cae al Path B (lookup `employees` por `auth_user_id`)
+# — funciona pero suma una query por request.
+#
+# La función `auth.custom_access_token_hook` vive en la migration
+# `20260511000000_custom_access_token_hook.sql`. Debe estar aplicada antes
+# de habilitar el hook.
+
+project_id = "ai-scheduling-orchestrator"
+
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/auth/custom_access_token_hook"

@@ -55,8 +55,8 @@ ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON public.tasks
   FOR ALL TO authenticated
-  USING (company_id = auth.user_company_id())
-  WITH CHECK (company_id = auth.user_company_id());
+  USING (company_id = public.user_company_id())
+  WITH CHECK (company_id = public.user_company_id());
 
 COMMENT ON TABLE public.tasks IS
   'Tareas por target único (dept | employee | shift assignment). MVP: title + done flag + creator/closer audit. Sin recurrencia ni approval workflow.';

@@ -9,8 +9,8 @@
 -- Cambios:
 --   1. CHECK constraint en employees.role pasa de IN ('manager','employee')
 --      a IN ('owner','manager','employee').
---   2. RLS policies que usan `auth.user_role() = 'manager'` se amplían a
---      `auth.user_role() IN ('owner','manager')`. Son 3 policies
+--   2. RLS policies que usan `public.user_role() = 'manager'` se amplían a
+--      `public.user_role() IN ('owner','manager')`. Son 3 policies
 --      (shift_assignments x2, auth_audit_log x1) — el resto de las 17
 --      tablas tenant-scoped no gatean por rol, solo por company_id.
 --   3. Promover al dev user `manager@demo.local` a 'owner' para que el
@@ -33,11 +33,11 @@ DROP POLICY IF EXISTS shift_assignments_employee_self_read ON public.shift_assig
 CREATE POLICY shift_assignments_employee_self_read ON public.shift_assignments
   FOR SELECT TO authenticated
   USING (
-    company_id = auth.user_company_id()
+    company_id = public.user_company_id()
     AND (
-      auth.user_role() IN ('owner', 'manager')
+      public.user_role() IN ('owner', 'manager')
       OR employee_id = COALESCE(
-        auth.user_employee_id(),
+        public.user_employee_id(),
         (SELECT id FROM public.employees WHERE auth_user_id = auth.uid() LIMIT 1)
       )
     )
@@ -50,12 +50,12 @@ DROP POLICY IF EXISTS shift_assignments_manager_all ON public.shift_assignments;
 CREATE POLICY shift_assignments_manager_all ON public.shift_assignments
   FOR ALL TO authenticated
   USING (
-    company_id = auth.user_company_id()
-    AND auth.user_role() IN ('owner', 'manager')
+    company_id = public.user_company_id()
+    AND public.user_role() IN ('owner', 'manager')
   )
   WITH CHECK (
-    company_id = auth.user_company_id()
-    AND auth.user_role() IN ('owner', 'manager')
+    company_id = public.user_company_id()
+    AND public.user_role() IN ('owner', 'manager')
   );
 
 -- auth_audit_log: owner ve igual que manager.
@@ -63,8 +63,8 @@ DROP POLICY IF EXISTS auth_audit_log_manager_read ON public.auth_audit_log;
 CREATE POLICY auth_audit_log_manager_read ON public.auth_audit_log
   FOR SELECT TO authenticated
   USING (
-    company_id = auth.user_company_id()
-    AND auth.user_role() IN ('owner', 'manager')
+    company_id = public.user_company_id()
+    AND public.user_role() IN ('owner', 'manager')
   );
 
 -- ─── 3. Seed: promover manager@demo.local a owner ──────────────────────────

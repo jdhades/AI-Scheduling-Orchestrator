@@ -15,7 +15,7 @@
 --   3. manager_scopes — a qué branches/departments tiene acceso cada
 --      manager. M:N. Asignar a una branch = acceso a todos sus depts.
 --      Sin asignaciones = scope vacío (manager no ve nada scoped).
---   4. Helpers: auth.user_has_capability(cap), auth.user_dept_in_scope(id).
+--   4. Helpers: public.user_has_capability(cap), public.user_dept_in_scope(id).
 --
 -- Effective permission(user, capability, resource):
 --   has_cap = company_role_capabilities[user.role] OR employee_capabilities[user]
@@ -114,59 +114,59 @@ ALTER TABLE public.manager_scopes           ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON public.company_role_capabilities;
 CREATE POLICY tenant_isolation ON public.company_role_capabilities
   FOR ALL TO authenticated
-  USING (company_id = auth.user_company_id())
-  WITH CHECK (company_id = auth.user_company_id());
+  USING (company_id = public.user_company_id())
+  WITH CHECK (company_id = public.user_company_id());
 
 DROP POLICY IF EXISTS tenant_isolation ON public.employee_capabilities;
 CREATE POLICY tenant_isolation ON public.employee_capabilities
   FOR ALL TO authenticated
   USING (
-    employee_id IN (SELECT id FROM public.employees WHERE company_id = auth.user_company_id())
+    employee_id IN (SELECT id FROM public.employees WHERE company_id = public.user_company_id())
   )
   WITH CHECK (
-    employee_id IN (SELECT id FROM public.employees WHERE company_id = auth.user_company_id())
+    employee_id IN (SELECT id FROM public.employees WHERE company_id = public.user_company_id())
   );
 
 DROP POLICY IF EXISTS tenant_isolation ON public.manager_scopes;
 CREATE POLICY tenant_isolation ON public.manager_scopes
   FOR ALL TO authenticated
   USING (
-    employee_id IN (SELECT id FROM public.employees WHERE company_id = auth.user_company_id())
+    employee_id IN (SELECT id FROM public.employees WHERE company_id = public.user_company_id())
   )
   WITH CHECK (
-    employee_id IN (SELECT id FROM public.employees WHERE company_id = auth.user_company_id())
+    employee_id IN (SELECT id FROM public.employees WHERE company_id = public.user_company_id())
   );
 
 -- ─── 5. Auth helpers ───────────────────────────────────────────────────
 -- has_capability(cap) — checkea role-level OR override individual.
-CREATE OR REPLACE FUNCTION auth.user_has_capability(cap TEXT)
+CREATE OR REPLACE FUNCTION public.user_has_capability(cap TEXT)
 RETURNS BOOLEAN LANGUAGE SQL STABLE
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.company_role_capabilities crc
-    WHERE crc.company_id = auth.user_company_id()
-      AND crc.role = auth.user_role()
+    WHERE crc.company_id = public.user_company_id()
+      AND crc.role = public.user_role()
       AND crc.capability = cap
   ) OR EXISTS (
     SELECT 1 FROM public.employee_capabilities ec
-    WHERE ec.employee_id = auth.user_employee_id()
+    WHERE ec.employee_id = public.user_employee_id()
       AND ec.capability = cap
   );
 $$;
-GRANT EXECUTE ON FUNCTION auth.user_has_capability(TEXT)
+GRANT EXECUTE ON FUNCTION public.user_has_capability(TEXT)
   TO authenticated, anon, service_role;
 
 -- user_dept_in_scope(dept_id) — el dept está en el scope del user actual.
 -- Owner = full scope. Manager = unión de sus manager_scopes (branch
 -- implica todos sus depts).
-CREATE OR REPLACE FUNCTION auth.user_dept_in_scope(dept_id UUID)
+CREATE OR REPLACE FUNCTION public.user_dept_in_scope(dept_id UUID)
 RETURNS BOOLEAN LANGUAGE SQL STABLE
 AS $$
   SELECT
-    auth.user_role() = 'owner'
+    public.user_role() = 'owner'
     OR EXISTS (
       SELECT 1 FROM public.manager_scopes ms
-      WHERE ms.employee_id = auth.user_employee_id()
+      WHERE ms.employee_id = public.user_employee_id()
         AND (
           (ms.scope_type = 'department' AND ms.scope_id = dept_id)
           OR (
@@ -176,29 +176,29 @@ AS $$
         )
     );
 $$;
-GRANT EXECUTE ON FUNCTION auth.user_dept_in_scope(UUID)
+GRANT EXECUTE ON FUNCTION public.user_dept_in_scope(UUID)
   TO authenticated, anon, service_role;
 
 -- user_visible_dept_ids() — devuelve set de dept_ids visibles al user.
 -- Útil para filtrar listings en queries directas.
-CREATE OR REPLACE FUNCTION auth.user_visible_dept_ids()
+CREATE OR REPLACE FUNCTION public.user_visible_dept_ids()
 RETURNS SETOF UUID LANGUAGE SQL STABLE
 AS $$
   SELECT d.id FROM public.departments d
-  WHERE d.company_id = auth.user_company_id()
+  WHERE d.company_id = public.user_company_id()
     AND (
-      auth.user_role() = 'owner'
+      public.user_role() = 'owner'
       OR d.id IN (
         SELECT scope_id FROM public.manager_scopes
-        WHERE employee_id = auth.user_employee_id() AND scope_type = 'department'
+        WHERE employee_id = public.user_employee_id() AND scope_type = 'department'
       )
       OR d.branch_id IN (
         SELECT scope_id FROM public.manager_scopes
-        WHERE employee_id = auth.user_employee_id() AND scope_type = 'branch'
+        WHERE employee_id = public.user_employee_id() AND scope_type = 'branch'
       )
     );
 $$;
-GRANT EXECUTE ON FUNCTION auth.user_visible_dept_ids()
+GRANT EXECUTE ON FUNCTION public.user_visible_dept_ids()
   TO authenticated, anon, service_role;
 
 -- ─── 6. Seed defaults para companies existentes ────────────────────────

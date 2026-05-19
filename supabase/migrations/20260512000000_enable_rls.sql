@@ -20,10 +20,10 @@
 -- ─── Helper functions en schema auth ────────────────────────────────────────
 -- Leen custom claims del JWT actual. Si el access token hook NO está
 -- activo (PR 4 lo dejó listo pero la registración es manual), estos
--- retornan NULL → policies que comparan `company_id = auth.user_company_id()`
+-- retornan NULL → policies que comparan `company_id = public.user_company_id()`
 -- dan 0 rows (NULL = X siempre es NULL → false en políticas). Fail-safe.
 
-CREATE OR REPLACE FUNCTION auth.user_company_id()
+CREATE OR REPLACE FUNCTION public.user_company_id()
 RETURNS UUID
 LANGUAGE SQL STABLE
 AS $$
@@ -33,14 +33,14 @@ AS $$
   )::UUID;
 $$;
 
-CREATE OR REPLACE FUNCTION auth.user_role()
+CREATE OR REPLACE FUNCTION public.user_role()
 RETURNS TEXT
 LANGUAGE SQL STABLE
 AS $$
   SELECT current_setting('request.jwt.claims', true)::jsonb ->> 'employee_role';
 $$;
 
-CREATE OR REPLACE FUNCTION auth.user_employee_id()
+CREATE OR REPLACE FUNCTION public.user_employee_id()
 RETURNS UUID
 LANGUAGE SQL STABLE
 AS $$
@@ -53,13 +53,13 @@ $$;
 -- Permisos: rol `authenticated` (Supabase default para JWT user) debe
 -- poder llamar los helpers desde dentro de policies. STABLE para que el
 -- planner las cachee dentro del query.
-GRANT EXECUTE ON FUNCTION auth.user_company_id() TO authenticated, anon, service_role;
-GRANT EXECUTE ON FUNCTION auth.user_role() TO authenticated, anon, service_role;
-GRANT EXECUTE ON FUNCTION auth.user_employee_id() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.user_company_id() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.user_role() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.user_employee_id() TO authenticated, anon, service_role;
 
 -- ─── Enable RLS + tenant_isolation policy genérica ──────────────────────────
 -- Pattern por tabla: ENABLE ROW LEVEL SECURITY + policy `tenant_isolation`
--- con USING/WITH CHECK = `company_id = auth.user_company_id()`. Lo aplicamos
+-- con USING/WITH CHECK = `company_id = public.user_company_id()`. Lo aplicamos
 -- via DO block para no repetir el mismo DDL 17 veces.
 
 DO $$
@@ -92,8 +92,8 @@ BEGIN
     EXECUTE format(
       'CREATE POLICY tenant_isolation ON public.%I
          FOR ALL TO authenticated
-         USING (company_id = auth.user_company_id())
-         WITH CHECK (company_id = auth.user_company_id())',
+         USING (company_id = public.user_company_id())
+         WITH CHECK (company_id = public.user_company_id())',
       tbl
     );
   END LOOP;
@@ -119,11 +119,11 @@ DROP POLICY IF EXISTS shift_assignments_manager_all ON public.shift_assignments;
 CREATE POLICY shift_assignments_employee_self_read ON public.shift_assignments
   FOR SELECT TO authenticated
   USING (
-    company_id = auth.user_company_id()
+    company_id = public.user_company_id()
     AND (
-      auth.user_role() = 'manager'
+      public.user_role() = 'manager'
       OR employee_id = COALESCE(
-        auth.user_employee_id(),
+        public.user_employee_id(),
         (SELECT id FROM public.employees WHERE auth_user_id = auth.uid() LIMIT 1)
       )
     )
@@ -133,12 +133,12 @@ CREATE POLICY shift_assignments_employee_self_read ON public.shift_assignments
 CREATE POLICY shift_assignments_manager_all ON public.shift_assignments
   FOR ALL TO authenticated
   USING (
-    company_id = auth.user_company_id()
-    AND auth.user_role() = 'manager'
+    company_id = public.user_company_id()
+    AND public.user_role() = 'manager'
   )
   WITH CHECK (
-    company_id = auth.user_company_id()
-    AND auth.user_role() = 'manager'
+    company_id = public.user_company_id()
+    AND public.user_role() = 'manager'
   );
 
 -- ─── auth_audit_log — solo manager LEE, nadie INSERTA via API ──────────────
@@ -149,6 +149,6 @@ DROP POLICY IF EXISTS auth_audit_log_manager_read ON public.auth_audit_log;
 CREATE POLICY auth_audit_log_manager_read ON public.auth_audit_log
   FOR SELECT TO authenticated
   USING (
-    company_id = auth.user_company_id()
-    AND auth.user_role() = 'manager'
+    company_id = public.user_company_id()
+    AND public.user_role() = 'manager'
   );

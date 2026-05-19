@@ -54,98 +54,20 @@ DROP POLICY IF EXISTS onboarding_drafts_owner_all ON public.onboarding_drafts;
 CREATE POLICY onboarding_drafts_owner_all ON public.onboarding_drafts
   FOR ALL TO authenticated
   USING (
-    company_id = auth.user_company_id()
-    AND auth.user_role() = 'owner'
+    company_id = public.user_company_id()
+    AND public.user_role() = 'owner'
   )
   WITH CHECK (
-    company_id = auth.user_company_id()
-    AND auth.user_role() = 'owner'
+    company_id = public.user_company_id()
+    AND public.user_role() = 'owner'
   );
 
--- ─── 3. Extender handle_new_user para self-signup ──────────────────────────
--- Mismo trigger que el flow de invitations (PR 7), pero ahora ramifica:
--- si raw_user_meta_data.signup_intent = 'self_signup' → crea company +
--- employee owner. Cualquier otro caso cae al flow original (invitation
--- obligatoria). Mantiene SECURITY DEFINER + search_path=''.
+-- ─── 3. handle_new_user → ver sql-extra/auth_setup.sql ─────────────────────
+-- La versión consolidada (que ramifica entre self-signup, invitation, OAuth,
+-- y default branch) vive en `supabase/sql-extra/auth_setup.sql`. Es la
+-- definición final post-redefiniciones; esta migration ya no la toca porque
+-- CREATE FUNCTION en `auth` requiere supabase_admin (postgres no tiene
+-- CREATE ahí). Apply: ver header de auth_setup.sql.
 
-CREATE OR REPLACE FUNCTION auth.handle_new_user()
-RETURNS TRIGGER
-LANGUAGE PLPGSQL
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  inv             RECORD;
-  display_name    TEXT;
-  workspace_name  TEXT;
-  new_company_id  UUID;
-  signup_intent   TEXT;
-BEGIN
-  signup_intent := NEW.raw_user_meta_data ->> 'signup_intent';
-
-  display_name := COALESCE(
-    NEW.raw_user_meta_data ->> 'name',
-    NEW.raw_user_meta_data ->> 'full_name',
-    split_part(COALESCE(NEW.email, NEW.phone), '@', 1)
-  );
-
-  -- Self-signup branch: crear company + employee owner atómico.
-  IF signup_intent = 'self_signup' THEN
-    workspace_name := NULL; -- el wizard step 2 lo completa
-    INSERT INTO public.companies (name, created_via, trial_ends_at)
-      VALUES (workspace_name, 'self_signup', now() + interval '14 days')
-      RETURNING id INTO new_company_id;
-
-    INSERT INTO public.employees (
-      company_id, name, phone_number, hire_date, role, auth_user_id
-    ) VALUES (
-      new_company_id, display_name, NEW.phone, CURRENT_DATE, 'owner', NEW.id
-    );
-
-    -- Crear draft inicial vacío para que el wizard arranque limpio.
-    INSERT INTO public.onboarding_drafts (company_id, current_step, data)
-      VALUES (new_company_id, 1, '{}'::jsonb)
-      ON CONFLICT (company_id) DO NOTHING;
-
-    RETURN NEW;
-  END IF;
-
-  -- Invitation flow (legacy, sin cambios).
-  SELECT *
-    INTO inv
-  FROM public.auth_invitations
-  WHERE consumed_at IS NULL
-    AND expires_at > now()
-    AND (
-      (email IS NOT NULL AND email = NEW.email)
-      OR (phone_number IS NOT NULL AND phone_number = NEW.phone)
-    )
-  ORDER BY created_at DESC
-  LIMIT 1;
-
-  IF inv.id IS NULL THEN
-    RAISE EXCEPTION 'No pending invitation found for this user'
-      USING ERRCODE = 'unique_violation',
-            HINT   = 'A manager must invite this user via /auth/invitations before signup, or signup self-service via the landing page.';
-  END IF;
-
-  INSERT INTO public.employees (
-    company_id, name, phone_number, hire_date, role, department_id, auth_user_id
-  ) VALUES (
-    inv.company_id, display_name, NEW.phone, CURRENT_DATE,
-    inv.role, inv.department_id, NEW.id
-  );
-
-  UPDATE public.auth_invitations
-    SET consumed_at = now()
-    WHERE id = inv.id;
-
-  RETURN NEW;
-END;
-$$;
-
--- Trigger ya existe (PR 7); el CREATE OR REPLACE arriba actualiza la
--- función sin tocar el trigger. Grants también ya están vigentes.
--- Agregamos solo los grants nuevos para companies y onboarding_drafts.
 GRANT INSERT ON public.companies TO postgres;
 GRANT INSERT ON public.onboarding_drafts TO postgres;

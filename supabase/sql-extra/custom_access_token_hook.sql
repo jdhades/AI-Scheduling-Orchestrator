@@ -1,29 +1,39 @@
 -- =============================================================================
--- Custom Access Token Hook (PR 4 del sprint Auth)
+-- Custom Access Token Hook — APLICACIÓN MANUAL (NO es una migration auto-aplicada)
 -- =============================================================================
--- Function que Supabase invoca al emitir un access token (login + refresh).
--- Recibe `event` con los claims default; devuelve `event.claims` aumentados
--- con company_id, employee_id, role, department_id resueltos desde la tabla
--- `employees`. Eso permite que `JwtValidatorService` lea el tenant del JWT
--- sin tocar DB.
+-- Por qué está acá y NO en `supabase/migrations/`:
+--   `supabase start` corre las migrations como rol `postgres`, que NO tiene
+--   CREATE en el schema `auth`. Si este archivo está en migrations/, el
+--   start falla y no levanta la stack. Por eso vive en `sql-extra/` y se
+--   aplica explícitamente.
 --
--- IMPORTANTE — registración del hook:
+-- Cómo aplicarlo (local dev, una vez después del primer `supabase start`):
+--   docker exec -i -e PGPASSWORD=postgres supabase_db_ai-scheduling-orchestrator \
+--     psql -U supabase_admin -d postgres < supabase/sql-extra/custom_access_token_hook.sql
+--
+-- Cómo aplicarlo (Supabase Cloud / self-hosted prod):
+--   Dashboard → SQL Editor → ejecutar este archivo como project owner.
+--
+-- Activación del hook (necesario además de crear la función):
+--   - Local: declarado en `supabase/config.toml` bajo
+--     [auth.hook.custom_access_token]. Lo levanta `supabase start`.
 --   - Supabase Cloud: Dashboard → Auth → Hooks → Customize Access Token →
 --     seleccionar `auth.custom_access_token_hook`.
 --   - Self-hosted (docker compose):
 --       GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED=true
 --       GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI=pg-functions://postgres/auth/custom_access_token_hook
---     en el container `supabase_auth`. Restart del container.
+--     y restart del container `supabase_auth`.
 --
--- IMPORTANTE — permisos: esta migration requiere rol `supabase_admin`
--- (la role `postgres` no tiene CREATE en el schema `auth`). Aplicación:
---   docker exec -i -e PGPASSWORD=postgres supabase_db_xxx \
---     psql -U supabase_admin -d postgres < <archivo>.sql
+-- Qué hace:
+--   Supabase invoca esta function al emitir un access token (login + refresh).
+--   Recibe `event` con los claims default; devuelve `event.claims` aumentado
+--   con company_id, employee_id, employee_role, department_id resueltos
+--   desde `public.employees`. Permite que `JwtValidatorService` lea el
+--   tenant del JWT sin tocar DB.
 --
--- Hasta que el hook esté activo, los JWT salen sin custom claims. El
--- guard cae a `Path B` (lookup employees por auth_user_id) — más caro
--- pero funciona. Cuando el hook se habilite, el guard usa `Path A`
--- automáticamente (sin cambios de código).
+-- Hasta que el hook esté activo, los JWT salen sin custom claims y el
+-- guard cae a Path B (lookup `employees` por `auth_user_id`) — más caro
+-- pero funcional. Una vez activo, automáticamente usa Path A.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION auth.custom_access_token_hook(event JSONB)

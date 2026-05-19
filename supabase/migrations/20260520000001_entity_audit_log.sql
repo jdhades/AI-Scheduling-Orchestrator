@@ -49,8 +49,8 @@ ALTER TABLE public.entity_audit_log ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON public.entity_audit_log
   FOR ALL TO authenticated
-  USING (company_id = auth.user_company_id())
-  WITH CHECK (company_id = auth.user_company_id());
+  USING (company_id = public.user_company_id())
+  WITH CHECK (company_id = public.user_company_id());
 
 COMMENT ON TABLE public.entity_audit_log IS
   'Historial de cambios sobre entidades editables (v1: shift_assignment, shift_template, employee, company_policy). Logueado por AuditService desde la app.';

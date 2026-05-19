@@ -10,7 +10,7 @@
 --     desde el template, esos defaults se materializan a tiempos absolutos.
 --
 -- RLS: company_id denormalizado en shift_assignment_breaks para que el
--- tenant_isolation policy sea trivial (= auth.user_company_id()). Para
+-- tenant_isolation policy sea trivial (= public.user_company_id()). Para
 -- shift_template_breaks, el company_id sale via el template padre.
 
 -- ─── shift_template_breaks ────────────────────────────────────────────
@@ -40,8 +40,8 @@ ALTER TABLE public.shift_template_breaks ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON public.shift_template_breaks
   FOR ALL TO authenticated
-  USING (company_id = auth.user_company_id())
-  WITH CHECK (company_id = auth.user_company_id());
+  USING (company_id = public.user_company_id())
+  WITH CHECK (company_id = public.user_company_id());
 
 -- ─── shift_assignment_breaks ──────────────────────────────────────────
 -- Breaks concretos materializados sobre un assignment puntual. Tiempos
@@ -68,8 +68,8 @@ ALTER TABLE public.shift_assignment_breaks ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON public.shift_assignment_breaks
   FOR ALL TO authenticated
-  USING (company_id = auth.user_company_id())
-  WITH CHECK (company_id = auth.user_company_id());
+  USING (company_id = public.user_company_id())
+  WITH CHECK (company_id = public.user_company_id());
 
 COMMENT ON TABLE public.shift_template_breaks IS
   'Defaults de breaks por template. Tiempos relativos (offset + duración). Se materializan a tiempos absolutos al crear un assignment.';

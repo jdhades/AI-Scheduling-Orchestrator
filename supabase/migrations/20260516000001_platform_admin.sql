@@ -11,7 +11,7 @@
 -- puede ser ambas cosas (owner de Demo Co + platform_admin) — se decide
 -- por contexto: dentro de su tenant es owner, en /admin es platform_admin.
 --
--- RLS: el helper `auth.is_platform_admin()` devuelve true si auth.uid()
+-- RLS: el helper `public.is_platform_admin()` devuelve true si auth.uid()
 -- está en la tabla. Una policy adicional en `companies` (y cualquier
 -- otra que el panel necesite) le da acceso full cuando el helper es true.
 -- =============================================================================
@@ -32,7 +32,7 @@ CREATE INDEX IF NOT EXISTS platform_admins_email_idx
 ALTER TABLE public.platform_admins ENABLE ROW LEVEL SECURITY;
 
 -- Helper: STABLE para que el planner lo cachee dentro del query.
-CREATE OR REPLACE FUNCTION auth.is_platform_admin()
+CREATE OR REPLACE FUNCTION public.is_platform_admin()
 RETURNS BOOLEAN
 LANGUAGE SQL STABLE
 AS $$
@@ -41,14 +41,14 @@ AS $$
     WHERE auth_user_id = auth.uid()
   );
 $$;
-GRANT EXECUTE ON FUNCTION auth.is_platform_admin() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.is_platform_admin() TO authenticated, anon, service_role;
 
 -- Policy de la tabla misma — solo los platform admins se ven entre sí.
 DROP POLICY IF EXISTS platform_admins_self ON public.platform_admins;
 CREATE POLICY platform_admins_self ON public.platform_admins
   FOR ALL TO authenticated
-  USING (auth.is_platform_admin())
-  WITH CHECK (auth.is_platform_admin());
+  USING (public.is_platform_admin())
+  WITH CHECK (public.is_platform_admin());
 
 -- Policy cross-tenant en companies — platform_admin ve y edita todo.
 -- La policy genérica `tenant_isolation` sigue activa para non-admins.
@@ -56,8 +56,8 @@ CREATE POLICY platform_admins_self ON public.platform_admins
 DROP POLICY IF EXISTS companies_platform_admin_all ON public.companies;
 CREATE POLICY companies_platform_admin_all ON public.companies
   FOR ALL TO authenticated
-  USING (auth.is_platform_admin())
-  WITH CHECK (auth.is_platform_admin());
+  USING (public.is_platform_admin())
+  WITH CHECK (public.is_platform_admin());
 
 -- Permisos para que el trigger / endpoints administrativos puedan
 -- escribir vía service_role (que ya bypasea RLS) y vía authenticated
