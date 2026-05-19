@@ -44,19 +44,15 @@ export class CreateTaskDto {
   @MaxLength(2000)
   description?: string | null;
 
-  // Exactamente uno de los 3 debe venir. Validamos en el handler porque
+  // Exactamente uno de los 2 debe venir. Validamos en el handler porque
   // class-validator no expresa "exactly one of" sin un custom validator.
   @IsOptional()
   @IsUUID()
-  departmentId?: string;
+  shiftTemplateId?: string;
 
   @IsOptional()
   @IsUUID()
   employeeId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  shiftAssignmentId?: string;
 }
 
 export class UpdateTaskDto {
@@ -81,9 +77,8 @@ interface TaskResponse {
   description: string | null;
   isDone: boolean;
   target:
-    | { type: 'department'; departmentId: string }
-    | { type: 'employee'; employeeId: string }
-    | { type: 'assignment'; shiftAssignmentId: string };
+    | { type: 'template'; shiftTemplateId: string }
+    | { type: 'employee'; employeeId: string };
   completedAt: string | null;
   completedByEmployeeId: string | null;
   createdAt: string;
@@ -109,22 +104,18 @@ const parseIsDone = (raw?: string): boolean | undefined => {
 
 const targetFromDto = (dto: CreateTaskDto): TaskTarget => {
   const provided = [
-    dto.departmentId ? 'department' : null,
+    dto.shiftTemplateId ? 'template' : null,
     dto.employeeId ? 'employee' : null,
-    dto.shiftAssignmentId ? 'assignment' : null,
   ].filter(Boolean);
   if (provided.length !== 1) {
     throw new BadRequestException(
-      'Must provide exactly one of: departmentId, employeeId, shiftAssignmentId',
+      'Must provide exactly one of: shiftTemplateId, employeeId',
     );
   }
-  if (dto.departmentId) {
-    return { type: 'department', departmentId: dto.departmentId };
+  if (dto.shiftTemplateId) {
+    return { type: 'template', shiftTemplateId: dto.shiftTemplateId };
   }
-  if (dto.employeeId) {
-    return { type: 'employee', employeeId: dto.employeeId };
-  }
-  return { type: 'assignment', shiftAssignmentId: dto.shiftAssignmentId! };
+  return { type: 'employee', employeeId: dto.employeeId! };
 };
 
 /**
@@ -132,22 +123,17 @@ const targetFromDto = (dto: CreateTaskDto): TaskTarget => {
  *
  * Trees expuestos:
  *
- *   POST   /tasks                                       — crear (uno de 3 targets)
- *   GET    /tasks?isDone=                               — listado del tenant (manager)
- *   PATCH  /tasks/:id                                   — title/desc/isDone
- *   DELETE /tasks/:id                                   — borrar
+ *   POST   /tasks                                  — crear (template | employee)
+ *   GET    /tasks?isDone=                          — listado del tenant (manager)
+ *   PATCH  /tasks/:id                              — title/desc/isDone
+ *   DELETE /tasks/:id                              — borrar
  *
- *   GET    /departments/:departmentId/tasks?isDone=
+ *   GET    /shift-templates/:templateId/tasks?isDone=
  *   GET    /employees/:employeeId/tasks?isDone=
- *   GET    /shift-assignments/:assignmentId/tasks
  *
- * Writes piden `schedule:write` (consistente con shift-breaks — tareas
- * de turno son parte del flujo de scheduling). Reads pasan con cualquier
- * autenticación válida.
+ * Writes piden `schedule:write` (consistente con shift-breaks).
  *
- * Toggle a done captura `completed_by_employee_id` del caller (req.auth.employeeId).
- * En path DEV_AUTH_BYPASS el employeeId queda null → se acepta (audit
- * pendiente hasta que el JWT real esté en prod).
+ * Toggle a done captura `completed_by_employee_id` del caller.
  */
 @Controller()
 export class TasksController {
@@ -205,8 +191,6 @@ export class TasksController {
     const existing = await this.tasks.findById(id, companyId);
     if (!existing) throw new NotFoundException(`Task ${id} not found`);
 
-    // Rebuild aggregate con los nuevos campos. markDone() valida la
-    // transición y setea completedAt automáticamente.
     const nextTitle = dto.title ?? existing.title;
     const nextDescription =
       dto.description !== undefined ? dto.description : existing.description;
@@ -230,7 +214,6 @@ export class TasksController {
     }
 
     if (dto.isDone === false && existing.isDone) {
-      // Reopen — limpiamos completedAt + completedBy.
       const reopened = Task.fromPersistence({
         id: existing.id,
         companyId: existing.companyId,
@@ -246,7 +229,6 @@ export class TasksController {
       return toDto(reopened);
     }
 
-    // Solo edita texto — preserva estado done/createdAt.
     const edited = Task.fromPersistence({
       id: existing.id,
       companyId: existing.companyId,
@@ -276,15 +258,15 @@ export class TasksController {
 
   // ─── Listados por target ────────────────────────────────────────────
 
-  @Get('departments/:departmentId/tasks')
-  async listByDepartment(
-    @Param('departmentId') departmentId: string,
+  @Get('shift-templates/:templateId/tasks')
+  async listByTemplate(
+    @Param('templateId') templateId: string,
     @CurrentCompany() companyId: string,
     @Query('isDone') isDoneRaw?: string,
   ): Promise<TaskResponse[]> {
     const isDone = parseIsDone(isDoneRaw);
-    const rows = await this.tasks.findByDepartmentId(
-      departmentId,
+    const rows = await this.tasks.findByTemplateId(
+      templateId,
       companyId,
       { isDone },
     );
@@ -299,8 +281,7 @@ export class TasksController {
     @Query('isDone') isDoneRaw?: string,
   ): Promise<TaskResponse[]> {
     // Un empleado solo puede leer sus propias tareas. Owners/managers
-    // ven cualquiera del tenant (scope check via dept queda como
-    // follow-up — el repo ya filtra por company_id vía RLS).
+    // ven cualquiera del tenant.
     if (user?.role === 'employee' && user.employeeId !== employeeId) {
       throw new ForbiddenException(
         'Employees can only read their own tasks',
@@ -311,18 +292,6 @@ export class TasksController {
       employeeId,
       companyId,
       { isDone },
-    );
-    return rows.map(toDto);
-  }
-
-  @Get('shift-assignments/:assignmentId/tasks')
-  async listByShiftAssignment(
-    @Param('assignmentId') assignmentId: string,
-    @CurrentCompany() companyId: string,
-  ): Promise<TaskResponse[]> {
-    const rows = await this.tasks.findByShiftAssignmentId(
-      assignmentId,
-      companyId,
     );
     return rows.map(toDto);
   }

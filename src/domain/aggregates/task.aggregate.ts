@@ -1,20 +1,21 @@
 /**
  * Task — Domain Aggregate
  *
- * Tarea con UN solo target: departamento, empleado, o shift assignment.
- * El target se modela con 3 propiedades nullable + invariante de que
- * exactamente una está set (espejo del CHECK constraint de la DB).
+ * Tarea con UN solo target: shift template o empleado.
+ *
+ * Modelo (2026-05-20):
+ *   - target=template → tarea inherente a un template. Cualquier
+ *     empleado que cubra ese template hereda la tarea.
+ *   - target=employee → tarea individual del empleado, no atada a
+ *     ningún turno particular.
  *
  * Estado: pending (is_done=false) → done (is_done=true). La transición
  * a done captura `completedAt` + `completedByEmployeeId`. No hay
  * "reopen" en v1 (si hace falta, se borra y se crea otra).
- *
- * Sin recurrencia ni approval flow en v1.
  */
 export type TaskTarget =
-  | { type: 'department'; departmentId: string }
-  | { type: 'employee'; employeeId: string }
-  | { type: 'assignment'; shiftAssignmentId: string };
+  | { type: 'template'; shiftTemplateId: string }
+  | { type: 'employee'; employeeId: string };
 
 export class Task {
   private constructor(
