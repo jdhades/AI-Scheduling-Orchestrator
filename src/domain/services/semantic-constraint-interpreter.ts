@@ -3,7 +3,7 @@ import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import {
   type SemanticConstraint,
   SEMANTIC_BLOCKED_ALL,
-} from '../strategies/scheduling-strategy.interface';
+} from '../types/scheduling-types';
 
 /**
  * SemanticConstraintInterpreter — Domain Service (pure, sin dependencias externas)

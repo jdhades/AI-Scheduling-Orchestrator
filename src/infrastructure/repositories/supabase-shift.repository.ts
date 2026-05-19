@@ -8,8 +8,21 @@ import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggreg
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
-import type { StrategyType } from '../../domain/strategies/scheduling-strategy.interface';
+import type { StrategyType } from '../../domain/types/scheduling-types';
 
+/**
+ * @deprecated Post-rework V3 (Phase 13): la tabla `shifts` referenciada
+ * por todos los queries de este repo YA NO EXISTE — los joins
+ * `shifts!inner(...)` devuelven [] silenciosamente. Los métodos quedan
+ * por compat con `RequestDayOffHandler` y `SwapShiftHandler` que
+ * todavía no migraron al modelo V3 (`shift_assignments` directo +
+ * `shift_templates`). Cualquier flujo que dependa de este repo está
+ * roto en runtime — el WhatsApp day-off / swap es el caso conocido.
+ *
+ * Migración pendiente: reescribir esos 2 handlers para usar
+ * `IShiftAssignmentRepository` + `IShiftTemplateRepository` y luego
+ * borrar ESTE repo entero + su interfaz.
+ */
 @Injectable()
 export class SupabaseShiftRepository implements IShiftRepository {
   constructor(
@@ -149,7 +162,9 @@ export class SupabaseShiftRepository implements IShiftRepository {
       );
     return (data ?? []).map((row) => {
       const assignment = this.assignmentToDomain(row);
-      // HACK: Attach the joined shifts table data dynamically for the Query View Model
+      // Attach joined row data como propiedades dinámicas — el caller
+      // (WhatsApp handlers) las espera en la view-model. Limpiar cuando
+      // se migren los handlers al modelo V3 y se elimine este repo.
       (assignment as any).shifts = {
         startTime: row.shifts?.start_time,
         endTime: row.shifts?.end_time,
@@ -186,7 +201,9 @@ export class SupabaseShiftRepository implements IShiftRepository {
       );
     return (data ?? []).map((row) => {
       const assignment = this.assignmentToDomain(row);
-      // HACK: Attach the joined shifts table data dynamically for the Query View Model
+      // Attach joined row data como propiedades dinámicas — el caller
+      // (WhatsApp handlers) las espera en la view-model. Limpiar cuando
+      // se migren los handlers al modelo V3 y se elimine este repo.
       (assignment as any).shifts = {
         startTime: row.shifts?.start_time,
         endTime: row.shifts?.end_time,

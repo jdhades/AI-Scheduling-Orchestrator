@@ -1,7 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
-import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
+import type { SemanticConstraint } from '../types/scheduling-types';
 import type { ILLMService } from './llm.service.interface';
 import { LLM_SERVICE } from './llm.service.interface';
 

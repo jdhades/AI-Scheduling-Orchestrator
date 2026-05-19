@@ -10,7 +10,7 @@ import { SkillValidationPolicy } from '../../../src/domain/policies/skill-valida
 import {
   SEMANTIC_BLOCKED_ALL,
   type SemanticConstraint,
-} from '../../../src/domain/strategies/scheduling-strategy.interface';
+} from '../../../src/domain/types/scheduling-types';
 
 const COMPANY = 'co-1';
 const RANGES = { junior: 6, intermediate: 24, senior: 999 };

@@ -118,6 +118,7 @@ describe('SemanticRuleAggregate', () => {
         created_by: null,
         is_active: true,
         metadata: {},
+        structure: null,
         created_at: new Date().toISOString(),
       });
 
@@ -138,6 +139,7 @@ describe('SemanticRuleAggregate', () => {
         created_by: 'admin',
         is_active: false,
         metadata: {},
+        structure: null,
         created_at: new Date().toISOString(),
       });
 

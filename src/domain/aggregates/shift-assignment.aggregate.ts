@@ -1,4 +1,4 @@
-import type { StrategyType } from '../strategies/scheduling-strategy.interface';
+import type { StrategyType } from '../types/scheduling-types';
 
 /** Origen de una asignación en el modelo de membresías. */
 export type AssignmentOrigin = 'membership' | 'override' | 'exception';

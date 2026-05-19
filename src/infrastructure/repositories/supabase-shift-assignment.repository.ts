@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ShiftAssignment, type AssignmentOrigin } from '../../domain/aggregates/shift-assignment.aggregate';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
-import type { StrategyType } from '../../domain/strategies/scheduling-strategy.interface';
+import type { StrategyType } from '../../domain/types/scheduling-types';
 
 @Injectable()
 export class SupabaseShiftAssignmentRepository

@@ -9,7 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { StrategyType } from '../../domain/strategies/scheduling-strategy.interface';
+import type { StrategyType } from '../../domain/types/scheduling-types';
 import { IsNotPastDate } from '../validators/is-not-past-date.validator';
 
 /**

@@ -4,7 +4,7 @@ import { EMBEDDING_SERVICE_TOKEN } from './embedding.service.interface';
 import type { ISemanticRuleRepository } from '../repositories/semantic-rule.repository.interface';
 import { SEMANTIC_RULE_REPOSITORY_TOKEN } from '../repositories/semantic-rule.repository.interface';
 import { ConflictResolutionEngine } from './conflict-resolution.engine';
-import type { SemanticConstraint } from '../strategies/scheduling-strategy.interface';
+import type { SemanticConstraint } from '../types/scheduling-types';
 import type { SemanticRuleAggregate } from '../aggregates/semantic-rule.aggregate';
 
 /**

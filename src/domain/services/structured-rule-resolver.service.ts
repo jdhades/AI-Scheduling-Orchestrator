@@ -5,7 +5,7 @@ import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import {
   SEMANTIC_BLOCKED_ALL,
   type SemanticConstraint,
-} from '../strategies/scheduling-strategy.interface';
+} from '../types/scheduling-types';
 import type {
   DateMatcher,
   HourRange,

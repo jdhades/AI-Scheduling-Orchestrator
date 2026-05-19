@@ -1,6 +1,6 @@
 import { SemanticConstraintInterpreter } from '../../../src/domain/services/semantic-constraint-interpreter';
-import { SEMANTIC_BLOCKED_ALL } from '../../../src/domain/strategies/scheduling-strategy.interface';
-import type { SemanticConstraint } from '../../../src/domain/strategies/scheduling-strategy.interface';
+import { SEMANTIC_BLOCKED_ALL } from '../../../src/domain/types/scheduling-types';
+import type { SemanticConstraint } from '../../../src/domain/types/scheduling-types';
 import { VirtualShiftSlot } from '../../../src/domain/value-objects/virtual-shift-slot.vo';
 
 function makeEmployee(id: string, name: string) {

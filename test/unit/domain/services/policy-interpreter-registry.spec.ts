@@ -13,7 +13,10 @@ const makeStub = (
   description: `stub:${id}`,
   matches: (text: string) => matchPattern.test(text),
   extractParams: async (text: string) => ({ raw: text }),
-  apply: (_ctx: PolicyEvaluationContext): PolicyViolation[] => [],
+  apply: async (
+    _ctx: PolicyEvaluationContext,
+    _params: { raw: string },
+  ): Promise<PolicyViolation[]> => [],
   format: (params) => `[${id}] ${params.raw}`,
 });
 
