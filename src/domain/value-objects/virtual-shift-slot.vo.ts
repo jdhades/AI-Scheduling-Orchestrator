@@ -60,9 +60,24 @@ export class VirtualShiftSlot {
     return `${this.templateId}|${this.date}`;
   }
 
-  /** Duración del slot en horas. */
+  /** Duración del slot en horas (gross, sin restar breaks). */
   getDuration(): number {
     return (this.endTime.getTime() - this.startTime.getTime()) / (1000 * 60 * 60);
+  }
+
+  /**
+   * Duración EFECTIVA de trabajo en horas, descontando el tiempo de
+   * breaks unpaid configurados como default en el template. Usado por
+   * FairnessHistory para que la carga acumulada del empleado refleje
+   * lo que realmente cobra — un shift de 8h con 30min de lunch unpaid
+   * suma 7.5h, no 8h.
+   *
+   * Si el template no tiene defaults o no aparece en el map, devuelve
+   * la duración gross (= `getDuration()`).
+   */
+  getWorkedHours(unpaidMinutesByTemplate: ReadonlyMap<string, number>): number {
+    const unpaidMin = unpaidMinutesByTemplate.get(this.templateId) ?? 0;
+    return Math.max(0, this.getDuration() - unpaidMin / 60);
   }
 
   /** ¿Este slot cae en fin de semana (sábado o domingo UTC)? */

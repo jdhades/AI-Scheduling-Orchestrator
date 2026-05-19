@@ -151,6 +151,13 @@ export class WeekScheduleBuilder {
      * ('en' | 'es'). Default 'en' (idioma canónico del sistema).
      */
     locale?: string;
+    /**
+     * Sprint Add-a-break F3: `templateId → minutos totales de break
+     * unpaid`. Se resta de `slot.getDuration()` al sumar al
+     * `hoursWorked` de FairnessHistory. Default = map vacío (no
+     * descuento — comportamiento legacy).
+     */
+    unpaidMinutesByTemplate?: ReadonlyMap<string, number>;
   }): Promise<BuildWithRetriesResult> {
     const isEs = (params.locale ?? 'en').toLowerCase().startsWith('es');
     // Templates de warning localizables. El builder devuelve strings
@@ -465,6 +472,9 @@ export class WeekScheduleBuilder {
     /** Fecha de referencia para snapshots de fairness. */
     weekStart: Date;
     companyId: string;
+    /** Sprint Add-a-break F3 — `templateId → minutos de break unpaid`,
+     * descontados al sumar al `hoursWorked`. Default = map vacío. */
+    unpaidMinutesByTemplate?: ReadonlyMap<string, number>;
   }): BuilderResult {
     const {
       employees,
@@ -476,7 +486,9 @@ export class WeekScheduleBuilder {
       llmLines,
       weekStart,
       companyId,
+      unpaidMinutesByTemplate,
     } = params;
+    const unpaidMap = unpaidMinutesByTemplate ?? new Map<string, number>();
 
     // ── Estado ────────────────────────────────────────────────────────────
     const liveHistory = new Map<string, FairnessHistoryVO>(
@@ -568,7 +580,7 @@ export class WeekScheduleBuilder {
         const curr = liveHistory.get(emp.id)!;
         liveHistory.set(
           emp.id,
-          curr.addShift(slot.getDuration(), {
+          curr.addShift(slot.getWorkedHours(unpaidMap), {
             isUndesirable: slot.undesirableWeight >= 0.5,
             isNight: slot.isNightShift(),
             isWeekend: slot.isWeekendShift(),
@@ -764,8 +776,19 @@ export class WeekScheduleBuilder {
     llmLines: Map<string, Record<string, string | 'rest'>>;
     weekStart: Date;
     companyId: string;
+    /** Sprint Add-a-break F3 — descontar break unpaid del worked. */
+    unpaidMinutesByTemplate?: ReadonlyMap<string, number>;
   }): BuilderResult {
-    const { employees, slots, histories, llmLines, weekStart, companyId } = params;
+    const {
+      employees,
+      slots,
+      histories,
+      llmLines,
+      weekStart,
+      companyId,
+      unpaidMinutesByTemplate,
+    } = params;
+    const unpaidMap = unpaidMinutesByTemplate ?? new Map<string, number>();
 
     const slotByKey = new Map<string, VirtualShiftSlot>();
     for (const s of slots) slotByKey.set(`${s.templateId}|${s.date}`, s);
@@ -819,7 +842,7 @@ export class WeekScheduleBuilder {
         const curr = liveHistory.get(emp.id)!;
         liveHistory.set(
           emp.id,
-          curr.addShift(slot.getDuration(), {
+          curr.addShift(slot.getWorkedHours(unpaidMap), {
             isUndesirable: slot.undesirableWeight >= 0.5,
             isNight: slot.isNightShift(),
             isWeekend: slot.isWeekendShift(),

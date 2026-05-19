@@ -14,6 +14,10 @@ import { NotificationsGateway } from '../../infrastructure/websocket/notificatio
 import { ShiftSlotGeneratorService } from '../../domain/services/shift-slot-generator.service';
 import { WeekScheduleBuilder } from '../../domain/services/week-schedule-builder.service';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import {
+  SHIFT_TEMPLATE_BREAK_REPOSITORY,
+  type IShiftTemplateBreakRepository,
+} from '../../domain/repositories/shift-template-break.repository';
 import type { VirtualShiftSlot } from '../../domain/value-objects/virtual-shift-slot.vo';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
@@ -76,6 +80,8 @@ export class GenerateHybridScheduleHandler
     private readonly weekScheduleBuilder: WeekScheduleBuilder,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly shiftTemplateRepository: IShiftTemplateRepository,
+    @Inject(SHIFT_TEMPLATE_BREAK_REPOSITORY)
+    private readonly templateBreakRepository: IShiftTemplateBreakRepository,
     @Inject(SHIFT_MEMBERSHIP_REPOSITORY)
     private readonly membershipRepository: IShiftMembershipRepository,
     @Inject('SUPABASE_CLIENT')
@@ -322,6 +328,15 @@ export class GenerateHybridScheduleHandler
       ...resolved.complexRules.map((r) => r.ruleText),
     ];
 
+    // Sprint Add-a-break F3: para que FairnessHistory refleje las horas
+    // EFECTIVAMENTE trabajadas (no las gross), agregamos al builder un
+    // map `templateId → minutos totales de break unpaid`. El slot
+    // descuenta esos minutos al sumar al `hoursWorked`. Los breaks
+    // paid no se restan — esos cuentan como trabajo a efectos de carga.
+    const unpaidMinutesByTemplate = await this.buildUnpaidBreakMap(
+      command.companyId,
+    );
+
     const buildResult = await this.weekScheduleBuilder.buildWithRetries({
       employees,
       slots,
@@ -335,6 +350,7 @@ export class GenerateHybridScheduleHandler
       runDepartmentId: command.departmentId,
       signal: command.signal,
       locale: command.locale,
+      unpaidMinutesByTemplate,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría
@@ -379,6 +395,7 @@ export class GenerateHybridScheduleHandler
       histories,
       weekStart,
       command.companyId,
+      unpaidMinutesByTemplate,
     );
     await this.fairnessRepository.upsertBatch(updatedHistories);
 
@@ -432,6 +449,7 @@ export class GenerateHybridScheduleHandler
     _existingHistories: FairnessHistoryVO[],
     weekStart: Date,
     companyId: string,
+    unpaidMinutesByTemplate: ReadonlyMap<string, number>,
   ): FairnessHistoryVO[] {
     // Cada regeneración SOBRESCRIBE la fairness de la semana — la
     // fila es proyección de las assignments actuales, no acumulado
@@ -452,7 +470,10 @@ export class GenerateHybridScheduleHandler
 
       historyMap.set(
         assignment.employeeId,
-        current.addShift(slot.getDuration(), {
+        // Sprint Add-a-break F3: descontamos el tiempo de breaks unpaid
+        // del template — el empleado no cobra esos minutos, así que
+        // no deben sumar a su "carga" para fairness.
+        current.addShift(slot.getWorkedHours(unpaidMinutesByTemplate), {
           isUndesirable: slot.undesirableWeight >= 0.5,
           isNight: slot.isNightShift(),
           isWeekend: slot.isWeekendShift(),
@@ -461,6 +482,41 @@ export class GenerateHybridScheduleHandler
     }
 
     return [...historyMap.values()];
+  }
+
+  /**
+   * Sprint Add-a-break F3: precomputa `templateId → minutos totales de
+   * break unpaid` para descontarlo de `hoursWorked` al construir la
+   * FairnessHistory. Paid breaks NO se restan — el empleado los cobra,
+   * son parte de la carga laboral a efectos de fairness.
+   *
+   * Una query al inicio de la generación, indexada por templateId.
+   * Si el template no tiene defaults, no aparece en el map → 0 min
+   * descontados (= comportamiento legacy pre-sprint).
+   */
+  private async buildUnpaidBreakMap(
+    companyId: string,
+  ): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    // Repo expone findByTemplateId, no un "all by company". Para
+    // mantener una sola query lectiva por generación, iteramos
+    // templates en paralelo (cada uno es 1 SELECT). Para 10-30
+    // templates típicos esto es O(<50ms) en local.
+    const templates = await this.shiftTemplateRepository.findAllByCompany(
+      companyId,
+    );
+    const lists = await Promise.all(
+      templates.map((t) =>
+        this.templateBreakRepository.findByTemplateId(t.id, companyId),
+      ),
+    );
+    for (let i = 0; i < templates.length; i++) {
+      const unpaidMin = lists[i]
+        .filter((b) => !b.isPaid)
+        .reduce((s, b) => s + b.durationMinutes, 0);
+      if (unpaidMin > 0) out.set(templates[i].id, unpaidMin);
+    }
+    return out;
   }
 
   private i18nWarnUnderfilled(
