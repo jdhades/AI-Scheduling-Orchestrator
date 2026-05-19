@@ -1,6 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { I18nService } from 'nestjs-i18n';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+
+// pg-boss v12+ es ESM-only y rompe Jest cuando MessageRouterService lo
+// pulls transitivamente vía schedule-generation-dispatcher. Stub aplicado
+// antes del import del SUT.
+jest.mock(
+  '../../../src/application/jobs/schedule-generation-dispatcher.service',
+  () => ({
+    ScheduleGenerationDispatcher: class {
+      dispatchScheduleGeneration() {
+        return Promise.resolve();
+      }
+    },
+  }),
+);
+jest.mock('../../../src/infrastructure/queue/pg-boss.service', () => ({
+  PgBossService: class {},
+}));
+
 import {
   MessageRouterService,
   IncomingMessage,
@@ -184,6 +202,26 @@ describe('MessageRouterService', () => {
             }),
             record: jest.fn(),
           },
+        },
+        // Phase 18.4+ — deps nuevas. Stubs minimal: el handler
+        // sólo los inyecta, no se invocan en los tests actuales (que
+        // disparan paths que NO usan absenceCreator ni scheduleDispatcher).
+        {
+          provide: require('../../../src/infrastructure/observability/llm-usage-logger.service').LLMUsageLogger,
+          useValue: {
+            // El router envuelve el flujo en withContext(ctx, fn) — el stub
+            // tiene que ejecutar fn y devolver su resultado.
+            withContext: jest.fn().mockImplementation((_ctx: any, fn: any) => fn()),
+            record: jest.fn(),
+          },
+        },
+        {
+          provide: require('../../../src/domain/services/absence-report-creator.service').AbsenceReportCreator,
+          useValue: { create: jest.fn() },
+        },
+        {
+          provide: require('../../../src/application/jobs/schedule-generation-dispatcher.service').ScheduleGenerationDispatcher,
+          useValue: { dispatchScheduleGeneration: jest.fn() },
         },
       ],
     }).compile();

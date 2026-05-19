@@ -71,7 +71,10 @@ supabase/.branches/
 supabase/snippets/Untitled*
 
 # Environment files con secrets (Supabase keys, Twilio tokens, Qwen API keys, DB URL)
-# Solo .env.example queda tracked (template documentado).
+# Solo .env.example y .env.test quedan tracked. .env.test apunta al stack
+# local de Supabase con las CLI defaults (públicas por design) — necesario
+# para que las integration tests corran en cualquier máquina.
 .env
 .env.*
 !.env.example
+!.env.test

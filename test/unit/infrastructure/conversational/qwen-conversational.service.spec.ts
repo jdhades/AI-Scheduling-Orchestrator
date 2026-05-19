@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { QwenConversationalService } from '../../../../src/infrastructure/conversational/qwen-conversational.service';
+import { LLMUsageLogger } from '../../../../src/infrastructure/observability/llm-usage-logger.service';
 import { ConversationIntentVO } from '../../../../src/domain/value-objects/conversation-intent.vo';
 
 describe('QwenConversationalService', () => {
   let service: QwenConversationalService;
-  let configService: ConfigService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -17,11 +17,19 @@ describe('QwenConversationalService', () => {
             getOrThrow: jest.fn().mockReturnValue('fake-qwen-key'),
           },
         },
+        {
+          provide: LLMUsageLogger,
+          useValue: {
+            // Stub: el servicio loguea uso async; en tests no nos importa
+            // qué loguea, solo que no rompa por dep ausente.
+            logUsage: jest.fn().mockResolvedValue(undefined),
+            logFailure: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<QwenConversationalService>(QwenConversationalService);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   afterEach(() => {

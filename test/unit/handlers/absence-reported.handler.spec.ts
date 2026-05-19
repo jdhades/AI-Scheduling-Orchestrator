@@ -1,61 +1,68 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { AbsenceReportedHandler } from '../../../src/application/handlers/absence-reported.handler';
 import { AbsenceReportedEvent } from '../../../src/domain/events/absence-reported.event';
-import {
-  INotificationService,
-  NOTIFICATION_SERVICE,
-} from '../../../src/domain/services/notification.service';
-import {
-  EMPLOYEE_REPOSITORY,
-  IEmployeeRepository,
-} from '../../../src/domain/repositories/employee.repository';
+import type { IEmployeeRepository } from '../../../src/domain/repositories/employee.repository';
+import type { IShiftAssignmentRepository } from '../../../src/domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../../src/domain/repositories/shift-template.repository';
+import type { ManagerNotificationService } from '../../../src/application/services/manager-notification.service';
 import { Employee } from '../../../src/domain/aggregates/employee.aggregate';
 
+/**
+ * Tests del handler post Phase 17.5: el mensaje incluye nombre de empleado
+ * + nombre/horario del/los turno(s) afectado(s) y la entrega delega en
+ * `ManagerNotificationService.notifyManagerForEmployee()`. El handler ya
+ * NO toca `NOTIFICATION_SERVICE` ni `MANAGER_WHATSAPP_NUMBER` — eso quedó
+ * encapsulado en el ManagerNotificationService.
+ */
 describe('AbsenceReportedHandler', () => {
   let handler: AbsenceReportedHandler;
-  let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
-  let mockNotificationService: jest.Mocked<INotificationService>;
+  let employeeRepo: jest.Mocked<IEmployeeRepository>;
+  let assignmentRepo: jest.Mocked<IShiftAssignmentRepository>;
+  let templateRepo: jest.Mocked<IShiftTemplateRepository>;
+  let managerNotifications: jest.Mocked<ManagerNotificationService>;
 
-  const originalEnv = process.env;
+  const employee = {
+    id: 'emp-1',
+    name: 'Jane Doe',
+    phone: '+1234567890',
+  } as unknown as Employee;
 
-  beforeEach(async () => {
-    jest.resetModules();
-    process.env = { ...originalEnv, MANAGER_WHATSAPP_NUMBER: '+99999999999' };
+  beforeEach(() => {
+    employeeRepo = {
+      findById: jest.fn().mockResolvedValue(employee),
+    } as unknown as jest.Mocked<IEmployeeRepository>;
 
-    mockEmployeeRepo = {
-      findById: jest.fn(),
-      findByPhone: jest.fn(),
-      findAllByCompany: jest.fn(),
-      save: jest.fn(),
-      update: jest.fn(),
-    } as any;
+    assignmentRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<IShiftAssignmentRepository>;
 
-    mockNotificationService = {
-      sendWhatsApp: jest.fn().mockResolvedValue(undefined),
-    };
+    templateRepo = {
+      findById: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<IShiftTemplateRepository>;
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AbsenceReportedHandler,
-        { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepo },
-        { provide: NOTIFICATION_SERVICE, useValue: mockNotificationService },
-      ],
-    }).compile();
+    managerNotifications = {
+      notifyManagerForEmployee: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ManagerNotificationService>;
 
-    handler = module.get<AbsenceReportedHandler>(AbsenceReportedHandler);
+    handler = new AbsenceReportedHandler(
+      employeeRepo,
+      assignmentRepo,
+      templateRepo,
+      managerNotifications,
+    );
   });
 
-  afterEach(() => {
-    process.env = originalEnv;
-    jest.clearAllMocks();
-  });
-
-  it('should send an urgent notification to the manager if absence is urgent', async () => {
-    const employee = {
-      id: 'emp-1',
-      phone: '+1234567890',
-    } as unknown as Employee;
-    mockEmployeeRepo.findById.mockResolvedValue(employee);
+  it('renderea mensaje urgente con nombre del empleado y delega en ManagerNotificationService', async () => {
+    // Con assignment afectado el handler sugiere reemplazo urgente.
+    // Sin ninguno cae al mensaje "no había turnos" — eso se cubre en otro test.
+    assignmentRepo.findById.mockResolvedValue({
+      templateId: 'tpl-1',
+      date: '2026-05-20',
+    } as any);
+    templateRepo.findById.mockResolvedValue({
+      name: 'Morning',
+      startTime: '08:00:00',
+      endTime: '14:00:00',
+    } as any);
 
     const event = new AbsenceReportedEvent(
       'emp-1',
@@ -63,28 +70,27 @@ describe('AbsenceReportedHandler', () => {
       'Sick',
       'comp-1',
       true,
+      '2026-05-20',
+      '2026-05-20',
+      ['assign-1'],
     );
+
     await handler.handle(event);
 
-    expect(mockEmployeeRepo.findById).toHaveBeenCalledWith('emp-1', 'comp-1');
-    expect(mockNotificationService.sendWhatsApp).toHaveBeenCalledWith(
-      '+99999999999',
-      expect.stringContaining('🚨 *ALERTA URGENTE*'),
-    );
-    const messageArg = mockNotificationService.sendWhatsApp.mock.calls[0][1];
-    expect(messageArg).toContain('+1234567890');
-    expect(messageArg).toContain('shift-1');
-    expect(messageArg).toContain('Sick');
-    expect(messageArg).toContain('🔴 Se necesita reemplazo urgente.');
+    expect(employeeRepo.findById).toHaveBeenCalledWith('emp-1', 'comp-1');
+    expect(managerNotifications.notifyManagerForEmployee).toHaveBeenCalledTimes(1);
+    const [companyId, employeeId, message] =
+      managerNotifications.notifyManagerForEmployee.mock.calls[0];
+    expect(companyId).toBe('comp-1');
+    expect(employeeId).toBe('emp-1');
+    expect(message).toContain('🚨 *ALERTA URGENTE*');
+    expect(message).toContain('Jane Doe');
+    expect(message).toContain('+1234567890');
+    expect(message).toContain('Sick');
+    expect(message).toContain('🔴 Se necesita reemplazo urgente.');
   });
 
-  it('should send a standard notification to the manager if absence is not urgent', async () => {
-    const employee = {
-      id: 'emp-1',
-      phone: '+1234567890',
-    } as unknown as Employee;
-    mockEmployeeRepo.findById.mockResolvedValue(employee);
-
+  it('renderea mensaje estándar (no urgent)', async () => {
     const event = new AbsenceReportedEvent(
       'emp-1',
       'shift-1',
@@ -92,19 +98,21 @@ describe('AbsenceReportedHandler', () => {
       'comp-1',
       false,
     );
+
     await handler.handle(event);
 
-    expect(mockNotificationService.sendWhatsApp).toHaveBeenCalledWith(
-      '+99999999999',
-      expect.stringContaining('⚠️ *Ausencia reportada*'),
+    const [, , message] =
+      managerNotifications.notifyManagerForEmployee.mock.calls[0];
+    expect(message).toContain('⚠️ *Ausencia reportada*');
+    expect(message).toContain('Vacation');
+    // Sin assignments afectados, sugiere reasignar (no urgente).
+    expect(message).toContain(
+      'No había turnos asignados en ese período. El scheduler lo respetará al generar.',
     );
-    const messageArg = mockNotificationService.sendWhatsApp.mock.calls[0][1];
-    expect(messageArg).toContain('Se necesita reasignar el turno.');
-    expect(messageArg).toContain('Vacation');
   });
 
-  it('should not send notification if employee is not found', async () => {
-    mockEmployeeRepo.findById.mockResolvedValue(null);
+  it('no notifica si el empleado no se encuentra', async () => {
+    employeeRepo.findById.mockResolvedValue(null);
 
     const event = new AbsenceReportedEvent(
       'emp-1',
@@ -115,30 +123,19 @@ describe('AbsenceReportedHandler', () => {
     );
     await handler.handle(event);
 
-    expect(mockNotificationService.sendWhatsApp).not.toHaveBeenCalled();
+    expect(managerNotifications.notifyManagerForEmployee).not.toHaveBeenCalled();
   });
 
-  it('should not throw error if MANAGER_WHATSAPP_NUMBER is not set, just log warning', async () => {
-    // We override the process.env before recompiling module
-    process.env.MANAGER_WHATSAPP_NUMBER = '';
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AbsenceReportedHandler,
-        { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepo },
-        { provide: NOTIFICATION_SERVICE, useValue: mockNotificationService },
-      ],
-    }).compile();
-
-    const handlerWithoutManager = module.get<AbsenceReportedHandler>(
-      AbsenceReportedHandler,
-    );
-
-    const employee = {
-      id: 'emp-1',
-      phone: '+1234567890',
-    } as unknown as Employee;
-    mockEmployeeRepo.findById.mockResolvedValue(employee);
+  it('incluye listado de turnos afectados cuando los hay', async () => {
+    assignmentRepo.findById.mockResolvedValue({
+      templateId: 'tpl-1',
+      date: '2026-05-20',
+    } as any);
+    templateRepo.findById.mockResolvedValue({
+      name: 'Morning',
+      startTime: '08:00:00',
+      endTime: '14:00:00',
+    } as any);
 
     const event = new AbsenceReportedEvent(
       'emp-1',
@@ -146,10 +143,17 @@ describe('AbsenceReportedHandler', () => {
       'Sick',
       'comp-1',
       false,
+      '2026-05-20',
+      '2026-05-20',
+      ['assign-1'],
     );
-    // Spy on Logger using prototype or spy behavior since it's instantiated inside the class
 
-    await expect(handlerWithoutManager.handle(event)).resolves.not.toThrow();
-    expect(mockNotificationService.sendWhatsApp).not.toHaveBeenCalled();
+    await handler.handle(event);
+
+    const [, , message] =
+      managerNotifications.notifyManagerForEmployee.mock.calls[0];
+    expect(message).toContain('*Turno afectado:*');
+    expect(message).toContain('Morning · 2026-05-20 08:00–14:00');
+    expect(message).toContain('Se necesita reasignar el/los turno(s).');
   });
 });

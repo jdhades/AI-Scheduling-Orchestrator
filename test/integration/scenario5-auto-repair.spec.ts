@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CqrsModule, CommandBus, EventBus } from '@nestjs/cqrs';
+import { createClient } from '@supabase/supabase-js';
 import { ProcessIncidentEvidenceHandler } from '../../src/application/handlers/process-incident-evidence.handler';
 import { ProcessIncidentEvidenceCommand } from '../../src/application/commands/process-incident-evidence.command';
 import { IncidentRepository } from '../../src/infrastructure/database/incident.repository';
+import { EMPLOYEE_REPOSITORY } from '../../src/domain/repositories/employee.repository';
 import type { IEmployeeRepository } from '../../src/domain/repositories/employee.repository';
 import { OcrService } from '../../src/infrastructure/services/ocr.service';
 import { LlmParsingService } from '../../src/infrastructure/services/llm-parsing.service';
@@ -17,13 +19,20 @@ describe('Scenario 5 - Auto-Repair Intergration (ProcessIncidentEvidenceHandler)
   let incidentRepo: IncidentRepository;
 
   beforeAll(async () => {
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+
     moduleRef = await Test.createTestingModule({
       imports: [CqrsModule],
       providers: [
         ProcessIncidentEvidenceHandler,
         IncidentRepository,
+        { provide: 'SUPABASE_CLIENT', useValue: supabase },
         {
-          provide: 'IEmployeeRepository',
+          provide: EMPLOYEE_REPOSITORY,
           useValue: {
             findById: jest.fn().mockResolvedValue({
               id: 'emp-123',
@@ -64,11 +73,14 @@ describe('Scenario 5 - Auto-Repair Intergration (ProcessIncidentEvidenceHandler)
     expect(handler).toBeDefined();
   });
 
+  const TEST_COMPANY_ID = '99999999-0000-4000-8000-000000000099';
+  const TEST_EMPLOYEE_ID = '99999999-0000-4000-8000-00000000aaaa';
+
   it('should process OCR, parse with LLM, and Validate the Incident', async () => {
     // 1. Arrange a mock incident in the DB
     const incident = Incident.reportIncident(
-      'comp-abc',
-      'emp-123',
+      TEST_COMPANY_ID,
+      TEST_EMPLOYEE_ID,
       IncidentType.MEDICAL_LEAVE,
     );
     incident.attachEvidence('http://evidence.jpg');
@@ -78,7 +90,7 @@ describe('Scenario 5 - Auto-Repair Intergration (ProcessIncidentEvidenceHandler)
     // 2. Map Command
     const command = new ProcessIncidentEvidenceCommand(
       incident.id,
-      'emp-123',
+      TEST_EMPLOYEE_ID,
       'http://evidence.jpg',
     );
 

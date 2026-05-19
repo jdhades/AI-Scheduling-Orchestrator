@@ -76,7 +76,7 @@ describe('SupabaseEmployeeRepository (integration)', () => {
         id: TEST_EMPLOYEE_ID_1,
         companyId: TEST_COMPANY_ID,
         name: 'Test Employee 1',
-        role: 'Waiter',
+        role: 'employee',
         phoneNumber: phone,
         experience,
       });
@@ -101,7 +101,7 @@ describe('SupabaseEmployeeRepository (integration)', () => {
         id: TEST_EMPLOYEE_ID_1,
         companyId: TEST_COMPANY_ID,
         name: 'Test Employee 1',
-        role: 'Waiter',
+        role: 'employee',
         phoneNumber: phone,
         experience,
       });

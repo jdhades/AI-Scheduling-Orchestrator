@@ -1,6 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ForbiddenException } from '@nestjs/common';
+
+// pg-boss v12+ es ESM-only y rompe Jest cuando lo carga transitivamente
+// vía message-router → schedule-generation-dispatcher → pg-boss.service.
+// Mockeamos los servicios que lo importan ANTES de cualquier import del
+// controller (los `jest.mock` se hoistean al top del archivo).
+jest.mock(
+  '../../../../src/application/jobs/schedule-generation-dispatcher.service',
+  () => ({
+    ScheduleGenerationDispatcher: class {},
+  }),
+);
+jest.mock('../../../../src/infrastructure/queue/pg-boss.service', () => ({
+  PgBossService: class {},
+}));
+
 import { WhatsAppController } from '../../../../src/interfaces/controllers/whatsapp.controller';
 import { MessageRouterService } from '../../../../src/application/conversational/message-router.service';
 import {
@@ -47,6 +62,9 @@ describe('WhatsAppController', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: MessageRouterService, useValue: mockMessageRouter },
         { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepo },
+        // SUPABASE_CLIENT se inyecta en el controller (Phase 18); el
+        // test no toca DB así que basta con un stub vacío.
+        { provide: 'SUPABASE_CLIENT', useValue: {} },
       ],
     }).compile();
 
