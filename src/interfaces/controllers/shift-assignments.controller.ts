@@ -1,5 +1,13 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import {
+  ENTITY_AUDIT_SERVICE,
+  computeChangeSet,
+  snapshotAsChangeSet,
+  type IEntityAuditService,
+} from '../../domain/audit/entity-audit.service';
 import {
   Body,
   ConflictException,
@@ -102,6 +110,8 @@ export class ShiftAssignmentsController {
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly repo: IShiftAssignmentRepository,
     private readonly notificationsGateway: NotificationsGateway,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
 
   /**
@@ -115,6 +125,7 @@ export class ShiftAssignmentsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateAssignmentDto,
   ): Promise<{ assignment: object }> {
     try {
@@ -124,6 +135,15 @@ export class ShiftAssignmentsController {
         templateId: dto.templateId,
         date: dto.date,
         reason: dto.reason,
+      });
+      await this.audit.log({
+        companyId,
+        entityType: 'shift_assignment',
+        entityId: assignment.id,
+        action: 'create',
+        changes: snapshotAsChangeSet(this.auditSnapshot(assignment), 'create'),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
       });
       return { assignment: this.toDto(assignment) };
     } catch (err) {
@@ -151,12 +171,22 @@ export class ShiftAssignmentsController {
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const existing = await this.repo.findById(id, companyId);
     if (!existing) {
       throw new NotFoundException(`Assignment ${id} not found`);
     }
     await this.repo.deleteById(id, companyId);
+    await this.audit.log({
+      companyId,
+      entityType: 'shift_assignment',
+      entityId: id,
+      action: 'delete',
+      changes: snapshotAsChangeSet(this.auditSnapshot(existing), 'delete'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
     this.notificationsGateway.notifyAssignmentChanged(companyId);
   }
 
@@ -165,6 +195,7 @@ export class ShiftAssignmentsController {
   async patch(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: MoveAssignmentDto,
   ): Promise<{ assignment: object; warnings: string[] }> {
     if (
@@ -179,6 +210,7 @@ export class ShiftAssignmentsController {
           'At least one of `employeeId`, `date`, `actualStartTime`, `actualEndTime` must be provided.',
       });
     }
+    const previous = await this.repo.findById(id, companyId);
     try {
       const result = await this.mover.move({
         companyId,
@@ -192,9 +224,31 @@ export class ShiftAssignmentsController {
           ? new Date(dto.actualEndTime)
           : undefined,
         reason: dto.reason,
-        // Sin JWT auth todavía. Cuando entre, leer del context.
-        editedByUserId: null,
+        editedByUserId: user?.userId ?? null,
       });
+      if (previous) {
+        const fields = [
+          'employeeId',
+          'templateId',
+          'date',
+          'actualStartTime',
+          'actualEndTime',
+          'origin',
+        ] as const;
+        await this.audit.log({
+          companyId,
+          entityType: 'shift_assignment',
+          entityId: id,
+          action: 'update',
+          changes: computeChangeSet(
+            this.auditSnapshot(previous),
+            this.auditSnapshot(result.assignment),
+            fields,
+          ),
+          actorUserId: user?.userId ?? null,
+          actorEmployeeId: user?.employeeId ?? null,
+        });
+      }
       return {
         assignment: this.toDto(result.assignment),
         warnings: result.warnings,
@@ -226,6 +280,25 @@ export class ShiftAssignmentsController {
       origin: a.origin,
       actualStartTime: a.actualStartTime.toISOString(),
       actualEndTime: a.actualEndTime.toISOString(),
+    };
+  }
+
+  /** Snapshot serializable usado por el audit log. */
+  private auditSnapshot(a: ShiftAssignment): {
+    employeeId: string;
+    templateId: string;
+    date: string;
+    actualStartTime: string;
+    actualEndTime: string;
+    origin: string;
+  } {
+    return {
+      employeeId: a.employeeId,
+      templateId: a.templateId,
+      date: a.date,
+      actualStartTime: a.actualStartTime.toISOString(),
+      actualEndTime: a.actualEndTime.toISOString(),
+      origin: a.origin,
     };
   }
 }

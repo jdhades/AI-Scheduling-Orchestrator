@@ -1,5 +1,13 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import {
+  ENTITY_AUDIT_SERVICE,
+  computeChangeSet,
+  snapshotAsChangeSet,
+  type IEntityAuditService,
+} from '../../domain/audit/entity-audit.service';
 import {
   Body,
   Controller,
@@ -151,7 +159,30 @@ export class CompanyPoliciesController {
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
     private readonly creator: CompanyPolicyCreator,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  private readonly auditFields = [
+    'text',
+    'severity',
+    'isActive',
+    'params',
+  ] as const;
+
+  private auditSnapshot(p: CompanyPolicy): {
+    text: string;
+    severity: 'hard' | 'soft';
+    isActive: boolean;
+    params: Record<string, unknown>;
+  } {
+    return {
+      text: p.getText(),
+      severity: p.getSeverity().getValue(),
+      isActive: p.getIsActive(),
+      params: p.getParams(),
+    };
+  }
 
   @Get()
   async list(
@@ -178,6 +209,7 @@ export class CompanyPoliciesController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateCompanyPolicyDto,
   ): Promise<CreateCompanyPolicyResponse> {
     // Toda la lógica vive en CompanyPolicyCreator (commit P1) — el
@@ -208,6 +240,15 @@ export class CompanyPoliciesController {
         suggestions: result.suggestions,
       };
     }
+    await this.audit.log({
+      companyId,
+      entityType: 'company_policy',
+      entityId: result.policy.getId(),
+      action: 'create',
+      changes: snapshotAsChangeSet(this.auditSnapshot(result.policy), 'create'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
     return { status: 'created', policy: this.toDto(result.policy) };
   }
 
@@ -217,12 +258,14 @@ export class CompanyPoliciesController {
   async update(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: UpdateCompanyPolicyDto,
   ): Promise<CompanyPolicyResponse> {
     const policy = await this.policyRepo.findById(id, companyId);
     if (!policy) {
       throw new NotFoundException(`CompanyPolicy ${id} not found`);
     }
+    const beforeSnap = this.auditSnapshot(policy);
 
     // text reemplazado → re-matchear interpreter contra el texto nuevo.
     if (dto.text !== undefined && dto.text !== policy.getText()) {
@@ -248,6 +291,19 @@ export class CompanyPoliciesController {
     }
 
     await this.policyRepo.save(policy);
+    await this.audit.log({
+      companyId,
+      entityType: 'company_policy',
+      entityId: id,
+      action: 'update',
+      changes: computeChangeSet(
+        beforeSnap,
+        this.auditSnapshot(policy),
+        this.auditFields,
+      ),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
     return this.toDto(policy);
   }
 
@@ -257,12 +313,22 @@ export class CompanyPoliciesController {
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const existing = await this.policyRepo.findById(id, companyId);
     if (!existing) {
       throw new NotFoundException(`CompanyPolicy ${id} not found`);
     }
     await this.policyRepo.delete(id, companyId);
+    await this.audit.log({
+      companyId,
+      entityType: 'company_policy',
+      entityId: id,
+      action: 'delete',
+      changes: snapshotAsChangeSet(this.auditSnapshot(existing), 'delete'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
   }
 
   private toDto(policy: CompanyPolicy): CompanyPolicyResponse {

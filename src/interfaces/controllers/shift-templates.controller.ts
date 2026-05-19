@@ -1,5 +1,13 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import {
+  ENTITY_AUDIT_SERVICE,
+  computeChangeSet,
+  snapshotAsChangeSet,
+  type IEntityAuditService,
+} from '../../domain/audit/entity-audit.service';
 import {
   Body,
   Controller,
@@ -166,7 +174,35 @@ export class ShiftTemplatesController {
   constructor(
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  private auditSnapshot(t: ShiftTemplate): {
+    name: string;
+    dayOfWeek: number | null;
+    startTime: string;
+    endTime: string;
+    requiredSkillId: string | null;
+    demandScore: number;
+    undesirableWeight: number;
+    isActive: boolean;
+    requiredEmployees: number | null;
+    departmentId: string | null;
+  } {
+    return {
+      name: t.name,
+      dayOfWeek: t.dayOfWeek,
+      startTime: t.startTime,
+      endTime: t.endTime,
+      requiredSkillId: t.requiredSkillId,
+      demandScore: t.demandScore.value,
+      undesirableWeight: t.undesirableWeight.value,
+      isActive: t.isActive,
+      requiredEmployees: t.requiredEmployees,
+      departmentId: t.departmentId,
+    };
+  }
 
   /**
    * GET /shift-templates?companyId=...
@@ -186,6 +222,7 @@ export class ShiftTemplatesController {
   @Requires('schedule:write')
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateShiftTemplateDto,
   ): Promise<object> {
     const template = ShiftTemplate.create({
@@ -210,6 +247,15 @@ export class ShiftTemplatesController {
     });
 
     await this.templateRepo.save(template);
+    await this.audit.log({
+      companyId,
+      entityType: 'shift_template',
+      entityId: template.id,
+      action: 'create',
+      changes: snapshotAsChangeSet(this.auditSnapshot(template), 'create'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
     return this.toDto(template);
   }
 
@@ -236,11 +282,40 @@ export class ShiftTemplatesController {
   async update(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: UpdateShiftTemplateDto,
   ): Promise<void> {
     const existing = await this.templateRepo.findById(id, companyId);
     if (!existing) throw new NotFoundException(`ShiftTemplate ${id} not found`);
     await this.templateRepo.updatePartial(id, companyId, dto);
+    const after = await this.templateRepo.findById(id, companyId);
+    if (after) {
+      const fields = [
+        'name',
+        'dayOfWeek',
+        'startTime',
+        'endTime',
+        'requiredSkillId',
+        'demandScore',
+        'undesirableWeight',
+        'isActive',
+        'requiredEmployees',
+        'departmentId',
+      ] as const;
+      await this.audit.log({
+        companyId,
+        entityType: 'shift_template',
+        entityId: id,
+        action: 'update',
+        changes: computeChangeSet(
+          this.auditSnapshot(existing),
+          this.auditSnapshot(after),
+          fields,
+        ),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
   }
 
   /**
@@ -253,8 +328,21 @@ export class ShiftTemplatesController {
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<{ success: boolean }> {
+    const existing = await this.templateRepo.findById(id, companyId);
     await this.templateRepo.delete(id, companyId);
+    if (existing) {
+      await this.audit.log({
+        companyId,
+        entityType: 'shift_template',
+        entityId: id,
+        action: 'delete',
+        changes: snapshotAsChangeSet(this.auditSnapshot(existing), 'delete'),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
     return { success: true };
   }
 

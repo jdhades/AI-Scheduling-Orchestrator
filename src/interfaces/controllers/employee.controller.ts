@@ -1,5 +1,14 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import {
+  ENTITY_AUDIT_SERVICE,
+  computeChangeSet,
+  snapshotAsChangeSet,
+  type IEntityAuditService,
+} from '../../domain/audit/entity-audit.service';
+import { Inject } from '@nestjs/common';
 import {
   Body,
   Controller,
@@ -46,7 +55,18 @@ export class EmployeeController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  private auditFields = [
+    'name',
+    'phone',
+    'experienceMonths',
+    'locale',
+    'role',
+    'departmentId',
+  ] as const;
 
   /**
    * POST /employees
@@ -58,6 +78,7 @@ export class EmployeeController {
   async register(
     @Body() dto: RegisterEmployeeDto,
     @Headers('x-company-id') companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<{ employeeId: string }> {
     const phone = PhoneNumber.create(dto.phone);
     const experience = new ExperienceLevel(
@@ -77,7 +98,34 @@ export class EmployeeController {
       ),
     );
 
+    const created = await this.queryBus
+      .execute(new GetEmployeeByIdQuery(employeeId, companyId))
+      .catch(() => null);
+    if (created) {
+      await this.audit.log({
+        companyId,
+        entityType: 'employee',
+        entityId: employeeId,
+        action: 'create',
+        changes: snapshotAsChangeSet(
+          this.pickAuditFields(created as Record<string, unknown>),
+          'create',
+        ),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
+
     return { employeeId };
+  }
+
+  private pickAuditFields(
+    emp: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return this.auditFields.reduce<Record<string, unknown>>((acc, f) => {
+      acc[f] = emp[f] ?? null;
+      return acc;
+    }, {});
   }
 
   /**
@@ -135,10 +183,36 @@ export class EmployeeController {
     @Param('id') employeeId: string,
     @Body() dto: UpdateEmployeeDto,
     @Headers('x-company-id') companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
+    const before = (await this.queryBus
+      .execute(new GetEmployeeByIdQuery(employeeId, companyId))
+      .catch(() => null)) as Record<string, unknown> | null;
     await this.commandBus.execute(
       new UpdateEmployeeCommand(employeeId, companyId, dto),
     );
+    const after = (await this.queryBus
+      .execute(new GetEmployeeByIdQuery(employeeId, companyId))
+      .catch(() => null)) as Record<string, unknown> | null;
+    if (before && after) {
+      const beforeSnap = this.pickAuditFields(before) as Record<
+        (typeof this.auditFields)[number],
+        unknown
+      >;
+      const afterSnap = this.pickAuditFields(after) as Record<
+        (typeof this.auditFields)[number],
+        unknown
+      >;
+      await this.audit.log({
+        companyId,
+        entityType: 'employee',
+        entityId: employeeId,
+        action: 'update',
+        changes: computeChangeSet(beforeSnap, afterSnap, this.auditFields),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
   }
 
   /**
@@ -151,9 +225,24 @@ export class EmployeeController {
   async delete(
     @Param('id') employeeId: string,
     @Headers('x-company-id') companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
+    const before = (await this.queryBus
+      .execute(new GetEmployeeByIdQuery(employeeId, companyId))
+      .catch(() => null)) as Record<string, unknown> | null;
     await this.commandBus.execute(
       new DeleteEmployeeCommand(employeeId, companyId),
     );
+    if (before) {
+      await this.audit.log({
+        companyId,
+        entityType: 'employee',
+        entityId: employeeId,
+        action: 'delete',
+        changes: snapshotAsChangeSet(this.pickAuditFields(before), 'delete'),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
   }
 }
