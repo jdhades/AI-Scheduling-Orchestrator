@@ -57,6 +57,9 @@ interface MeResponse {
     /** ISO timestamp cuando el trial vence. Solo relevante si
      * subscriptionStatus='trialing'. */
     trialEndsAt: string | null;
+    /** Primer día de la semana laboral. Configurado en onboarding,
+     * editable desde Settings. Default 'monday'. */
+    weekStartsOn: 'sunday' | 'monday';
   };
   permissions: string[];
   /** true si el caller está en `platform_admins`. El frontend usa esto
@@ -262,7 +265,9 @@ export class AuthController {
 
     const companyP = this.supabase
       .from('companies')
-      .select('id, name, onboarded_at, subscription_status, trial_ends_at')
+      .select(
+        'id, name, onboarded_at, subscription_status, trial_ends_at, week_starts_on',
+      )
       .eq('id', user.companyId)
       .maybeSingle();
     const employeeP = user.employeeId
@@ -350,6 +355,8 @@ export class AuthController {
           (company?.subscription_status as MeResponse['company']['subscriptionStatus']) ??
           'trialing',
         trialEndsAt: company?.trial_ends_at ?? null,
+        weekStartsOn:
+          (company?.week_starts_on as 'sunday' | 'monday') ?? 'monday',
       },
       permissions,
       isPlatformAdmin,

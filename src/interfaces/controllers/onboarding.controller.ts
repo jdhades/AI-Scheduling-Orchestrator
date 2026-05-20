@@ -11,6 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import {
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -49,6 +50,12 @@ export class CompleteOnboardingDto {
   @IsString()
   @MinLength(1)
   companyName!: string;
+
+  /** Primer día de la semana laboral. Configurado en el step de
+   * preferencias de scheduling. Default 'monday' si no viene. */
+  @IsOptional()
+  @IsIn(['sunday', 'monday'])
+  weekStartsOn?: 'sunday' | 'monday';
 
   /** Resto del state — se guarda como snapshot en el draft. Los campos
    * que tengan destino propio (futuro: timezone, business_type) los
@@ -146,9 +153,16 @@ export class OnboardingController {
     //    campos del wizard (timezone, business_type, scheduling prefs)
     //    se materializarán cuando agreguemos sus columnas/tablas en PRs
     //    siguientes. Snapshot completo queda en onboarding_drafts.
+    const updates: Record<string, unknown> = {
+      name: body.companyName,
+      onboarded_at: onboardedAt,
+    };
+    if (body.weekStartsOn) {
+      updates.week_starts_on = body.weekStartsOn;
+    }
     const { error: uErr } = await this.supabase
       .from('companies')
-      .update({ name: body.companyName, onboarded_at: onboardedAt })
+      .update(updates)
       .eq('id', user.companyId);
     if (uErr) throw new BadRequestException(uErr.message);
 

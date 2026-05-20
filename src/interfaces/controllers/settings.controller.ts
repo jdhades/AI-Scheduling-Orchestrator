@@ -8,6 +8,7 @@ import {
   Inject,
   NotFoundException,
   Param,
+  Patch,
   Put,
 } from '@nestjs/common';
 import {
@@ -387,4 +388,35 @@ export class SettingsController {
     ]);
     return scoped.has(cap);
   }
+
+  // ─── Company settings (preferencias del tenant) ─────────────────────
+
+  /**
+   * PATCH /settings/company — actualiza preferencias del tenant.
+   *
+   * Por ahora solo `weekStartsOn`. Llamado desde la Settings page del
+   * owner para cambiar el día de inicio de semana después del
+   * onboarding. Afecta cómo el frontend computa "esta semana" y cómo
+   * el solver agrupa fechas en futuras generaciones.
+   */
+  @Patch('company')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async updateCompanySettings(
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateCompanySettingsDto,
+  ): Promise<void> {
+    const updates: Record<string, unknown> = {};
+    if (body.weekStartsOn) updates.week_starts_on = body.weekStartsOn;
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await this.supabase
+      .from('companies')
+      .update(updates)
+      .eq('id', companyId);
+    if (error) throw new BadRequestException(error.message);
+  }
+}
+
+export class UpdateCompanySettingsDto {
+  @IsIn(['sunday', 'monday'])
+  weekStartsOn!: 'sunday' | 'monday';
 }
