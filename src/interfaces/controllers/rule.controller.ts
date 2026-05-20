@@ -1,4 +1,6 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   Body,
   Controller,
@@ -14,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CreateSemanticRuleCommand } from '../../application/commands/create-semantic-rule.command';
+import { LlmJobDispatcher } from '../../application/jobs/llm-job-dispatcher.service';
 import { DeleteSemanticRuleCommand } from '../../application/commands/delete-semantic-rule.command';
 import { UpdateSemanticRuleMetadataCommand } from '../../application/commands/update-semantic-rule-metadata.command';
 import { UpdateSemanticRuleTextCommand } from '../../application/commands/update-semantic-rule-text.command';
@@ -44,34 +47,53 @@ export class RuleController {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly llmDispatcher: LlmJobDispatcher,
   ) {}
 
   /**
    * POST /rules/semantic?companyId=UUID
    *
-   * Crea una nueva regla semántica en lenguaje natural.
-   * El EmbeddingService genera el vector automáticamente.
+   * Crea una regla semántica. ASYNC: encola job LLM (embedding +
+   * extracción de estructura + duplicate detection) y responde 202
+   * con el jobId. Frontend muestra banner "procesando" y refresca
+   * la lista cuando llega WS event `LlmJobCompleted`.
    *
-   * Respuesta: { id: UUID, embeddingGenerated: boolean }
-   *   embeddingGenerated=false significa que la regla fue guardada pero
-   *   sin vector — ocurre si la API de Gemini estaba caída.
+   * Path sync legacy disponible con `?async=false` — útil para tests
+   * o clients que prefieren bloquear.
    */
   @Post()
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.ACCEPTED)
   async create(
     @Body() dto: CreateSemanticRuleDto,
     @CurrentCompany() companyId: string,
-  ): Promise<CreateSemanticRuleResult> {
-    return this.commandBus.execute(
-      new CreateSemanticRuleCommand(
+    @CurrentUser() user: AuthContext | undefined,
+    @Query('async') asyncFlag?: string,
+  ): Promise<{ jobId: string } | CreateSemanticRuleResult> {
+    if (asyncFlag === 'false') {
+      // Path sync legacy.
+      return this.commandBus.execute(
+        new CreateSemanticRuleCommand(
+          companyId,
+          dto.ruleText,
+          dto.priorityLevel,
+          dto.ruleType,
+          dto.createdBy,
+          dto.metadata,
+        ),
+      );
+    }
+    const jobId = await this.llmDispatcher.enqueue(
+      'create_rule',
+      {
         companyId,
-        dto.ruleText,
-        dto.priorityLevel,
-        dto.ruleType,
-        dto.createdBy,
-        dto.metadata,
-      ),
+        actorEmployeeId: user?.employeeId ?? null,
+        text: dto.ruleText,
+        priority: dto.priorityLevel,
+        ruleType: dto.ruleType,
+      },
+      { label: dto.ruleText.slice(0, 60) },
     );
+    return { jobId };
   }
 
   /**
@@ -144,14 +166,30 @@ export class RuleController {
    * ("esto reprocesa la regla con IA") antes de llamar.
    */
   @Patch(':id/text')
+  @HttpCode(HttpStatus.ACCEPTED)
   async updateText(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: UpdateSemanticRuleTextDto,
-  ): Promise<unknown> {
-    return this.commandBus.execute(
-      new UpdateSemanticRuleTextCommand(id, companyId, dto.ruleText),
+    @Query('async') asyncFlag?: string,
+  ): Promise<{ jobId: string } | unknown> {
+    if (asyncFlag === 'false') {
+      return this.commandBus.execute(
+        new UpdateSemanticRuleTextCommand(id, companyId, dto.ruleText),
+      );
+    }
+    const jobId = await this.llmDispatcher.enqueue(
+      'update_rule_text',
+      {
+        companyId,
+        actorEmployeeId: user?.employeeId ?? null,
+        ruleId: id,
+        newText: dto.ruleText,
+      },
+      { label: dto.ruleText.slice(0, 60) },
     );
+    return { jobId };
   }
 
   /**

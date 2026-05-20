@@ -21,3 +21,25 @@ export interface ScheduleGenerationJobPayload {
   locale?: string; // 'es' default
   source: ScheduleGenerationJobSource;
 }
+
+// ─── LLM job payloads (sprint async LLM) ────────────────────────────
+// Shape común: cada job lleva `companyId` + `actorEmployeeId` para
+// emitir el WS event tenant-scoped y para auditar quién disparó.
+
+export interface CreateRuleJobPayload {
+  companyId: string;
+  actorEmployeeId: string | null;
+  text: string;
+  priority: number;
+  ruleType: 'restriction' | 'preference' | 'requirement';
+  scopeType?: 'company' | 'branch' | 'department' | 'employee';
+  scopeId?: string | null;
+}
+
+export interface UpdateRuleTextJobPayload {
+  companyId: string;
+  actorEmployeeId: string | null;
+  ruleId: string;
+  newText: string;
+}
+

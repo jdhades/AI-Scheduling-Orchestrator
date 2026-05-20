@@ -70,6 +70,8 @@ import { ShiftBreakManager } from '../domain/services/shift-break-manager.servic
 import { ScheduleGenerationJobHandler } from './jobs/schedule-generation-job.handler';
 import { ScheduleGenerationDeadletterHandler } from './jobs/schedule-generation-deadletter.handler';
 import { ScheduleGenerationDispatcher } from './jobs/schedule-generation-dispatcher.service';
+import { LlmJobDispatcher } from './jobs/llm-job-dispatcher.service';
+import { LlmJobWorker } from './jobs/llm-job.worker';
 
 /**
  * ApplicationModule
@@ -184,6 +186,11 @@ const DomainServices = [
   ScheduleGenerationDispatcher,
   ScheduleGenerationJobHandler,
   ScheduleGenerationDeadletterHandler,
+  // Sprint async LLM: dispatcher único + worker que sirve 3 queues
+  // (create_rule, update_rule_text, process_incident_evidence).
+  // Reusa los CommandHandlers existentes via CommandBus.
+  LlmJobDispatcher,
+  LlmJobWorker,
 ];
 
 const PolicyDomainProviders = [

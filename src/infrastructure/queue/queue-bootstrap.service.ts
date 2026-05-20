@@ -3,6 +3,8 @@ import { PgBossService } from './pg-boss.service';
 import {
   JOB_SCHEDULE_GENERATE,
   JOB_SCHEDULE_GENERATE_DEAD,
+  JOB_LLM_CREATE_RULE,
+  JOB_LLM_UPDATE_RULE_TEXT,
 } from './job-names';
 
 /**
@@ -76,6 +78,23 @@ export class QueueBootstrapService implements OnModuleInit {
 
     this.logger.log(
       `Queues ready: ${JOB_SCHEDULE_GENERATE} (exclusive, retry=0, expire=600s, dead→${JOB_SCHEDULE_GENERATE_DEAD})`,
+    );
+
+    // ─── LLM jobs ────────────────────────────────────────────────────
+    // policy=standard (sin singletonKey — el mismo manager puede crear
+    // 2 reglas distintas en paralelo). retryLimit=0 + expire=600s para
+    // matchear schedule.generate. Sin dead-letter por ahora — failures
+    // se reportan vía WS event LlmJobFailed.
+    for (const queue of [JOB_LLM_CREATE_RULE, JOB_LLM_UPDATE_RULE_TEXT]) {
+      await boss.createQueue(queue, {
+        policy: 'standard',
+        retryLimit: 0,
+        expireInSeconds: 600,
+      });
+      await this.syncQueueConfig(queue, 0, 600);
+    }
+    this.logger.log(
+      `LLM queues ready: ${JOB_LLM_CREATE_RULE}, ${JOB_LLM_UPDATE_RULE_TEXT} (standard, retry=0, expire=600s)`,
     );
   }
 

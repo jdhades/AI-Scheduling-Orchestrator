@@ -247,4 +247,54 @@ export class NotificationsGateway
       timestamp: new Date().toISOString(),
     });
   }
+
+  // ─── LLM jobs (sprint async LLM) ──────────────────────────────────
+  // Shape estándar: { jobId, type, companyId } + result | error.
+  // El frontend (LlmJobsStore) acumula los jobs en curso, los muestra
+  // en un banner global y emite toast con el resultado.
+
+  notifyLlmJobStarted(
+    companyId: string,
+    jobId: string,
+    type: string,
+    label?: string,
+  ): void {
+    this.emitToCompany(companyId, 'LlmJobStarted', {
+      jobId,
+      type,
+      companyId,
+      label: label ?? null,
+    });
+    this.logger.log(`Broadcasted LlmJobStarted job=${jobId} type=${type}`);
+  }
+
+  notifyLlmJobCompleted(
+    companyId: string,
+    jobId: string,
+    type: string,
+    result: unknown,
+  ): void {
+    this.emitToCompany(companyId, 'LlmJobCompleted', {
+      jobId,
+      type,
+      companyId,
+      result,
+    });
+    this.logger.log(`Broadcasted LlmJobCompleted job=${jobId} type=${type}`);
+  }
+
+  notifyLlmJobFailed(
+    companyId: string,
+    jobId: string,
+    type: string,
+    error: string,
+  ): void {
+    this.emitToCompany(companyId, 'LlmJobFailed', {
+      jobId,
+      type,
+      companyId,
+      error,
+    });
+    this.logger.log(`Broadcasted LlmJobFailed job=${jobId} type=${type}: ${error}`);
+  }
 }
