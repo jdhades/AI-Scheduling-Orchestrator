@@ -80,6 +80,11 @@ export class ReplaceCapabilitiesDto {
   capabilities!: string[];
 }
 
+export class UpdateCompanySettingsDto {
+  @IsIn(['sunday', 'monday'])
+  weekStartsOn!: 'sunday' | 'monday';
+}
+
 interface CapabilityInfo {
   key: Capability;
   description: string;
@@ -438,9 +443,4 @@ export class SettingsController {
       await this.fairnessRepo.deleteAllByCompany(companyId);
     }
   }
-}
-
-export class UpdateCompanySettingsDto {
-  @IsIn(['sunday', 'monday'])
-  weekStartsOn!: 'sunday' | 'monday';
 }
