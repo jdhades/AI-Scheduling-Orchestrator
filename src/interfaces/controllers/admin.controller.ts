@@ -14,10 +14,13 @@ import {
   IsDateString,
   IsIn,
   IsOptional,
+  IsString,
+  ValidateIf,
 } from 'class-validator';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { PlatformAdmin } from '../../infrastructure/auth/decorators/platform-admin.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
+import { CompanyPreferencesService } from '../../application/services/company-preferences.service';
 
 /**
  * AdminController — endpoints cross-tenant para platform admins.
@@ -44,6 +47,24 @@ export class UpdateSubscriptionDto {
   trialEndsAt?: string;
 }
 
+/**
+ * DTO para asignar el LLM activo de un tenant. Ambos campos son
+ * nullable — null = fallback al env-wide.
+ *
+ * `provider=null` implica `model=null` (no tiene sentido fijar modelo
+ * sin provider). El handler valida esa coherencia.
+ */
+export class UpdateLlmConfigDto {
+  @ValidateIf((_o, v) => v !== null)
+  @IsIn(['qwen', 'gemini', 'local'])
+  provider!: 'qwen' | 'gemini' | 'local' | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  model?: string | null;
+}
+
 interface AdminCompanyRow {
   id: string;
   name: string | null;
@@ -55,12 +76,18 @@ interface AdminCompanyRow {
   employeeCount: number;
 }
 
+interface AdminCompanyDetail extends AdminCompanyRow {
+  llmProvider: 'qwen' | 'gemini' | 'local' | null;
+  llmModel: string | null;
+}
+
 @Controller('admin')
 @PlatformAdmin()
 @AllowExpiredTrial()
 export class AdminController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {}
 
   @Get('companies')
@@ -92,11 +119,11 @@ export class AdminController {
   }
 
   @Get('companies/:id')
-  async getCompany(@Param('id') id: string): Promise<AdminCompanyRow> {
+  async getCompany(@Param('id') id: string): Promise<AdminCompanyDetail> {
     const { data, error } = await this.supabase
       .from('companies')
       .select(
-        'id, name, created_via, subscription_status, trial_ends_at, onboarded_at, created_at, employees(count)',
+        'id, name, created_via, subscription_status, trial_ends_at, onboarded_at, created_at, llm_provider, llm_model, employees(count)',
       )
       .eq('id', id)
       .maybeSingle();
@@ -115,6 +142,8 @@ export class AdminController {
         Array.isArray(data.employees) && data.employees[0]
           ? ((data.employees[0] as { count: number }).count ?? 0)
           : 0,
+      llmProvider: (data.llm_provider as AdminCompanyDetail['llmProvider']) ?? null,
+      llmModel: (data.llm_model as string | null) ?? null,
     };
   }
 
@@ -142,6 +171,41 @@ export class AdminController {
       id: data.id as string,
       subscriptionStatus: data.subscription_status as string,
       trialEndsAt: (data.trial_ends_at as string | null) ?? null,
+    };
+  }
+
+  /**
+   * PATCH /admin/companies/:id/llm-config
+   *
+   * Asigna provider + model que usa el tenant. null en provider = el
+   * tenant cae al env-wide. Invalidamos el cache de CompanyPreferences
+   * para que la próxima llamada lea el valor nuevo.
+   */
+  @Patch('companies/:id/llm-config')
+  @HttpCode(HttpStatus.OK)
+  async updateLlmConfig(
+    @Param('id') id: string,
+    @Body() body: UpdateLlmConfigDto,
+  ): Promise<{ id: string; llmProvider: string | null; llmModel: string | null }> {
+    // Si provider es null, model también debe ser null (coherencia).
+    const provider = body.provider ?? null;
+    const model = provider ? (body.model ?? null) : null;
+
+    const { data, error } = await this.supabase
+      .from('companies')
+      .update({ llm_provider: provider, llm_model: model })
+      .eq('id', id)
+      .select('id, llm_provider, llm_model')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Company not found');
+
+    this.companyPreferences.invalidate(id);
+
+    return {
+      id: data.id as string,
+      llmProvider: (data.llm_provider as string | null) ?? null,
+      llmModel: (data.llm_model as string | null) ?? null,
     };
   }
 }

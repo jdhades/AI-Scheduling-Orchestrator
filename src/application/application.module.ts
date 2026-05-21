@@ -61,6 +61,7 @@ import { LLMLineProposerService } from '../domain/services/llm-line-proposer.ser
 import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { CompanyPreferencesService } from './services/company-preferences.service';
+import { LlmResolverService } from './services/llm-resolver.service';
 import { CoverageService } from '../domain/services/coverage.service';
 import { OperationalKpisService } from '../domain/services/operational-kpis.service';
 import { OperationalBreakdownService } from '../domain/services/operational-breakdown.service';
@@ -164,6 +165,9 @@ const DomainServices = [
   // Lo inyectan handlers/services que necesitan normalizar fechas al
   // inicio-de-semana del tenant en lugar de hardcodear lunes.
   CompanyPreferencesService,
+  // Sprint admin/soporte — devuelve el ILLMService apropiado por tenant
+  // (companies.llm_provider). Sin pref configurada → env-wide default.
+  LlmResolverService,
   // Coverage heatmap: cobertura (assigned vs required) por día×hora para
   // una semana. Lee templates + assignments del tenant; no persiste.
   CoverageService,

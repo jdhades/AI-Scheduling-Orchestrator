@@ -4,6 +4,7 @@ import { VirtualShiftSlot } from '../../../src/domain/value-objects/virtual-shif
 import { PhoneNumber } from '../../../src/domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../../src/domain/value-objects/experience-level.vo';
 import type { ILLMService } from '../../../src/domain/services/llm.service.interface';
+import type { LlmResolverService } from '../../../src/application/services/llm-resolver.service';
 
 const COMPANY = 'co-1';
 const RANGES = { junior: 6, intermediate: 24, senior: 999 };
@@ -37,6 +38,14 @@ function fakeLLM(response: string): ILLMService {
   };
 }
 
+function fakeResolver(response: string): LlmResolverService {
+  const llm = fakeLLM(response);
+  return {
+    forCompany: jest.fn().mockResolvedValue(llm),
+    default: jest.fn().mockReturnValue(llm),
+  } as unknown as LlmResolverService;
+}
+
 describe('LLMLineProposerService', () => {
   it('traduce nombres de empleado y template a UUIDs al parsear', async () => {
     const emps = [makeEmployee('u-sofia', 'Sofía'), makeEmployee('u-pablo', 'Pablo')];
@@ -52,8 +61,9 @@ describe('LLMLineProposerService', () => {
         { employee: 'Pablo', days: { '2026-03-09': 'Nocturno' } },
       ],
     });
-    const service = new LLMLineProposerService(fakeLLM(llmResponse));
+    const service = new LLMLineProposerService(fakeResolver(llmResponse));
     const result = await service.proposeLines({
+      companyId: COMPANY,
       employees: emps,
       slots,
       semanticRules: [],
@@ -78,8 +88,9 @@ Al final devuelvo:
 \`\`\`
 
 Listo.`;
-    const service = new LLMLineProposerService(fakeLLM(raw));
+    const service = new LLMLineProposerService(fakeResolver(raw));
     const result = await service.proposeLines({
+      companyId: COMPANY,
       employees: emps,
       slots,
       semanticRules: [],
@@ -92,8 +103,9 @@ Listo.`;
     const emps = [makeEmployee('u-1', 'Ana')];
     const slots = [makeSlot('tpl-d', 'Diurno', '2026-03-09')];
     const raw = '{ esto no es JSON válido';
-    const service = new LLMLineProposerService(fakeLLM(raw));
+    const service = new LLMLineProposerService(fakeResolver(raw));
     const result = await service.proposeLines({
+      companyId: COMPANY,
       employees: emps,
       slots,
       semanticRules: [],
@@ -120,8 +132,9 @@ Listo.`;
         { employee: 'Ana-eeffff', days: { '2026-03-09': 'rest' } },
       ],
     });
-    const service = new LLMLineProposerService(fakeLLM(raw));
+    const service = new LLMLineProposerService(fakeResolver(raw));
     const result = await service.proposeLines({
+      companyId: COMPANY,
       employees: emps,
       slots,
       semanticRules: [],
@@ -146,8 +159,9 @@ Listo.`;
       weekStart: '2026-03-09',
       lines: [{ employee: 'Ana', days: { '2026-03-09': 'Diurno-111111' } }],
     });
-    const service = new LLMLineProposerService(fakeLLM(raw));
+    const service = new LLMLineProposerService(fakeResolver(raw));
     const result = await service.proposeLines({
+      companyId: COMPANY,
       employees: emps,
       slots,
       semanticRules: [],

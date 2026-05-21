@@ -244,6 +244,7 @@ export class WeekScheduleBuilder {
         throw new Error('Job cancelled before next LLM attempt');
       }
       const llmLines = await this.proposer.proposeLines({
+        companyId: params.companyId,
         employees: params.employees,
         slots: params.slots,
         semanticRules: params.semanticRules,

@@ -1,9 +1,8 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Employee } from '../aggregates/employee.aggregate';
 import type { VirtualShiftSlot } from '../value-objects/virtual-shift-slot.vo';
 import type { SemanticConstraint } from '../types/scheduling-types';
-import type { ILLMService } from './llm.service.interface';
-import { LLM_SERVICE } from './llm.service.interface';
+import { LlmResolverService } from '../../application/services/llm-resolver.service';
 
 /**
  * LLMLineProposerService — pide al LLM una LÍNEA SEMANAL por empleado.
@@ -28,9 +27,11 @@ export class LLMLineProposerService {
   /** Cache de traducciones: evita re-llamar al LLM en loops de reintento. */
   private readonly translationCache = new Map<string, string[]>();
 
-  constructor(@Inject(LLM_SERVICE) private readonly llm: ILLMService) {}
+  constructor(private readonly llmResolver: LlmResolverService) {}
 
   async proposeLines(params: {
+    /** Tenant para resolver el ILLMService según companies.llm_provider. */
+    companyId: string;
     employees: Employee[];
     slots: VirtualShiftSlot[];
     semanticRules: SemanticConstraint[];
@@ -57,11 +58,14 @@ export class LLMLineProposerService {
      */
     signal?: AbortSignal;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
-    const { employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock, signal } = params;
+    const { companyId, employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock, signal } = params;
 
     if (employees.length === 0 || slots.length === 0) {
       return new Map();
     }
+
+    // Resuelve el ILLMService según la pref del tenant (env-wide si null).
+    const llm = await this.llmResolver.forCompany(companyId);
 
     const combinedRuleTexts = [
       ...new Set([
@@ -69,7 +73,7 @@ export class LLMLineProposerService {
         ...(rawRuleTexts ?? []),
       ]),
     ];
-    const englishRuleTexts = await this.translateRulesToEnglish(combinedRuleTexts, signal);
+    const englishRuleTexts = await this.translateRulesToEnglish(combinedRuleTexts, llm, signal);
 
     const { prompt, empMaps, templateMaps } = this.buildPrompt({
       employees,
@@ -86,7 +90,7 @@ export class LLMLineProposerService {
 
     let raw: string;
     try {
-      raw = await this.llm.complete(prompt, signal);
+      raw = await llm.complete(prompt, signal);
     } catch (err) {
       // Si fue cancel del usuario, propagamos hacia arriba para que el
       // worker marque el job como cancelado en lugar de caer al
@@ -124,6 +128,7 @@ export class LLMLineProposerService {
    */
   private async translateRulesToEnglish(
     texts: string[],
+    llm: import('./llm.service.interface').ILLMService,
     signal?: AbortSignal,
   ): Promise<string[]> {
     if (texts.length === 0) return [];
@@ -145,7 +150,7 @@ Expected output format:
 
     let raw: string;
     try {
-      raw = await this.llm.complete(prompt, signal);
+      raw = await llm.complete(prompt, signal);
     } catch (err) {
       if (signal?.aborted) throw err;
       this.logger.warn(
