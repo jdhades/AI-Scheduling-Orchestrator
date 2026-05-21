@@ -13,8 +13,11 @@ import {
 import {
   IsDateString,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
   ValidateIf,
 } from 'class-validator';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -79,6 +82,24 @@ interface AdminCompanyRow {
 interface AdminCompanyDetail extends AdminCompanyRow {
   llmProvider: 'qwen' | 'gemini' | 'local' | null;
   llmModel: string | null;
+  defaultMaxHoursPerDay: number | null;
+  defaultMaxHoursPerWeek: number | null;
+}
+
+export class UpdateWorkingTimeDefaultsDto {
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsNumber()
+  @Min(0.01)
+  @Max(24)
+  maxHoursPerDay!: number | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsNumber()
+  @Min(0.01)
+  @Max(168)
+  maxHoursPerWeek!: number | null;
 }
 
 @Controller('admin')
@@ -123,7 +144,7 @@ export class AdminController {
     const { data, error } = await this.supabase
       .from('companies')
       .select(
-        'id, name, created_via, subscription_status, trial_ends_at, onboarded_at, created_at, llm_provider, llm_model, employees(count)',
+        'id, name, created_via, subscription_status, trial_ends_at, onboarded_at, created_at, llm_provider, llm_model, default_max_hours_per_day, default_max_hours_per_week, employees(count)',
       )
       .eq('id', id)
       .maybeSingle();
@@ -144,6 +165,47 @@ export class AdminController {
           : 0,
       llmProvider: (data.llm_provider as AdminCompanyDetail['llmProvider']) ?? null,
       llmModel: (data.llm_model as string | null) ?? null,
+      defaultMaxHoursPerDay: numOrNull(data.default_max_hours_per_day),
+      defaultMaxHoursPerWeek: numOrNull(data.default_max_hours_per_week),
+    };
+  }
+
+  /**
+   * PATCH /admin/companies/:id/working-time-defaults
+   *
+   * Setea (o limpia, pasando null) los caps tenant-wide de hours/day y
+   * hours/week. El WorkingTimePolicyResolver los usa como fallback cuando
+   * no hay override de empleado/depto.
+   */
+  @Patch('companies/:id/working-time-defaults')
+  @HttpCode(HttpStatus.OK)
+  async updateWorkingTimeDefaults(
+    @Param('id') id: string,
+    @Body() body: UpdateWorkingTimeDefaultsDto,
+  ): Promise<{
+    id: string;
+    defaultMaxHoursPerDay: number | null;
+    defaultMaxHoursPerWeek: number | null;
+  }> {
+    const { data, error } = await this.supabase
+      .from('companies')
+      .update({
+        default_max_hours_per_day: body.maxHoursPerDay,
+        default_max_hours_per_week: body.maxHoursPerWeek,
+      })
+      .eq('id', id)
+      .select('id, default_max_hours_per_day, default_max_hours_per_week')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Company not found');
+
+    // El resolver lee el cap del DB cada vez (no cache propio).
+    this.companyPreferences.invalidate(id);
+
+    return {
+      id: data.id as string,
+      defaultMaxHoursPerDay: numOrNull(data.default_max_hours_per_day),
+      defaultMaxHoursPerWeek: numOrNull(data.default_max_hours_per_week),
     };
   }
 
@@ -208,4 +270,10 @@ export class AdminController {
       llmModel: (data.llm_model as string | null) ?? null,
     };
   }
+}
+
+function numOrNull(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
