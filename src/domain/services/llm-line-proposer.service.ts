@@ -32,6 +32,8 @@ export class LLMLineProposerService {
   async proposeLines(params: {
     /** Tenant para resolver el ILLMService según companies.llm_provider. */
     companyId: string;
+    /** Opcional — link al run para correlacionar en llm_prompt_history. */
+    jobId?: string | null;
     employees: Employee[];
     slots: VirtualShiftSlot[];
     semanticRules: SemanticConstraint[];
@@ -58,14 +60,18 @@ export class LLMLineProposerService {
      */
     signal?: AbortSignal;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
-    const { companyId, employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock, signal } = params;
+    const { companyId, jobId, employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock, signal } = params;
 
     if (employees.length === 0 || slots.length === 0) {
       return new Map();
     }
 
     // Resuelve el ILLMService según la pref del tenant (env-wide si null).
-    const llm = await this.llmResolver.forCompany(companyId);
+    // El contexto activa el logging automático a llm_prompt_history.
+    const llm = await this.llmResolver.forCompany(companyId, {
+      operation: 'schedule_generation',
+      jobId: jobId ?? null,
+    });
 
     const combinedRuleTexts = [
       ...new Set([

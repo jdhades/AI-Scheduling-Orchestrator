@@ -139,6 +139,8 @@ export class WeekScheduleBuilder {
      */
     weekStartsOn?: 'sunday' | 'monday';
     companyId: string;
+    /** Sprint admin/soporte — link al run para llm_prompt_history. */
+    jobId?: string | null;
     /**
      * Si el run está acotado a un departamento (handler ya filtró
      * employees + templates), las policies de OTROS departamentos
@@ -245,6 +247,7 @@ export class WeekScheduleBuilder {
       }
       const llmLines = await this.proposer.proposeLines({
         companyId: params.companyId,
+        jobId: params.jobId ?? null,
         employees: params.employees,
         slots: params.slots,
         semanticRules: params.semanticRules,

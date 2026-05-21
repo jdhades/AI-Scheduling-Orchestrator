@@ -34,6 +34,7 @@ import { SettingsController } from './controllers/settings.controller';
 import { CoverageController } from './controllers/coverage.controller';
 import { OperationalKpisController } from './controllers/operational-kpis.controller';
 import { OperationalBreakdownController } from './controllers/operational-breakdown.controller';
+import { AdminPromptHistoryController } from './controllers/admin-prompt-history.controller';
 import { LLMModelBudgetsController } from './controllers/llm-model-budgets.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
@@ -82,6 +83,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     CoverageController,
     OperationalKpisController,
     OperationalBreakdownController,
+    AdminPromptHistoryController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { LLMUsageTracker } from './llm-usage-tracker.service';
 import { LLMUsageLogger } from './llm-usage-logger.service';
+import { PromptHistoryService } from './prompt-history.service';
 
 /**
  * ObservabilityModule — Global, instancia única.
@@ -18,7 +19,7 @@ import { LLMUsageLogger } from './llm-usage-logger.service';
 @Global()
 @Module({
   imports: [SupabaseModule],
-  providers: [LLMUsageTracker, LLMUsageLogger],
-  exports: [LLMUsageTracker, LLMUsageLogger],
+  providers: [LLMUsageTracker, LLMUsageLogger, PromptHistoryService],
+  exports: [LLMUsageTracker, LLMUsageLogger, PromptHistoryService],
 })
 export class ObservabilityModule {}

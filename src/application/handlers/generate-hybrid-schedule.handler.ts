@@ -187,7 +187,7 @@ export class GenerateHybridScheduleHandler
     );
     try {
       const { result, usage } = await this.llmUsageTracker.run(() =>
-        this.runGeneration(command, weekStartsOn),
+        this.runGeneration(command, weekStartsOn, lockToken),
       );
       this.logger.log(
         `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
@@ -210,6 +210,7 @@ export class GenerateHybridScheduleHandler
   private async runGeneration(
     command: GenerateHybridScheduleCommand,
     weekStartsOn: 'sunday' | 'monday',
+    jobId: string,
   ): Promise<HybridScheduleResult> {
     const weekStart = weekStartOf(
       new Date(`${command.weekStart}T00:00:00.000Z`),
@@ -356,6 +357,7 @@ export class GenerateHybridScheduleHandler
       weekStart,
       weekStartsOn,
       companyId: command.companyId,
+      jobId,
       runDepartmentId: command.departmentId,
       signal: command.signal,
       locale: command.locale,
