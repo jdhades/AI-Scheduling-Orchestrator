@@ -66,6 +66,17 @@ export class SupabaseFairnessHistoryRepository implements IFairnessHistoryReposi
       );
   }
 
+  async deleteAllByCompany(companyId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('fairness_history')
+      .delete()
+      .eq('company_id', companyId);
+    if (error)
+      throw new Error(
+        `FairnessHistoryRepository.deleteAllByCompany failed: ${error.message}`,
+      );
+  }
+
   private toDomain(row: Record<string, any>): FairnessHistoryVO {
     return FairnessHistoryVO.create({
       employeeId: row.employee_id,

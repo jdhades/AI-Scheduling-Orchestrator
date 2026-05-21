@@ -31,6 +31,10 @@ import {
   type Capability,
 } from '../../domain/capabilities/catalog';
 import { CompanyPreferencesService } from '../../application/services/company-preferences.service';
+import {
+  FAIRNESS_HISTORY_REPOSITORY,
+  type IFairnessHistoryRepository,
+} from '../../domain/repositories/fairness-history.repository';
 
 /**
  * SettingsController — admin de RBAC para el owner.
@@ -103,6 +107,8 @@ export class SettingsController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
     private readonly companyPreferences: CompanyPreferencesService,
+    @Inject(FAIRNESS_HISTORY_REPOSITORY)
+    private readonly fairnessRepo: IFairnessHistoryRepository,
   ) {}
 
   // ─── Capabilities (role-level) ──────────────────────────────────────
@@ -410,12 +416,27 @@ export class SettingsController {
     const updates: Record<string, unknown> = {};
     if (body.weekStartsOn) updates.week_starts_on = body.weekStartsOn;
     if (Object.keys(updates).length === 0) return;
+
+    // Comparar valor previo para saber si weekStartsOn realmente cambia.
+    // Si cambia, debemos resetear fairness_history (las rows existentes
+    // están keyed por el anchor viejo y el solver las mezclaría con las
+    // nuevas, comparando semanas que no se corresponden).
+    let weekStartsOnChanged = false;
+    if (body.weekStartsOn) {
+      const previous = await this.companyPreferences.getWeekStartsOn(companyId);
+      weekStartsOnChanged = previous !== body.weekStartsOn;
+    }
+
     const { error } = await this.supabase
       .from('companies')
       .update(updates)
       .eq('id', companyId);
     if (error) throw new BadRequestException(error.message);
     this.companyPreferences.invalidate(companyId);
+
+    if (weekStartsOnChanged) {
+      await this.fairnessRepo.deleteAllByCompany(companyId);
+    }
   }
 }
 

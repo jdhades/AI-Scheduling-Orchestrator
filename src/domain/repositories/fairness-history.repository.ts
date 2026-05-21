@@ -31,6 +31,15 @@ export interface IFairnessHistoryRepository {
    * actualizados tras una ejecución del SchedulingEngine.
    */
   upsertBatch(histories: FairnessHistoryVO[]): Promise<void>;
+
+  /**
+   * Borra TODO el historial de fairness de una company. Usado cuando
+   * el tenant cambia `weekStartsOn` — los rows existentes están en una
+   * grilla de semanas distinta y mezclarlos con los nuevos llevaría al
+   * solver a comparar manzanas con peras. Operación administrativa y
+   * poco frecuente.
+   */
+  deleteAllByCompany(companyId: string): Promise<void>;
 }
 
 export const FAIRNESS_HISTORY_REPOSITORY = 'FAIRNESS_HISTORY_REPOSITORY';
