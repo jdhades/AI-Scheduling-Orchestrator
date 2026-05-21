@@ -62,6 +62,7 @@ import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { CompanyPreferencesService } from './services/company-preferences.service';
 import { CoverageService } from '../domain/services/coverage.service';
+import { OperationalKpisService } from '../domain/services/operational-kpis.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
 import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationRunsService } from '../domain/services/schedule-generation-runs.service';
@@ -165,6 +166,9 @@ const DomainServices = [
   // Coverage heatmap: cobertura (assigned vs required) por día×hora para
   // una semana. Lee templates + assignments del tenant; no persiste.
   CoverageService,
+  // KPIs operacionales tenant-wide para el dashboard del manager/owner:
+  // coverage avg, approval rate, fairness CV, generaciones del período.
+  OperationalKpisService,
   // Phase 17.2 — unifica el alta de absence reports entre WhatsApp y
   // panel. Borra assignments del range, calcula urgencia, publica event.
   AbsenceReportCreator,
