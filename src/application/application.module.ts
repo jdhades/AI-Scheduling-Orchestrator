@@ -61,6 +61,7 @@ import { LLMLineProposerService } from '../domain/services/llm-line-proposer.ser
 import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { CompanyPreferencesService } from './services/company-preferences.service';
+import { TenantFeatureService } from '../domain/services/tenant-feature.service';
 import { LlmResolverService } from './services/llm-resolver.service';
 import { CoverageService } from '../domain/services/coverage.service';
 import { OperationalKpisService } from '../domain/services/operational-kpis.service';
@@ -165,6 +166,9 @@ const DomainServices = [
   // Lo inyectan handlers/services que necesitan normalizar fechas al
   // inicio-de-semana del tenant en lugar de hardcodear lunes.
   CompanyPreferencesService,
+  // Sprint admin: feature flags per-tenant. Catálogo en código,
+  // overrides en BD. Consumers leen via TenantFeatureService.isEnabled.
+  TenantFeatureService,
   // Sprint admin/soporte — devuelve el ILLMService apropiado por tenant
   // (companies.llm_provider). Sin pref configurada → env-wide default.
   LlmResolverService,
