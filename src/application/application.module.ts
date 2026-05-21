@@ -63,6 +63,7 @@ import { ManagerNotificationService } from './services/manager-notification.serv
 import { CompanyPreferencesService } from './services/company-preferences.service';
 import { CoverageService } from '../domain/services/coverage.service';
 import { OperationalKpisService } from '../domain/services/operational-kpis.service';
+import { OperationalBreakdownService } from '../domain/services/operational-breakdown.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
 import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationRunsService } from '../domain/services/schedule-generation-runs.service';
@@ -169,6 +170,9 @@ const DomainServices = [
   // KPIs operacionales tenant-wide para el dashboard del manager/owner:
   // coverage avg, approval rate, fairness CV, generaciones del período.
   OperationalKpisService,
+  // Drill-down de KPIs por dept / empleado / turno + métricas
+  // cross-cutting (channel split, schedule churn, WhatsApp activity).
+  OperationalBreakdownService,
   // Phase 17.2 — unifica el alta de absence reports entre WhatsApp y
   // panel. Borra assignments del range, calcula urgencia, publica event.
   AbsenceReportCreator,
