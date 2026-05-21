@@ -40,6 +40,7 @@ import { AdminJobsController } from './controllers/admin-jobs.controller';
 import { AdminLLMUsageController } from './controllers/admin-llm-usage.controller';
 import { AdminDashboardController } from './controllers/admin-dashboard.controller';
 import { AdminTenantOpsController } from './controllers/admin-tenant-ops.controller';
+import { AdminLLMBudgetsController } from './controllers/admin-llm-budgets.controller';
 import { LLMModelBudgetsController } from './controllers/llm-model-budgets.controller';
 import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
@@ -94,6 +95,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AdminLLMUsageController,
     AdminDashboardController,
     AdminTenantOpsController,
+    AdminLLMBudgetsController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto
