@@ -59,6 +59,16 @@ export class PolicyInterpreterRegistry {
   }
 
   /**
+   * Todos los interpreters registrados, incluso los catchAll. Pensado
+   * para introspección del admin panel — el flujo de matching y los
+   * hints al rephrase service siguen usando `getAvailableIds()` /
+   * `findMatch()`, no esto.
+   */
+  getAll(): PolicyInterpreter[] {
+    return Array.from(this.interpreters.values());
+  }
+
+  /**
    * Busca el primer interpreter cuyo `matches(text)` devuelva true.
    * El orden importa — si dos podrían matchear, prefiere el primero
    * registrado. (En práctica los matchers deberían ser disjuntos; si
