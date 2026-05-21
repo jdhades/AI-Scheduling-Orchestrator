@@ -5,6 +5,7 @@ import { CONVERSATIONAL_SERVICE } from '../../domain/services/conversational.ser
 import type { INotificationService } from '../../domain/services/notification.service';
 import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
+import type { Employee } from '../../domain/aggregates/employee.aggregate';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
@@ -271,36 +272,13 @@ export class MessageRouterService {
 
       // Handle Option Selection for rule creation
       if (session.getActionRequired() === 'RULE_SELECT_SCOPE') {
-        const rawText = intent.getRawText().trim().toLowerCase();
-        const selection = intentEntities.selection?.toLowerCase() || rawText;
-
-        const payload = session.getActionPayload()!;
-        let targetBranchId: string | undefined | null = undefined;
-
-        if (selection === '0' || selection === 'todas' || selection === 'todas las sucursales') {
-          targetBranchId = null; // global
-        } else {
-          targetBranchId = payload[`option${selection}_branchId`];
-          if (!targetBranchId) {
-             this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
-             return;
-          }
-        }
-
-        const baseCmd = payload.commandPayload;
-        const cmd = new CreateSemanticRuleCommand(
-             baseCmd.companyId,
-             baseCmd.ruleText,
-             baseCmd.priorityLevel,
-             baseCmd.ruleType,
-             baseCmd.createdBy,
-             baseCmd.metadata,
-             baseCmd.expiresAt ? new Date(baseCmd.expiresAt) : null,
-             targetBranchId
+        await this._handleRuleScopeSelection(
+          from,
+          session,
+          intent.getRawText(),
+          intentEntities,
+          locale,
         );
-        await this._execute(cmd);
-        await this.sessionRepository.clearSession(from);
-        this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
         return;
       }
 
@@ -382,58 +360,15 @@ export class MessageRouterService {
       );
 
       if (mapResult.command?.constructor.name === 'CreateSemanticRuleCommand') {
-        // Permiso configurable por tenant (commits 9 / follow-up). Antes
-        // estaba hardcodeado a role==='manager'; ahora cada tenant
-        // ajusta companies.whatsapp_policy_creator_roles.
-        const allowed = employee
-          ? await this.policyPermission.canCreatePolicy({
-              employeeRole: employee.role,
-              companyId,
-            })
-          : false;
-        if (!allowed) {
-          this._reply(from, this.i18n.t('bot.general.unauthorized', { lang: locale, defaultValue: '⚠️ No tienes permisos para crear reglas de negocio.' }));
-          await this.sessionRepository.clearSession(from);
-          return;
-        }
-
-        const { data: branches, error } = await this.supabase
-          .from('branches')
-          .select('id, name')
-          .eq('company_id', companyId);
-
-        if (!error && branches && branches.length > 1) {
-          let responseText = `Veo que la empresa tiene múltiples sucursales. ¿A qué sucursal aplica esta regla?\n\n0. A todas las sucursales (Global)\n`;
-          const optionsEntities: Record<string, string> = {
-              pendingAction: 'create_rule',
-              ruleStep: 'SELECT_SCOPE',
-          };
-          branches.slice(0, 8).forEach((b, idx) => {
-              const num = idx + 1;
-              responseText += `${num}. ${b.name}\n`;
-              optionsEntities[`option${num}_branchId`] = b.id;
-          });
-
-          session = session.withAction('RULE_SELECT_SCOPE', {
-              ...optionsEntities,
-              commandPayload: { ...mapResult.command }
-          });
-          await this.sessionRepository.saveSession(session);
-          this._reply(from, responseText.trim());
-          return;
-        } else if (!error && branches && branches.length === 1) {
-          const mCmd = mapResult.command as CreateSemanticRuleCommand;
-          mapResult.command = new CreateSemanticRuleCommand(
-             mCmd.companyId,
-             mCmd.ruleText,
-             mCmd.priorityLevel,
-             mCmd.ruleType,
-             mCmd.createdBy,
-             mCmd.metadata,
-             mCmd.expiresAt,
-             branches[0].id
-          );
-        }
+        const handled = await this._handleSemanticRuleScopeBranch(
+          from,
+          companyId,
+          employee,
+          session,
+          mapResult,
+          locale,
+        );
+        if (handled) return;
       }
 
       // 4a. Handle SWAP_SELECT_SHIFT — start the guided swap flow
@@ -444,215 +379,24 @@ export class MessageRouterService {
 
       // 4b. Handle FETCH_SHIFTS (report_absence flow)
       if (mapResult.actionRequired === 'FETCH_SHIFTS') {
-        // Phase 18.4 — antes del flow legacy, intentamos atajos:
-        //   (a) manager-on-behalf: targetEmployeeName presente Y remitente
-        //       tiene role='manager'.
-        //   (b) period: startDate/endDate explícitos.
-        // Si alguno aplica, vamos directo al AbsenceReportCreator y
-        // saltamos el FETCH_SHIFTS guiado.
-        const newPathHandled = await this._tryHandleAbsenceShortPath(
+        const handled = await this._handleAbsenceFetchShifts(
           from,
           employeeId,
           companyId,
+          session,
           mergedEntities,
           locale,
         );
-        if (newPathHandled) return;
-
-        const rawShifts = await this.queryBus.execute<
-          GetUpcomingShiftsQuery,
-          UpcomingShiftDto[]
-        >(new GetUpcomingShiftsQuery(employeeId, companyId, 5));
-
-        if (rawShifts.length === 0) {
-          this._reply(
-            from,
-            this.i18n.t('bot.absence.no_shifts', { lang: locale }),
-          );
-          return;
-        }
-
-        // Filter shifts based on NLP extractions
-        let filteredShifts = rawShifts;
-        if (mergedEntities.date) {
-          filteredShifts = filteredShifts.filter((s) =>
-            new Date(s.startTime)
-              .toISOString()
-              .startsWith(mergedEntities.date!),
-          );
-        }
-        if (mergedEntities.timeOfDay && filteredShifts.length > 1) {
-          filteredShifts = filteredShifts.filter((s) => {
-            const h = new Date(s.startTime).getHours();
-            if (mergedEntities.timeOfDay === 'morning') return h < 12;
-            if (mergedEntities.timeOfDay === 'afternoon')
-              return h >= 12 && h < 18;
-            if (mergedEntities.timeOfDay === 'night') return h >= 18;
-            return true;
-          });
-        }
-        const shifts = filteredShifts.length > 0 ? filteredShifts : rawShifts;
-
-        if (shifts.length === 1) {
-          const shift = shifts[0];
-          const dateStr = new Date(shift.startTime).toLocaleDateString(
-            'es-ES',
-            {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            },
-          );
-          const startHora = new Date(shift.startTime).toLocaleTimeString(
-            'es-ES',
-            { hour: '2-digit', minute: '2-digit' },
-          );
-          const endHora = new Date(shift.endTime).toLocaleTimeString('es-ES', {
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          const startStr = `${dateStr}, de ${startHora} a ${endHora}`;
-          session = session.withIntent('report_absence', {
-            ...mergedEntities,
-            pendingAction: 'report_absence',
-            pendingConfirmationShiftId: shift.shiftId,
-          });
-          await this.sessionRepository.saveSession(session);
-
-          let resp = this.i18n.t('bot.absence.confirm_single_shift', { 
-            lang: locale, 
-            args: { 
-              shiftStr: startStr,
-              reasonPrompt: mergedEntities.reason ? '' : this.i18n.t('bot.absence.reason_prompt', { lang: locale })
-            }
-          });
-          this._reply(from, resp.trim());
-          return;
-        }
-
-        // Multiple shifts -> List options
-        let responseText = this.i18n.t('bot.absence.select_shift', { lang: locale });
-        const optionsEntities: Record<string, string> = {
-          pendingAction: 'report_absence',
-        };
-        shifts.slice(0, 3).forEach((shift, index) => {
-          const num = index + 1;
-          const dateStr = new Date(shift.startTime).toLocaleDateString(
-            'es-ES',
-            {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            },
-          );
-          const startHora = new Date(shift.startTime).toLocaleTimeString(
-            'es-ES',
-            { hour: '2-digit', minute: '2-digit' },
-          );
-          const endHora = new Date(shift.endTime).toLocaleTimeString('es-ES', {
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          const ds = `${dateStr}, de ${startHora} a ${endHora}`;
-          responseText += `${num}. ${ds}\n`;
-          optionsEntities[`option${num}_shiftId`] = shift.shiftId;
-        });
-
-        session = session.withIntent('report_absence', {
-          ...mergedEntities,
-          ...optionsEntities,
-        });
-        await this.sessionRepository.saveSession(session);
-
-        if (!mergedEntities.reason) {
-          responseText += this.i18n.t('bot.absence.reason_prompt_inline', { lang: locale });
-        }
-
-        this._reply(from, responseText.trim());
-        return;
+        if (handled) return;
       }
 
-      // 4c. Handle GENERATE_SELECT_TEMPLATE — flow jerárquico:
-      //     [SELECT_BRANCH if >1] → [SELECT_DEPARTMENT if >1] → SELECT_TEMPLATE.
-      //     Niveles con 1 sola opción se auto-seleccionan (smart-skip).
+      // 4c. Handle GENERATE_SELECT_TEMPLATE — flow jerárquico
       if (mapResult.actionRequired === 'GENERATE_SELECT_TEMPLATE') {
-        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
-        const weekStart = mergedEntities.weekStart || nextWeekStartIso(weekStartsOn);
-        const branches = await this._loadBranches(companyId);
-        const departments = await this._loadDepartments(companyId);
-
-        // Caso degenerado: tenant sin estructura. Generamos directo (todo).
-        if (branches.length === 0 && departments.length === 0) {
-          const command = new GenerateHybridScheduleCommand(companyId, weekStart);
-          await this._execute(command);
-          await this.sessionRepository.clearSession(from);
-          this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
-          return;
-        }
-
-        // ── ¿Smart-skip de branch? ──
-        let chosenBranchId: string | null;
-        if (branches.length <= 1) {
-          chosenBranchId = branches[0]?.id ?? null;
-        } else {
-          // >1 sucursal — preguntar.
-          let responseText = `¿Para qué sucursal querés generar el horario?\n\n`;
-          const optionsEntities: Record<string, string> = {
-            pendingAction: 'generate_schedule',
-            generateStep: 'SELECT_BRANCH',
-            weekStart,
-          };
-          branches.slice(0, 5).forEach((b, idx) => {
-            const num = idx + 1;
-            responseText += `${num}. ${b.name}\n`;
-            optionsEntities[`option${num}_branchId`] = b.id;
-          });
-          session = session.withIntent('generate_schedule', {
-            ...mergedEntities,
-            ...optionsEntities,
-          });
-          await this.sessionRepository.saveSession(session);
-          this._reply(from, responseText.trim());
-          return;
-        }
-
-        // ── ¿Smart-skip de department? ──
-        const deptsForBranch = chosenBranchId
-          ? departments.filter((d) => d.branchId === chosenBranchId)
-          : departments;
-        let chosenDeptId: string | null;
-        if (deptsForBranch.length <= 1) {
-          chosenDeptId = deptsForBranch[0]?.id ?? null;
-        } else {
-          let responseText = `¿Para qué departamento?\n\n`;
-          const optionsEntities: Record<string, string> = {
-            pendingAction: 'generate_schedule',
-            generateStep: 'SELECT_DEPARTMENT',
-            weekStart,
-            ...(chosenBranchId ? { selectedBranchId: chosenBranchId } : {}),
-          };
-          deptsForBranch.slice(0, 5).forEach((d, idx) => {
-            const num = idx + 1;
-            responseText += `${num}. ${d.name}\n`;
-            optionsEntities[`option${num}_departmentId`] = d.id;
-          });
-          session = session.withIntent('generate_schedule', {
-            ...mergedEntities,
-            ...optionsEntities,
-          });
-          await this.sessionRepository.saveSession(session);
-          this._reply(from, responseText.trim());
-          return;
-        }
-
-        // ── SELECT_TEMPLATE (filtrado por dept si lo tenemos) ──
-        await this._promptTemplateSelection(
+        await this._handleGenerateScheduleHierarchicalFlow(
           from,
+          companyId,
           session,
           mergedEntities,
-          companyId,
-          weekStart,
-          chosenDeptId,
           locale,
         );
         return;
@@ -673,62 +417,13 @@ export class MessageRouterService {
         return;
       }
 
-      // 5. Resolve short shift IDs to full UUIDs before executing
-      const command = await this._resolveShortShiftId(
-        mapResult.command,
-        companyId,
+      await this._resolveExecuteAndReply(
         from,
+        employeeId,
+        companyId,
+        mapResult.command,
         locale,
       );
-      if (!command) return; // resolution failed, user was notified
-
-      // 6. Execute command/query
-      const result = await this._execute(command);
-
-      // 6.5 Suggestion-loop interception: si CreateSemanticRuleHandler
-      // marcó la regla como complex y devolvió suggestions, NO se persistió.
-      // Persistimos una WhatsappPendingClarification y replicamos el
-      // suggestion-loop de la web por mensaje. La sesión queda con
-      // pendingAction='create_rule_clarification' a la espera de la
-      // elección del manager.
-      if (
-        command instanceof CreateSemanticRuleCommand &&
-        result &&
-        typeof result === 'object'
-      ) {
-        const ruleResult = result as CreateSemanticRuleResult;
-        if (
-          Array.isArray(ruleResult.suggestions) &&
-          ruleResult.suggestions.length > 0
-        ) {
-          await this._persistAndReplyRuleClarification(
-            from,
-            employeeId,
-            companyId,
-            command,
-            ruleResult.suggestions,
-          );
-          return;
-        }
-      }
-
-      await this.sessionRepository.clearSession(from);
-
-      let reply = this.i18n.t('bot.general.success', { lang: locale });
-      if (typeof result === 'string') {
-          reply = result;
-      } else {
-          const resObj = result as any;
-          if (resObj && typeof resObj === 'object' && resObj.explanation) {
-              reply = resObj.explanation;
-          }
-          // Anexar warnings (reglas en supervisión manual, turnos sin cubrir, etc.)
-          if (resObj && Array.isArray(resObj.warnings) && resObj.warnings.length > 0) {
-              reply += `\n\n⚠️ *Requieren tu revisión:*\n` +
-                  resObj.warnings.map((w: string) => `• ${w}`).join('\n');
-          }
-      }
-      this._reply(from, reply);
     } catch (err) {
       this.logger.error(
         `[route] Error processing message from ${from}: ${(err as Error).message}`,
@@ -2257,5 +1952,483 @@ export class MessageRouterService {
       name: r.name as string,
       phone: (r.phone_number as string) ?? '',
     }));
+  }
+
+  /**
+   * Flow legacy de report_absence cuando el LLM no extrajo shiftId/period.
+   * Intenta short-paths primero (manager-on-behalf, period explícito); si
+   * no aplican, lista los próximos turnos del empleado y pide selección.
+   *
+   * Devuelve `true` cuando manejó el reply (caller debe `return`).
+   */
+  private async _handleAbsenceFetchShifts(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    session: ConversationSessionVO,
+    mergedEntities: Record<string, any>,
+    locale: string,
+  ): Promise<boolean> {
+    // Phase 18.4 — antes del flow legacy, intentamos atajos:
+    //   (a) manager-on-behalf: targetEmployeeName presente Y remitente
+    //       tiene role='manager'.
+    //   (b) period: startDate/endDate explícitos.
+    const shortPathHandled = await this._tryHandleAbsenceShortPath(
+      from,
+      employeeId,
+      companyId,
+      mergedEntities,
+      locale,
+    );
+    if (shortPathHandled) return true;
+
+    const rawShifts = await this.queryBus.execute<
+      GetUpcomingShiftsQuery,
+      UpcomingShiftDto[]
+    >(new GetUpcomingShiftsQuery(employeeId, companyId, 5));
+
+    if (rawShifts.length === 0) {
+      this._reply(from, this.i18n.t('bot.absence.no_shifts', { lang: locale }));
+      return true;
+    }
+
+    const shifts = this._filterUpcomingShifts(rawShifts, mergedEntities);
+
+    if (shifts.length === 1) {
+      await this._promptAbsenceConfirmationForSingleShift(
+        from,
+        session,
+        mergedEntities,
+        shifts[0],
+        locale,
+      );
+      return true;
+    }
+
+    await this._promptAbsenceShiftListSelection(
+      from,
+      session,
+      mergedEntities,
+      shifts,
+      locale,
+    );
+    return true;
+  }
+
+  /**
+   * Filtra los upcoming shifts por `date` y `timeOfDay` que el LLM
+   * pudo haber extraído. Si el filtro deja 0, fallback al set original
+   * (mejor mostrar más que dejar al user sin opciones).
+   */
+  private _filterUpcomingShifts(
+    rawShifts: UpcomingShiftDto[],
+    entities: Record<string, any>,
+  ): UpcomingShiftDto[] {
+    let filtered = rawShifts;
+    if (entities.date) {
+      filtered = filtered.filter((s) =>
+        new Date(s.startTime).toISOString().startsWith(entities.date!),
+      );
+    }
+    if (entities.timeOfDay && filtered.length > 1) {
+      filtered = filtered.filter((s) => {
+        const h = new Date(s.startTime).getHours();
+        if (entities.timeOfDay === 'morning') return h < 12;
+        if (entities.timeOfDay === 'afternoon') return h >= 12 && h < 18;
+        if (entities.timeOfDay === 'night') return h >= 18;
+        return true;
+      });
+    }
+    return filtered.length > 0 ? filtered : rawShifts;
+  }
+
+  private async _promptAbsenceConfirmationForSingleShift(
+    from: string,
+    session: ConversationSessionVO,
+    mergedEntities: Record<string, any>,
+    shift: UpcomingShiftDto,
+    locale: string,
+  ): Promise<void> {
+    const dateStr = new Date(shift.startTime).toLocaleDateString('es-ES', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+    const startHora = new Date(shift.startTime).toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const endHora = new Date(shift.endTime).toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const shiftStr = `${dateStr}, de ${startHora} a ${endHora}`;
+    const updated = session.withIntent('report_absence', {
+      ...mergedEntities,
+      pendingAction: 'report_absence',
+      pendingConfirmationShiftId: shift.shiftId,
+    });
+    await this.sessionRepository.saveSession(updated);
+
+    const resp = this.i18n.t('bot.absence.confirm_single_shift', {
+      lang: locale,
+      args: {
+        shiftStr,
+        reasonPrompt: mergedEntities.reason
+          ? ''
+          : this.i18n.t('bot.absence.reason_prompt', { lang: locale }),
+      },
+    });
+    this._reply(from, resp.trim());
+  }
+
+  /**
+   * Pre-execute branch para CreateSemanticRule: chequea permiso
+   * (`canCreatePolicy`), y si el tenant tiene >1 sucursal abre el flow
+   * SELECT_SCOPE; con 1 sucursal completa el branch_id en el comando;
+   * sin sucursales el comando queda como llegó (scope global).
+   *
+   * Devuelve `true` si manejó el reply (caller debe `return`); `false`
+   * si solo mutó `mapResult.command` y route() debe seguir al execute.
+   */
+  private async _handleSemanticRuleScopeBranch(
+    from: string,
+    companyId: string,
+    employee: Employee | null,
+    session: ConversationSessionVO,
+    mapResult: { command: object | null },
+    locale: string,
+  ): Promise<boolean> {
+    const allowed = employee
+      ? await this.policyPermission.canCreatePolicy({
+          employeeRole: employee.role,
+          companyId,
+        })
+      : false;
+    if (!allowed) {
+      this._reply(
+        from,
+        this.i18n.t('bot.general.unauthorized', {
+          lang: locale,
+          defaultValue: '⚠️ No tienes permisos para crear reglas de negocio.',
+        }),
+      );
+      await this.sessionRepository.clearSession(from);
+      return true;
+    }
+
+    const { data: branches, error } = await this.supabase
+      .from('branches')
+      .select('id, name')
+      .eq('company_id', companyId);
+
+    if (!error && branches && branches.length > 1) {
+      let responseText = `Veo que la empresa tiene múltiples sucursales. ¿A qué sucursal aplica esta regla?\n\n0. A todas las sucursales (Global)\n`;
+      const optionsEntities: Record<string, string> = {
+        pendingAction: 'create_rule',
+        ruleStep: 'SELECT_SCOPE',
+      };
+      branches.slice(0, 8).forEach((b, idx) => {
+        const num = idx + 1;
+        responseText += `${num}. ${b.name}\n`;
+        optionsEntities[`option${num}_branchId`] = b.id;
+      });
+
+      const updated = session.withAction('RULE_SELECT_SCOPE', {
+        ...optionsEntities,
+        commandPayload: { ...mapResult.command },
+      });
+      await this.sessionRepository.saveSession(updated);
+      this._reply(from, responseText.trim());
+      return true;
+    }
+
+    if (!error && branches && branches.length === 1) {
+      const mCmd = mapResult.command as CreateSemanticRuleCommand;
+      mapResult.command = new CreateSemanticRuleCommand(
+        mCmd.companyId,
+        mCmd.ruleText,
+        mCmd.priorityLevel,
+        mCmd.ruleType,
+        mCmd.createdBy,
+        mCmd.metadata,
+        mCmd.expiresAt,
+        branches[0].id,
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Final steps de route(): resolver short-IDs → execute → interceptar
+   * suggestion-loop si la regla salió complex → formatear reply (incluye
+   * warnings si vienen).
+   */
+  private async _resolveExecuteAndReply(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    rawCommand: object,
+    locale: string,
+  ): Promise<void> {
+    const command = await this._resolveShortShiftId(
+      rawCommand,
+      companyId,
+      from,
+      locale,
+    );
+    if (!command) return; // resolution failed, user was notified
+
+    const result = await this._execute(command);
+
+    // Suggestion-loop interception: CreateSemanticRuleHandler puede
+    // marcar la regla como complex y devolver suggestions sin persistir.
+    // Persistimos una WhatsappPendingClarification y replicamos el
+    // suggestion-loop de la web por mensaje.
+    if (command instanceof CreateSemanticRuleCommand && result && typeof result === 'object') {
+      const ruleResult = result as CreateSemanticRuleResult;
+      if (Array.isArray(ruleResult.suggestions) && ruleResult.suggestions.length > 0) {
+        await this._persistAndReplyRuleClarification(
+          from,
+          employeeId,
+          companyId,
+          command,
+          ruleResult.suggestions,
+        );
+        return;
+      }
+    }
+
+    await this.sessionRepository.clearSession(from);
+
+    let reply = this.i18n.t('bot.general.success', { lang: locale });
+    if (typeof result === 'string') {
+      reply = result;
+    } else {
+      const resObj = result as any;
+      if (resObj && typeof resObj === 'object' && resObj.explanation) {
+        reply = resObj.explanation;
+      }
+      // Anexar warnings (reglas en supervisión manual, turnos sin cubrir).
+      if (resObj && Array.isArray(resObj.warnings) && resObj.warnings.length > 0) {
+        reply +=
+          `\n\n⚠️ *Requieren tu revisión:*\n` +
+          resObj.warnings.map((w: string) => `• ${w}`).join('\n');
+      }
+    }
+    this._reply(from, reply);
+  }
+
+  /**
+   * Selección de scope (sucursal) al crear una semantic rule cuando el
+   * tenant tiene >1 branch. La sesión guarda el payload del Command
+   * pendiente; al elegir el branch, reconstruimos y ejecutamos.
+   */
+  private async _handleRuleScopeSelection(
+    from: string,
+    session: ConversationSessionVO,
+    rawText: string,
+    intentEntities: Record<string, any>,
+    locale: string,
+  ): Promise<void> {
+    const selection =
+      intentEntities.selection?.toLowerCase() || rawText.trim().toLowerCase();
+    const payload = session.getActionPayload()!;
+    let targetBranchId: string | undefined | null;
+
+    if (
+      selection === '0' ||
+      selection === 'todas' ||
+      selection === 'todas las sucursales'
+    ) {
+      targetBranchId = null; // global
+    } else {
+      targetBranchId = payload[`option${selection}_branchId`];
+      if (!targetBranchId) {
+        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        return;
+      }
+    }
+
+    const baseCmd = payload.commandPayload;
+    const cmd = new CreateSemanticRuleCommand(
+      baseCmd.companyId,
+      baseCmd.ruleText,
+      baseCmd.priorityLevel,
+      baseCmd.ruleType,
+      baseCmd.createdBy,
+      baseCmd.metadata,
+      baseCmd.expiresAt ? new Date(baseCmd.expiresAt) : null,
+      targetBranchId,
+    );
+    await this._execute(cmd);
+    await this.sessionRepository.clearSession(from);
+    this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+  }
+
+  /**
+   * Flow jerárquico de generate_schedule: SELECT_BRANCH → SELECT_DEPARTMENT
+   * → SELECT_TEMPLATE. Niveles con 0/1 opción se auto-resuelven; con >1
+   * se pregunta al user. Si el tenant no tiene estructura (sin branches
+   * ni departments), genera el horario completo al toque.
+   */
+  private async _handleGenerateScheduleHierarchicalFlow(
+    from: string,
+    companyId: string,
+    session: ConversationSessionVO,
+    mergedEntities: Record<string, any>,
+    locale: string,
+  ): Promise<void> {
+    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStart = mergedEntities.weekStart || nextWeekStartIso(weekStartsOn);
+    const branches = await this._loadBranches(companyId);
+    const departments = await this._loadDepartments(companyId);
+
+    // Caso degenerado: tenant sin estructura. Generamos directo (todo).
+    if (branches.length === 0 && departments.length === 0) {
+      const command = new GenerateHybridScheduleCommand(companyId, weekStart);
+      await this._execute(command);
+      await this.sessionRepository.clearSession(from);
+      this._reply(from, this.i18n.t('bot.general.success', { lang: locale }));
+      return;
+    }
+
+    // ── ¿Smart-skip de branch? ──
+    let chosenBranchId: string | null;
+    if (branches.length <= 1) {
+      chosenBranchId = branches[0]?.id ?? null;
+    } else {
+      await this._promptBranchSelection(from, session, mergedEntities, branches, weekStart);
+      return;
+    }
+
+    // ── ¿Smart-skip de department? ──
+    const deptsForBranch = chosenBranchId
+      ? departments.filter((d) => d.branchId === chosenBranchId)
+      : departments;
+    let chosenDeptId: string | null;
+    if (deptsForBranch.length <= 1) {
+      chosenDeptId = deptsForBranch[0]?.id ?? null;
+    } else {
+      await this._promptDepartmentSelection(
+        from,
+        session,
+        mergedEntities,
+        deptsForBranch,
+        weekStart,
+        chosenBranchId,
+      );
+      return;
+    }
+
+    // ── SELECT_TEMPLATE (filtrado por dept si lo tenemos) ──
+    await this._promptTemplateSelection(
+      from,
+      session,
+      mergedEntities,
+      companyId,
+      weekStart,
+      chosenDeptId,
+      locale,
+    );
+  }
+
+  private async _promptBranchSelection(
+    from: string,
+    session: ConversationSessionVO,
+    mergedEntities: Record<string, any>,
+    branches: Array<{ id: string; name: string }>,
+    weekStart: string,
+  ): Promise<void> {
+    let responseText = `¿Para qué sucursal querés generar el horario?\n\n`;
+    const optionsEntities: Record<string, string> = {
+      pendingAction: 'generate_schedule',
+      generateStep: 'SELECT_BRANCH',
+      weekStart,
+    };
+    branches.slice(0, 5).forEach((b, idx) => {
+      const num = idx + 1;
+      responseText += `${num}. ${b.name}\n`;
+      optionsEntities[`option${num}_branchId`] = b.id;
+    });
+    const updated = session.withIntent('generate_schedule', {
+      ...mergedEntities,
+      ...optionsEntities,
+    });
+    await this.sessionRepository.saveSession(updated);
+    this._reply(from, responseText.trim());
+  }
+
+  private async _promptDepartmentSelection(
+    from: string,
+    session: ConversationSessionVO,
+    mergedEntities: Record<string, any>,
+    departments: Array<{ id: string; name: string; branchId: string | null }>,
+    weekStart: string,
+    chosenBranchId: string | null,
+  ): Promise<void> {
+    let responseText = `¿Para qué departamento?\n\n`;
+    const optionsEntities: Record<string, string> = {
+      pendingAction: 'generate_schedule',
+      generateStep: 'SELECT_DEPARTMENT',
+      weekStart,
+      ...(chosenBranchId ? { selectedBranchId: chosenBranchId } : {}),
+    };
+    departments.slice(0, 5).forEach((d, idx) => {
+      const num = idx + 1;
+      responseText += `${num}. ${d.name}\n`;
+      optionsEntities[`option${num}_departmentId`] = d.id;
+    });
+    const updated = session.withIntent('generate_schedule', {
+      ...mergedEntities,
+      ...optionsEntities,
+    });
+    await this.sessionRepository.saveSession(updated);
+    this._reply(from, responseText.trim());
+  }
+
+  private async _promptAbsenceShiftListSelection(
+    from: string,
+    session: ConversationSessionVO,
+    mergedEntities: Record<string, any>,
+    shifts: UpcomingShiftDto[],
+    locale: string,
+  ): Promise<void> {
+    let responseText = this.i18n.t('bot.absence.select_shift', { lang: locale });
+    const optionsEntities: Record<string, string> = {
+      pendingAction: 'report_absence',
+    };
+    shifts.slice(0, 3).forEach((shift, index) => {
+      const num = index + 1;
+      const dateStr = new Date(shift.startTime).toLocaleDateString('es-ES', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+      const startHora = new Date(shift.startTime).toLocaleTimeString('es-ES', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const endHora = new Date(shift.endTime).toLocaleTimeString('es-ES', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const ds = `${dateStr}, de ${startHora} a ${endHora}`;
+      responseText += `${num}. ${ds}\n`;
+      optionsEntities[`option${num}_shiftId`] = shift.shiftId;
+    });
+
+    const updated = session.withIntent('report_absence', {
+      ...mergedEntities,
+      ...optionsEntities,
+    });
+    await this.sessionRepository.saveSession(updated);
+
+    if (!mergedEntities.reason) {
+      responseText += this.i18n.t('bot.absence.reason_prompt_inline', {
+        lang: locale,
+      });
+    }
+    this._reply(from, responseText.trim());
   }
 }
