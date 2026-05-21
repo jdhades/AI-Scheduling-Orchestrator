@@ -87,6 +87,30 @@ export class StripeService {
   }
 
   /**
+   * Inverso de `resolvePriceId`: dado un price_id, devuelve el nombre del
+   * tier que matchea, o null si no es uno de los configurados. Útil para
+   * el panel admin que necesita mostrar tier a partir del price_id del
+   * tenant.
+   */
+  resolveTierFromPriceId(priceId: string | null): 'starter' | 'growth' | null {
+    if (!priceId) return null;
+    if (priceId === this.priceStarter) return 'starter';
+    if (priceId === this.priceGrowth) return 'growth';
+    return null;
+  }
+
+  /**
+   * Snapshot del catálogo configurado. Cada entry tiene tier + priceId.
+   * Si una variable de entorno falta, el entry queda con priceId=null.
+   */
+  getConfiguredPlans(): Array<{ tier: 'starter' | 'growth'; priceId: string | null }> {
+    return [
+      { tier: 'starter', priceId: this.priceStarter },
+      { tier: 'growth', priceId: this.priceGrowth },
+    ];
+  }
+
+  /**
    * Resuelve el price_id desde un nombre de tier ('starter' | 'growth').
    * Throw si el price no está configurado.
    */
