@@ -4,7 +4,8 @@ import type {
   PolicyInterpreter,
   PolicyViolation,
 } from '../policy-interpreter.interface';
-import { isoDate, isoWeekKey } from './iso-week.util';
+import { isoDate } from './iso-week.util';
+import { companyWeekKey } from '../../shared/week';
 
 export interface MinRestDaysParams {
   /** Mínimo de días sin trabajar por ISO-week. */
@@ -42,7 +43,7 @@ export class MinRestDaysPerWeekInterpreter
 {
   readonly id = 'min_rest_days_per_week';
   readonly description =
-    'Cada empleado debe tener al menos N días libres por ISO-week. Opcional: excluir feriados del cómputo.';
+    'Cada empleado debe tener al menos N días libres por semana (respeta el inicio-de-semana del tenant). Opcional: excluir feriados del cómputo.';
 
   // Permite "días", "dias", "day" y "days" (plurales y singular ES/EN).
   private static readonly DAY_NOUN = '(?:d[ií]as?|days?)';
@@ -98,11 +99,12 @@ export class MinRestDaysPerWeekInterpreter
     params: MinRestDaysParams,
   ): Promise<PolicyViolation[]> {
     const violations: PolicyViolation[] = [];
+    const weekStartsOn = ctx.weekStartsOn ?? 'monday';
     // employeeId → (week → set<YYYY-MM-DD> de días con turno asignado)
     const grouped = new Map<string, Map<string, Set<string>>>();
 
     for (const shift of ctx.shifts) {
-      const week = isoWeekKey(shift.startTime);
+      const week = companyWeekKey(shift.startTime, weekStartsOn);
       const date = isoDate(shift.startTime);
       let weeksMap = grouped.get(shift.employeeId);
       if (!weeksMap) {
@@ -128,7 +130,10 @@ export class MinRestDaysPerWeekInterpreter
           for (const holiday of ctx.holidayDates) {
             if (workedDates.has(holiday)) continue;
             // Verificar que el feriado pertenece a esta semana.
-            if (isoWeekKey(new Date(`${holiday}T00:00:00Z`)) === week) {
+            if (
+              companyWeekKey(new Date(`${holiday}T00:00:00Z`), weekStartsOn) ===
+              week
+            ) {
               restDays -= 1;
             }
           }
@@ -152,7 +157,7 @@ export class MinRestDaysPerWeekInterpreter
 
   format(params: MinRestDaysParams): string {
     return (
-      `Each employee must have at least ${params.days} rest day${params.days === 1 ? '' : 's'} per ISO-week` +
+      `Each employee must have at least ${params.days} rest day${params.days === 1 ? '' : 's'} per week` +
       (params.holidayCounts
         ? '.'
         : ' (holidays do not count as rest days).')

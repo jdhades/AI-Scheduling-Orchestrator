@@ -131,6 +131,13 @@ export class WeekScheduleBuilder {
     rawRuleTexts?: string[];
     multiShiftPermits?: Set<string>;
     weekStart: Date;
+    /**
+     * Sprint week_starts_on — preferencia del tenant para inicio de
+     * semana. Se propaga al `PolicyEvaluationContext` así interpreters
+     * como `MinRestDaysPerWeek` agrupan por la semana del tenant en
+     * lugar de ISO week. Si no se provee, default 'monday' (legacy).
+     */
+    weekStartsOn?: 'sunday' | 'monday';
     companyId: string;
     /**
      * Si el run está acotado a un departamento (handler ya filtró
@@ -209,7 +216,7 @@ export class WeekScheduleBuilder {
         );
       }
       const result = this.build(params);
-      const evalResult = await this.evaluatePolicies(result.assignments, params.slots, policies, params.employees);
+      const evalResult = await this.evaluatePolicies(result.assignments, params.slots, policies, params.employees, params.weekStartsOn);
       const policyWarnings = evalResult.hardViolations.length > 0
         ? [warn.detFallbackNoLLM(evalResult.hardViolations.length)]
         : [];
@@ -262,7 +269,7 @@ export class WeekScheduleBuilder {
         params.employees,
         params.multiShiftPermits,
       );
-      const policyEval = await this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees);
+      const policyEval = await this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees, params.weekStartsOn);
       const policyHardAsVerify: VerifyViolation[] = policyEval.hardViolations.map((v) => ({
         kind: 'policy-hard-violation' as const,
         employeeId: v.employeeId,
@@ -331,7 +338,7 @@ export class WeekScheduleBuilder {
 
     // Determinístico — comparado contra best1 si existe.
     const deterministic = this.build({ ...params, llmLines: undefined });
-    const detEval = await this.evaluatePolicies(deterministic.assignments, params.slots, policies, params.employees);
+    const detEval = await this.evaluatePolicies(deterministic.assignments, params.slots, policies, params.employees, params.weekStartsOn);
     const detCount = detEval.hardViolations.length;
 
     if (best1 && detCount > best1.hardCount) {
@@ -410,6 +417,7 @@ export class WeekScheduleBuilder {
     slots: VirtualShiftSlot[],
     policies: CompanyPolicy[],
     employees: Employee[],
+    weekStartsOn?: 'sunday' | 'monday',
   ): Promise<{
     hardViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
     softViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
@@ -441,6 +449,7 @@ export class WeekScheduleBuilder {
     const result = await this.policyEnforcement.evaluateLoaded(policies, {
       shifts: evalShifts,
       employeeMeta,
+      weekStartsOn,
     });
     return {
       hardViolations: result.hardViolations.map(({ policyId, employeeId, scope, message }) => ({

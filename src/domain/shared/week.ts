@@ -31,3 +31,17 @@ export function nextWeekStartIso(weekStartsOn: WeekStartsOn): string {
   today.setUTCDate(today.getUTCDate() + 7);
   return today.toISOString().split('T')[0];
 }
+
+/**
+ * Clave estable de "semana del tenant" como YYYY-MM-DD del primer día.
+ * Reemplaza a `isoWeekKey` cuando el agrupamiento debe respetar la
+ * preferencia del tenant (lunes vs domingo) — ej. fairness por semana,
+ * counting de rest days, etc.
+ *
+ * Dos fechas en la misma semana del tenant producen la misma key. La
+ * comparación cross-tenant es válida porque la key es la fecha ISO del
+ * anchor, no un número de semana relativo a un calendario.
+ */
+export function companyWeekKey(d: Date, weekStartsOn: WeekStartsOn): string {
+  return weekStartIso(d, weekStartsOn);
+}

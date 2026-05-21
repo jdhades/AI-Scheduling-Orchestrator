@@ -354,6 +354,7 @@ export class GenerateHybridScheduleHandler
       rawRuleTexts,
       multiShiftPermits: resolved.multiShiftPermits,
       weekStart,
+      weekStartsOn,
       companyId: command.companyId,
       runDepartmentId: command.departmentId,
       signal: command.signal,

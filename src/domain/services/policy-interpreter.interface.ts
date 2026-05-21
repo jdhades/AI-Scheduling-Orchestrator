@@ -33,6 +33,12 @@ export interface PolicyEvaluationContext {
    */
   holidayDates?: ReadonlySet<string>;
   /**
+   * Preferencia del tenant para el inicio de semana. Los interpreters que
+   * agrupan por semana (ej. MinRestDaysPerWeek) deben respetarla en lugar
+   * de asumir ISO week (lun-dom). Default 'monday' si no se provee.
+   */
+  weekStartsOn?: 'sunday' | 'monday';
+  /**
    * Phase 14.1 — metadata por empleado para resolver el scope de una
    * policy. Si está presente, `PolicyEnforcementService.evaluateLoaded`
    * filtra `shifts` antes de pasarlos al interpreter usando
