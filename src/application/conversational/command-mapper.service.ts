@@ -194,17 +194,4 @@ export class CommandMapperService {
     return this.i18n.t('bot.absence.missing_reason', { lang: locale });
   }
 
-  /** Returns next Monday in YYYY-MM-DD format. Used when generate_schedule has no weekStart. */
-  private _getNextMonday(): string {
-    const d = new Date();
-    const day = d.getDay();
-    const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
-    d.setDate(d.getDate() + daysUntilMonday);
-    return d.toISOString().split('T')[0];
-  }
-
-  /**
-   * Nota: _parseDurationAsDate se ha eliminado porque Gemini ahora extrae directamente
-   * 'expiresAt' como una fecha ISO (YYYY-MM-DD), evitando heurísticas imprecisas en código.
-   */
 }

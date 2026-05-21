@@ -15,7 +15,13 @@ export type ScheduleGenerationJobSource =
 
 export interface ScheduleGenerationJobPayload {
   companyId: string;
-  weekStart: string; // ISO date — se normaliza al lunes en el handler
+  weekStart: string; // ISO date — se normaliza al inicio-de-semana del tenant en el handler
+  /**
+   * Preferencia tenant para el inicio de semana. Se persiste en el
+   * payload para que el worker normalice idénticamente al dispatcher,
+   * sin volver a hitear `companies` desde el job handler.
+   */
+  weekStartsOn: 'sunday' | 'monday';
   departmentId?: string;
   shiftTemplateId?: string;
   locale?: string; // 'es' default

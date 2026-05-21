@@ -36,8 +36,11 @@ export class ScheduleGenerationDispatcher {
         'pg-boss not enabled (DATABASE_URL missing). Cannot use async path.',
       );
     }
-    const monday = ScheduleGenerationLockService.toMonday(payload.weekStart);
-    const singletonKey = `gen:${payload.companyId}:${monday}`;
+    const normalized = ScheduleGenerationLockService.toWeekStart(
+      payload.weekStart,
+      payload.weekStartsOn,
+    );
+    const singletonKey = `gen:${payload.companyId}:${normalized}`;
 
     const boss = this.pgBoss.getInstance();
     const jobId = await boss.send(
@@ -51,11 +54,11 @@ export class ScheduleGenerationDispatcher {
       // curso. Lanzamos la misma excepción que el path síncrono así
       // el caller no tiene que distinguir.
       this.logger.log(
-        `Rejected duplicate enqueue company=${payload.companyId} week=${monday} (singletonKey=${singletonKey})`,
+        `Rejected duplicate enqueue company=${payload.companyId} week=${normalized} (singletonKey=${singletonKey})`,
       );
       throw new ScheduleGenerationLockedException(
         payload.companyId,
-        monday,
+        normalized,
         new Date().toISOString(),
         'queue',
       );
@@ -63,7 +66,7 @@ export class ScheduleGenerationDispatcher {
 
     this.logger.log(
       `Enqueued job=${jobId} ${JOB_SCHEDULE_GENERATE} ` +
-        `company=${payload.companyId} week=${monday} source=${payload.source.type}`,
+        `company=${payload.companyId} week=${normalized} source=${payload.source.type}`,
     );
     return jobId;
   }

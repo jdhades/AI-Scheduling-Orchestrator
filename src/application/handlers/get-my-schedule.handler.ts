@@ -7,6 +7,8 @@ import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-ass
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import type { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
+import { CompanyPreferencesService } from '../services/company-preferences.service';
+import { weekStartOf, type WeekStartsOn } from '../../domain/shared/week';
 
 @QueryHandler(GetMyScheduleQuery)
 export class GetMyScheduleHandler
@@ -18,22 +20,20 @@ export class GetMyScheduleHandler
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
     private readonly i18n: I18nService,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {}
 
   async execute(query: GetMyScheduleQuery): Promise<string> {
     const { employeeId, companyId, weekStart, locale, forEmployeeName } = query;
+    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
 
-    let monday = this._getCurrentMonday();
-    if (weekStart) {
-      monday = new Date(weekStart + 'T12:00:00');
-      const day = monday.getDay();
-      const diff = monday.getDate() - day + (day === 0 ? -6 : 1);
-      monday.setDate(diff);
-      monday.setHours(0, 0, 0, 0);
-    }
+    const reference = weekStart
+      ? new Date(`${weekStart}T00:00:00.000Z`)
+      : new Date();
+    const monday = weekStartOf(reference, weekStartsOn);
     const sunday = new Date(monday);
-    sunday.setDate(sunday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
+    sunday.setUTCDate(sunday.getUTCDate() + 6);
+    sunday.setUTCHours(23, 59, 59, 999);
 
     const fromISO = monday.toISOString().split('T')[0];
     const toISO = sunday.toISOString().split('T')[0];
@@ -89,6 +89,7 @@ export class GetMyScheduleHandler
       locale,
       weekStart,
       monday,
+      weekStartsOn,
       forEmployeeName,
     );
   }
@@ -97,27 +98,26 @@ export class GetMyScheduleHandler
     assignments: ShiftAssignment[],
     templates: Map<string, ShiftTemplate>,
     locale: string,
-    hasWeekStart?: string,
-    monday?: Date,
+    hasWeekStart: string | undefined,
+    weekStartDate: Date,
+    weekStartsOn: WeekStartsOn,
     forEmployeeName?: string,
   ): string {
-    const dateStr =
-      hasWeekStart && monday
-        ? monday.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', {
-            day: 'numeric',
-            month: 'short',
-          })
-        : '';
-    const titleKey =
-      hasWeekStart && monday
-        ? forEmployeeName
-          ? 'bot.schedule.title_that_week_other'
-          : 'bot.schedule.title_that_week'
-        : forEmployeeName
-          ? 'bot.schedule.title_this_week_other'
-          : 'bot.schedule.title_this_week';
+    const dateStr = hasWeekStart
+      ? weekStartDate.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', {
+          day: 'numeric',
+          month: 'short',
+        })
+      : '';
+    const titleKey = hasWeekStart
+      ? forEmployeeName
+        ? 'bot.schedule.title_that_week_other'
+        : 'bot.schedule.title_that_week'
+      : forEmployeeName
+        ? 'bot.schedule.title_this_week_other'
+        : 'bot.schedule.title_this_week';
     const titleArgs: Record<string, string> = {};
-    if (hasWeekStart && monday) titleArgs.date = dateStr;
+    if (hasWeekStart) titleArgs.date = dateStr;
     if (forEmployeeName) titleArgs.name = forEmployeeName;
     const title = this.i18n.t(titleKey, { lang: locale, args: titleArgs });
     const lines: string[] = [title, ''];
@@ -150,8 +150,9 @@ export class GetMyScheduleHandler
     }
 
     const code = locale === 'en' ? 'en-US' : 'es-ES';
-    const daysOrder = [1, 2, 3, 4, 5, 6, 0];
-    const currentDayDate = monday ? new Date(monday) : this._getCurrentMonday();
+    const startDow = weekStartsOn === 'sunday' ? 0 : 1;
+    const daysOrder = Array.from({ length: 7 }, (_, i) => (startDow + i) % 7);
+    const currentDayDate = new Date(weekStartDate);
 
     for (const dayIndex of daysOrder) {
       const dayName = currentDayDate.toLocaleDateString(code, {
@@ -172,19 +173,10 @@ export class GetMyScheduleHandler
           );
         }
       }
-      currentDayDate.setDate(currentDayDate.getDate() + 1);
+      currentDayDate.setUTCDate(currentDayDate.getUTCDate() + 1);
     }
 
     lines.push('', this.i18n.t('bot.schedule.anything_else', { lang: locale }));
     return lines.join('\n');
-  }
-
-  private _getCurrentMonday(): Date {
-    const now = new Date();
-    const day = now.getDay();
-    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-    now.setDate(diff);
-    now.setHours(0, 0, 0, 0);
-    return now;
   }
 }

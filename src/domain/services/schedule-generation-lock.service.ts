@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { weekStartIso, type WeekStartsOn } from '../shared/week';
 
 /**
  * Thrown when a `generate_schedule` request collides with another
@@ -45,18 +46,14 @@ export class ScheduleGenerationLockService {
   ) {}
 
   /**
-   * Normalize any date string to the Monday of its ISO week (UTC).
-   * Same algorithm que `GenerateHybridScheduleHandler.runGeneration`,
-   * extraído acá para que el lock-key sea idéntico aunque el caller
-   * pase un día arbitrario de la semana.
+   * Normaliza un weekStart al primer día de la semana del tenant
+   * (lunes o domingo según `companies.week_starts_on`).
+   *
+   * El lock-key DB es (company_id, week_start) y debe ser idempotente
+   * aunque el caller pase un día arbitrario dentro de la semana.
    */
-  static toMonday(weekStart: string): string {
-    const raw = new Date(`${weekStart}T00:00:00.000Z`);
-    const day = raw.getUTCDay();
-    const sub = day === 0 ? 6 : day - 1;
-    const d = new Date(raw);
-    d.setUTCDate(d.getUTCDate() - sub);
-    return d.toISOString().split('T')[0];
+  static toWeekStart(weekStart: string, weekStartsOn: WeekStartsOn): string {
+    return weekStartIso(new Date(`${weekStart}T00:00:00.000Z`), weekStartsOn);
   }
 
   /**
@@ -68,20 +65,24 @@ export class ScheduleGenerationLockService {
     companyId: string,
     weekStart: string,
     acquiredBy: string,
+    weekStartsOn: WeekStartsOn,
   ): Promise<void> {
-    const monday = ScheduleGenerationLockService.toMonday(weekStart);
+    const normalized = ScheduleGenerationLockService.toWeekStart(
+      weekStart,
+      weekStartsOn,
+    );
 
     const { error: insertError } = await this.supabase
       .from('schedule_generation_locks')
       .insert({
         company_id: companyId,
-        week_start: monday,
+        week_start: normalized,
         acquired_by: acquiredBy,
       });
 
     if (!insertError) {
       this.logger.log(
-        `Lock acquired company=${companyId} week=${monday} by=${acquiredBy}`,
+        `Lock acquired company=${companyId} week=${normalized} by=${acquiredBy}`,
       );
       return;
     }
@@ -91,7 +92,7 @@ export class ScheduleGenerationLockService {
       .from('schedule_generation_locks')
       .select('acquired_at, acquired_by')
       .eq('company_id', companyId)
-      .eq('week_start', monday)
+      .eq('week_start', normalized)
       .maybeSingle();
 
     if (!existing) {
@@ -101,13 +102,13 @@ export class ScheduleGenerationLockService {
         .from('schedule_generation_locks')
         .insert({
           company_id: companyId,
-          week_start: monday,
+          week_start: normalized,
           acquired_by: acquiredBy,
         });
       if (retryError) {
         throw new ScheduleGenerationLockedException(
           companyId,
-          monday,
+          normalized,
           new Date().toISOString(),
           null,
         );
@@ -119,7 +120,7 @@ export class ScheduleGenerationLockService {
     if (ageMs < ScheduleGenerationLockService.STALE_AFTER_MS) {
       throw new ScheduleGenerationLockedException(
         companyId,
-        monday,
+        normalized,
         existing.acquired_at,
         existing.acquired_by ?? null,
       );
@@ -127,7 +128,7 @@ export class ScheduleGenerationLockService {
 
     // Stale → override (asumimos que el holder anterior crasheó).
     this.logger.warn(
-      `Overriding stale lock company=${companyId} week=${monday} ` +
+      `Overriding stale lock company=${companyId} week=${normalized} ` +
         `(held ${Math.round(ageMs / 1000)}s by ${existing.acquired_by ?? 'unknown'}, reassigning to ${acquiredBy})`,
     );
     await this.supabase
@@ -137,7 +138,7 @@ export class ScheduleGenerationLockService {
         acquired_by: acquiredBy,
       })
       .eq('company_id', companyId)
-      .eq('week_start', monday);
+      .eq('week_start', normalized);
   }
 
   /**
@@ -154,26 +155,30 @@ export class ScheduleGenerationLockService {
   async release(
     companyId: string,
     weekStart: string,
+    weekStartsOn: WeekStartsOn,
     expectedAcquiredBy?: string,
   ): Promise<void> {
-    const monday = ScheduleGenerationLockService.toMonday(weekStart);
+    const normalized = ScheduleGenerationLockService.toWeekStart(
+      weekStart,
+      weekStartsOn,
+    );
     let query = this.supabase
       .from('schedule_generation_locks')
       .delete()
       .eq('company_id', companyId)
-      .eq('week_start', monday);
+      .eq('week_start', normalized);
     if (expectedAcquiredBy !== undefined) {
       query = query.eq('acquired_by', expectedAcquiredBy);
     }
     const { error } = await query;
     if (error) {
       this.logger.warn(
-        `Failed to release lock company=${companyId} week=${monday}: ${error.message}`,
+        `Failed to release lock company=${companyId} week=${normalized}: ${error.message}`,
       );
       return;
     }
     this.logger.log(
-      `Lock released company=${companyId} week=${monday}` +
+      `Lock released company=${companyId} week=${normalized}` +
         (expectedAcquiredBy ? ` (token=${expectedAcquiredBy})` : ''),
     );
   }

@@ -5,6 +5,8 @@ import type { IEmployeeRepository } from '../../domain/repositories/employee.rep
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import type { IShiftRepository } from '../../domain/repositories/shift.repository';
 import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
+import { CompanyPreferencesService } from '../services/company-preferences.service';
+import { weekStartOf } from '../../domain/shared/week';
 
 @CommandHandler(RequestDayOffCommand)
 export class RequestDayOffHandler implements ICommandHandler<RequestDayOffCommand> {
@@ -13,6 +15,7 @@ export class RequestDayOffHandler implements ICommandHandler<RequestDayOffComman
     private readonly employeeRepo: IEmployeeRepository,
     @Inject(SHIFT_REPOSITORY) private readonly shiftRepo: IShiftRepository,
     private readonly eventBus: EventBus,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {}
 
   async execute(command: RequestDayOffCommand): Promise<{ message: string }> {
@@ -23,8 +26,9 @@ export class RequestDayOffHandler implements ICommandHandler<RequestDayOffComman
     if (!employee) throw new Error('Employee not found');
 
     // 2. Check no shift already assigned on that date
+    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
     const requestedDate = new Date(date);
-    const weekStart = this._getMonday(requestedDate);
+    const weekStart = weekStartOf(requestedDate, weekStartsOn);
     const assignments = await this.shiftRepo.findAssignmentsByEmployee(
       employeeId,
       companyId,
@@ -60,14 +64,5 @@ export class RequestDayOffHandler implements ICommandHandler<RequestDayOffComman
     return {
       message: `✅ Tu solicitud de día libre para el ${date} fue enviada al manager para aprobación.`,
     };
-  }
-
-  private _getMonday(date: Date): Date {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
   }
 }

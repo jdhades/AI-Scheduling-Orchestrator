@@ -29,6 +29,8 @@ import { AbsenceReportCreator } from '../../domain/services/absence-report-creat
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationDispatcher } from '../jobs/schedule-generation-dispatcher.service';
+import { CompanyPreferencesService } from '../services/company-preferences.service';
+import { weekStartOf, nextWeekStartIso } from '../../domain/shared/week';
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import type { CreateSemanticRuleResult } from '../handlers/create-semantic-rule.handler';
 import {
@@ -113,6 +115,7 @@ export class MessageRouterService {
      * helper `_executeScheduleGenAndReply` cae al CommandBus síncrono.
      */
     private readonly scheduleDispatcher: ScheduleGenerationDispatcher,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {}
 
   async route(msg: IncomingMessage): Promise<void> {
@@ -573,7 +576,8 @@ export class MessageRouterService {
       //     [SELECT_BRANCH if >1] → [SELECT_DEPARTMENT if >1] → SELECT_TEMPLATE.
       //     Niveles con 1 sola opción se auto-seleccionan (smart-skip).
       if (mapResult.actionRequired === 'GENERATE_SELECT_TEMPLATE') {
-        const weekStart = mergedEntities.weekStart || this._getNextMondayStr();
+        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+        const weekStart = mergedEntities.weekStart || nextWeekStartIso(weekStartsOn);
         const branches = await this._loadBranches(companyId);
         const departments = await this._loadDepartments(companyId);
 
@@ -966,9 +970,11 @@ export class MessageRouterService {
     // limpia sesión. El worker dispara el outbound real cuando termina.
     if (useAsync) {
       try {
+        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(cmd.companyId);
         await this.scheduleDispatcher.enqueue({
           companyId: cmd.companyId,
           weekStart: cmd.weekStart,
+          weekStartsOn,
           shiftTemplateId: cmd.shiftTemplateId,
           departmentId: cmd.departmentId,
           locale: cmd.locale ?? locale,
@@ -1078,14 +1084,6 @@ export class MessageRouterService {
         `total ${fmt(u.total)} tokens`;
     }
     return reply;
-  }
-
-  private _getNextMondayStr(): string {
-    const d = new Date();
-    const day = d.getDay();
-    const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
-    d.setDate(d.getDate() + daysUntilMonday);
-    return d.toISOString().split('T')[0];
   }
 
   // ─── Swap Flow Helpers ───────────────────────────────────────────────────
@@ -1559,19 +1557,20 @@ export class MessageRouterService {
     companyId: string,
     reference: Date,
   ): Promise<{ slots: VirtualShiftSlot[]; assignments: ShiftAssignment[] }> {
-    const monday = this._getMonday(reference);
-    const nextMonday = new Date(monday);
-    nextMonday.setDate(nextMonday.getDate() + 7);
+    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const w1Start = weekStartOf(reference, weekStartsOn);
+    const w2Start = new Date(w1Start);
+    w2Start.setUTCDate(w2Start.getUTCDate() + 7);
 
     const templates = await this.shiftTemplateRepo.findAllByCompany(companyId);
     const activeTemplates = templates.filter((t) => t.isActive);
-    const slotsW1 = this.slotGenerator.generateSlotsForWeek(activeTemplates, monday);
-    const slotsW2 = this.slotGenerator.generateSlotsForWeek(activeTemplates, nextMonday);
+    const slotsW1 = this.slotGenerator.generateSlotsForWeek(activeTemplates, w1Start);
+    const slotsW2 = this.slotGenerator.generateSlotsForWeek(activeTemplates, w2Start);
 
-    const fromISO = monday.toISOString().split('T')[0];
-    const endSunday = new Date(nextMonday);
-    endSunday.setDate(endSunday.getDate() + 6);
-    const toISO = endSunday.toISOString().split('T')[0];
+    const fromISO = w1Start.toISOString().split('T')[0];
+    const endOfW2 = new Date(w2Start);
+    endOfW2.setUTCDate(endOfW2.getUTCDate() + 6);
+    const toISO = endOfW2.toISOString().split('T')[0];
     const assignments = await this.assignmentRepo.findByCompanyAndDateRange(
       companyId,
       fromISO,
@@ -1579,15 +1578,6 @@ export class MessageRouterService {
     );
 
     return { slots: [...slotsW1, ...slotsW2], assignments };
-  }
-
-  private _getMonday(date: Date): Date {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
   }
 
   /**

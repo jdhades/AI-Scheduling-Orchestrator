@@ -223,6 +223,10 @@ describe('MessageRouterService', () => {
           provide: require('../../../src/application/jobs/schedule-generation-dispatcher.service').ScheduleGenerationDispatcher,
           useValue: { dispatchScheduleGeneration: jest.fn() },
         },
+        {
+          provide: require('../../../src/application/services/company-preferences.service').CompanyPreferencesService,
+          useValue: { getWeekStartsOn: jest.fn().mockResolvedValue('monday') },
+        },
       ],
     }).compile();
 

@@ -185,6 +185,7 @@ export class JobsController {
       await this.lockService.release(
         job.data.companyId,
         job.data.weekStart,
+        job.data.weekStartsOn,
         id,
       );
     }

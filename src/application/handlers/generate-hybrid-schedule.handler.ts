@@ -32,6 +32,8 @@ import { FairnessHistoryVO } from '../../domain/value-objects/fairness-history.v
 import type { Employee } from '../../domain/aggregates/employee.aggregate';
 import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
 import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
+import { CompanyPreferencesService } from '../services/company-preferences.service';
+import { weekStartOf } from '../../domain/shared/week';
 
 export interface HybridScheduleResult {
   assignmentsCount: number;
@@ -88,6 +90,7 @@ export class GenerateHybridScheduleHandler
     private readonly supabase: SupabaseClient,
     private readonly llmUsageTracker: LLMUsageTracker,
     private readonly lockService: ScheduleGenerationLockService,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {
     void this.eventBus;
   }
@@ -169,6 +172,9 @@ export class GenerateHybridScheduleHandler
     // sin pisar a futuros jobs (release con token = race-safe).
     // Async path pasa el jobId; sync path genera UUID.
     const lockToken = command.lockToken ?? randomUUID();
+    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(
+      command.companyId,
+    );
     // Fase 0 async migration — lock por (companyId, weekStart) para
     // rechazar disparos concurrentes. Si ya hay un run activo,
     // `acquire` lanza ScheduleGenerationLockedException; el caller
@@ -177,10 +183,11 @@ export class GenerateHybridScheduleHandler
       command.companyId,
       command.weekStart,
       lockToken,
+      weekStartsOn,
     );
     try {
       const { result, usage } = await this.llmUsageTracker.run(() =>
-        this.runGeneration(command),
+        this.runGeneration(command, weekStartsOn),
       );
       this.logger.log(
         `📊 Hybrid schedule LLM usage — calls=${usage.calls} ` +
@@ -194,6 +201,7 @@ export class GenerateHybridScheduleHandler
       await this.lockService.release(
         command.companyId,
         command.weekStart,
+        weekStartsOn,
         lockToken,
       );
     }
@@ -201,12 +209,12 @@ export class GenerateHybridScheduleHandler
 
   private async runGeneration(
     command: GenerateHybridScheduleCommand,
+    weekStartsOn: 'sunday' | 'monday',
   ): Promise<HybridScheduleResult> {
-    const rawDate = new Date(`${command.weekStart}T00:00:00.000Z`);
-    const dayOfWeek = rawDate.getUTCDay();
-    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const weekStart = new Date(rawDate);
-    weekStart.setUTCDate(weekStart.getUTCDate() - daysToSubtract);
+    const weekStart = weekStartOf(
+      new Date(`${command.weekStart}T00:00:00.000Z`),
+      weekStartsOn,
+    );
     const weekStartStr = weekStart.toISOString().split('T')[0];
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);

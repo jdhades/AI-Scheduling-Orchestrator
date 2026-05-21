@@ -30,6 +30,7 @@ import {
   CAPABILITIES,
   type Capability,
 } from '../../domain/capabilities/catalog';
+import { CompanyPreferencesService } from '../../application/services/company-preferences.service';
 
 /**
  * SettingsController — admin de RBAC para el owner.
@@ -101,6 +102,7 @@ interface ManagerSummary {
 export class SettingsController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {}
 
   // ─── Capabilities (role-level) ──────────────────────────────────────
@@ -413,6 +415,7 @@ export class SettingsController {
       .update(updates)
       .eq('id', companyId);
     if (error) throw new BadRequestException(error.message);
+    this.companyPreferences.invalidate(companyId);
   }
 }
 

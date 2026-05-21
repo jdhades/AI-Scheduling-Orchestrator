@@ -19,6 +19,7 @@ import type { HybridScheduleResult } from '../../application/handlers/generate-h
 import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationDispatcher } from '../../application/jobs/schedule-generation-dispatcher.service';
+import { CompanyPreferencesService } from '../../application/services/company-preferences.service';
 
 /**
  * Parsea el header Accept-Language y devuelve un código de 2 letras
@@ -47,6 +48,7 @@ export class ScheduleController {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly scheduleDispatcher: ScheduleGenerationDispatcher,
+    private readonly companyPreferences: CompanyPreferencesService,
   ) {}
 
   /**
@@ -77,9 +79,11 @@ export class ScheduleController {
       // Path async (Fase 1): encola y devuelve 202 + jobId. El cliente
       // hace polling a /jobs/:id para ver el resultado.
       try {
+        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
         const jobId = await this.scheduleDispatcher.enqueue({
           companyId,
           weekStart: dto.weekStart,
+          weekStartsOn,
           shiftTemplateId: dto.shiftTemplateId,
           departmentId: dto.departmentId,
           locale,

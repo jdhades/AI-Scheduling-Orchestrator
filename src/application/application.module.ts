@@ -60,6 +60,7 @@ import { WeekScheduleBuilder } from '../domain/services/week-schedule-builder.se
 import { LLMLineProposerService } from '../domain/services/llm-line-proposer.service';
 import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
+import { CompanyPreferencesService } from './services/company-preferences.service';
 import { AbsenceReportCreator } from '../domain/services/absence-report-creator.service';
 import { ScheduleGenerationLockService } from '../domain/services/schedule-generation-lock.service';
 import { ScheduleGenerationRunsService } from '../domain/services/schedule-generation-runs.service';
@@ -156,6 +157,10 @@ const DomainServices = [
   // de una approval (origen = depto del employee). Reemplaza el env var
   // global MANAGER_WHATSAPP_NUMBER.
   ManagerNotificationService,
+  // Sprint week_starts_on — lookup cacheado (TTL 5min) de prefs tenant-wide.
+  // Lo inyectan handlers/services que necesitan normalizar fechas al
+  // inicio-de-semana del tenant en lugar de hardcodear lunes.
+  CompanyPreferencesService,
   // Phase 17.2 — unifica el alta de absence reports entre WhatsApp y
   // panel. Borra assignments del range, calcula urgencia, publica event.
   AbsenceReportCreator,
