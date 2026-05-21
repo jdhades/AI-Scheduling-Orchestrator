@@ -28,6 +28,11 @@ export interface CommandMapperResult {
  *
  * Converts a ConversationIntentVO with sufficient entities into a CQRS Command.
  * If entities are missing, returns missingFields with a human-readable question.
+ *
+ * El dispatcher `map()` solo decide qué handler invocar por `intent.type`;
+ * cada `_mapX` encapsula la lógica de su intent (missing-field checks +
+ * construcción del Command). Pattern: un handler por intent, fácil de
+ * sumar/quitar/testear independientemente.
  */
 @Injectable()
 export class CommandMapperService {
@@ -46,7 +51,11 @@ export class CommandMapperService {
       return {
         command: null,
         missingFields: [],
-        clarificationMessage: this.i18n.t('bot.general.system_unavailable', { lang: locale, defaultValue: '⚠️ El sistema de IA no está disponible temporalmente debido a alta demanda. Por favor, intenta enviar tu mensaje nuevamente en unos minutos.' }),
+        clarificationMessage: this.i18n.t('bot.general.system_unavailable', {
+          lang: locale,
+          defaultValue:
+            '⚠️ El sistema de IA no está disponible temporalmente debido a alta demanda. Por favor, intenta enviar tu mensaje nuevamente en unos minutos.',
+        }),
       };
     }
 
@@ -54,134 +63,171 @@ export class CommandMapperService {
       return {
         command: null,
         missingFields: [],
-        clarificationMessage: this.i18n.t('bot.general.unknown_intent', { lang: locale }),
+        clarificationMessage: this.i18n.t('bot.general.unknown_intent', {
+          lang: locale,
+        }),
       };
     }
 
     const type = intent.getIntent();
-
     switch (type) {
       case 'check_schedule':
-        return {
-          command: new GetMyScheduleQuery(
-            employeeId,
-            companyId,
-            mergedEntities.weekStart || mergedEntities.date,
-            locale,
-          ),
-          missingFields: [],
-          clarificationMessage: null,
-        };
-
-      case 'swap_shift': {
-        return {
-          command: null,
-          missingFields: [],
-          clarificationMessage: null,
-          actionRequired: 'SWAP_SELECT_SHIFT',
-        };
-      }
-
-      case 'report_absence': {
-        const missingFields: string[] = [];
-        if (!mergedEntities.shiftId) missingFields.push('shiftId');
-        if (!mergedEntities.reason) missingFields.push('reason');
-
-        if (missingFields.length > 0) {
-          const onlyMissingShift =
-            missingFields.length === 1 && missingFields[0] === 'shiftId';
-
-          if (onlyMissingShift || missingFields.includes('shiftId')) {
-            return {
-              command: null,
-              missingFields,
-              clarificationMessage: null,
-              actionRequired: 'FETCH_SHIFTS',
-            };
-          }
-
-          return {
-            command: null,
-            missingFields,
-            clarificationMessage: this._askForAbsenceFields(mergedEntities, locale),
-          };
-        }
-        return {
-          command: new ReportAbsenceCommand(
-            employeeId,
-            // `entities.shiftId` ahora transporta el UUID de la assignment (nuevo modelo).
-            mergedEntities.shiftId!,
-            mergedEntities.reason!,
-            companyId,
-          ),
-          missingFields: [],
-          clarificationMessage: null,
-        };
-      }
-
-      case 'request_day_off': {
-        if (!mergedEntities.date) {
-          return {
-            command: null,
-            missingFields: ['date'],
-            clarificationMessage: this.i18n.t('bot.day_off.missing_date', { lang: locale }),
-          };
-        }
-        return {
-          command: new RequestDayOffCommand(
-            employeeId,
-            mergedEntities.date,
-            mergedEntities.reason ?? 'No especificado',
-            companyId,
-          ),
-          missingFields: [],
-          clarificationMessage: null,
-        };
-      }
-
-      case 'generate_schedule': {
-        return {
-          command: null,
-          missingFields: [],
-          clarificationMessage: null,
-          actionRequired: 'GENERATE_SELECT_TEMPLATE',
-        };
-      }
-
-      case 'create_rule': {
-        if (!mergedEntities.ruleText) {
-          return {
-            command: null,
-            missingFields: ['ruleText'],
-            clarificationMessage: this.i18n.t('bot.rules.missing_text', { lang: locale }),
-          };
-        }
-
-        let expiresAt: Date | undefined;
-        if (mergedEntities.expiresAt) {
-          // Si el LLM devolvió un YYYY-MM-DD, creamos la expiración hacia el final de ese día UTC
-          expiresAt = new Date(`${mergedEntities.expiresAt}T23:59:59Z`);
-        }
-
-        return {
-          command: new CreateSemanticRuleCommand(
-            companyId,
-            mergedEntities.ruleText,
-            2, // Priority 2: semantic
-            'restriction',
-            employeeId, // createdBy
-            undefined, // metadata
-            expiresAt,
-          ),
-          missingFields: [],
-          clarificationMessage: null,
-        };
-      }
-
+        return this._mapCheckSchedule(employeeId, companyId, mergedEntities, locale);
+      case 'swap_shift':
+        return this._mapSwapShift();
+      case 'report_absence':
+        return this._mapReportAbsence(employeeId, companyId, mergedEntities, locale);
+      case 'request_day_off':
+        return this._mapRequestDayOff(employeeId, companyId, mergedEntities, locale);
+      case 'generate_schedule':
+        return this._mapGenerateSchedule();
+      case 'create_rule':
+        return this._mapCreateRule(employeeId, companyId, mergedEntities, locale);
       default:
         this.logger.warn(`Unhandled intent type: ${type}`);
         return { command: null, missingFields: [], clarificationMessage: null };
     }
+  }
+
+  private _mapCheckSchedule(
+    employeeId: string,
+    companyId: string,
+    entities: IntentEntities,
+    locale: string,
+  ): CommandMapperResult {
+    return {
+      command: new GetMyScheduleQuery(
+        employeeId,
+        companyId,
+        entities.weekStart || entities.date,
+        locale,
+      ),
+      missingFields: [],
+      clarificationMessage: null,
+    };
+  }
+
+  private _mapSwapShift(): CommandMapperResult {
+    return {
+      command: null,
+      missingFields: [],
+      clarificationMessage: null,
+      actionRequired: 'SWAP_SELECT_SHIFT',
+    };
+  }
+
+  private _mapReportAbsence(
+    employeeId: string,
+    companyId: string,
+    entities: IntentEntities,
+    locale: string,
+  ): CommandMapperResult {
+    const missingFields: string[] = [];
+    if (!entities.shiftId) missingFields.push('shiftId');
+    if (!entities.reason) missingFields.push('reason');
+
+    if (missingFields.length > 0) {
+      // Falta el shift: redirigir al flow FETCH_SHIFTS para que el bot
+      // muestre la lista al user y pueda elegir uno (cubrir ambos casos:
+      // solo falta shiftId, y falta shiftId + reason).
+      if (missingFields.includes('shiftId')) {
+        return {
+          command: null,
+          missingFields,
+          clarificationMessage: null,
+          actionRequired: 'FETCH_SHIFTS',
+        };
+      }
+      // Solo falta reason: pedirlo en chat.
+      return {
+        command: null,
+        missingFields,
+        clarificationMessage: this._askForAbsenceFields(entities, locale),
+      };
+    }
+
+    return {
+      command: new ReportAbsenceCommand(
+        employeeId,
+        // `entities.shiftId` ahora transporta el UUID de la assignment (nuevo modelo).
+        entities.shiftId!,
+        entities.reason!,
+        companyId,
+      ),
+      missingFields: [],
+      clarificationMessage: null,
+    };
+  }
+
+  private _mapRequestDayOff(
+    employeeId: string,
+    companyId: string,
+    entities: IntentEntities,
+    locale: string,
+  ): CommandMapperResult {
+    if (!entities.date) {
+      return {
+        command: null,
+        missingFields: ['date'],
+        clarificationMessage: this.i18n.t('bot.day_off.missing_date', {
+          lang: locale,
+        }),
+      };
+    }
+    return {
+      command: new RequestDayOffCommand(
+        employeeId,
+        entities.date,
+        entities.reason ?? 'No especificado',
+        companyId,
+      ),
+      missingFields: [],
+      clarificationMessage: null,
+    };
+  }
+
+  private _mapGenerateSchedule(): CommandMapperResult {
+    return {
+      command: null,
+      missingFields: [],
+      clarificationMessage: null,
+      actionRequired: 'GENERATE_SELECT_TEMPLATE',
+    };
+  }
+
+  private _mapCreateRule(
+    employeeId: string,
+    companyId: string,
+    entities: IntentEntities,
+    locale: string,
+  ): CommandMapperResult {
+    if (!entities.ruleText) {
+      return {
+        command: null,
+        missingFields: ['ruleText'],
+        clarificationMessage: this.i18n.t('bot.rules.missing_text', { lang: locale }),
+      };
+    }
+
+    let expiresAt: Date | undefined;
+    if (entities.expiresAt) {
+      // Si el LLM devolvió un YYYY-MM-DD, creamos la expiración hacia el final de ese día UTC
+      expiresAt = new Date(`${entities.expiresAt}T23:59:59Z`);
+    }
+
+    return {
+      command: new CreateSemanticRuleCommand(
+        companyId,
+        entities.ruleText,
+        2, // Priority 2: semantic
+        'restriction',
+        employeeId, // createdBy
+        undefined, // metadata
+        expiresAt,
+      ),
+      missingFields: [],
+      clarificationMessage: null,
+    };
   }
 
   private _askForAbsenceFields(entities: IntentEntities, locale: string): string {
@@ -193,5 +239,4 @@ export class CommandMapperService {
     }
     return this.i18n.t('bot.absence.missing_reason', { lang: locale });
   }
-
 }
