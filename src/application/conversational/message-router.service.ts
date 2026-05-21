@@ -839,284 +839,410 @@ export class MessageRouterService {
     locale: string,
   ): Promise<boolean> {
     const step = sessionEntities.swapStep;
-
-    // ── Step 2 & 2b: User selected their own shift OR selected the swap type ──
     if (step === 'SELECT_OWN' || step === 'SELECT_SWAP_TYPE') {
-      const shiftId = step === 'SELECT_OWN'
+      return this._handleSwapSelectOwnOrType(
+        from,
+        employeeId,
+        companyId,
+        session,
+        sessionEntities,
+        selection,
+        locale,
+      );
+    }
+    if (step === 'SELECT_TARGET') {
+      return this._handleSwapSelectTarget(
+        from,
+        companyId,
+        session,
+        sessionEntities,
+        selection,
+        locale,
+      );
+    }
+    if (step === 'CONFIRM') {
+      return this._handleSwapConfirm(
+        from,
+        employeeId,
+        companyId,
+        sessionEntities,
+        selection,
+        locale,
+      );
+    }
+    return false; // not a swap selection step
+  }
+
+  /**
+   * Steps 2 + 2b del swap flow:
+   *   SELECT_OWN  — el user eligió su turno; resolvemos qué tipo de
+   *                 target ofrecer (OPEN, SWAP, o intercept si hay ambos).
+   *   SELECT_SWAP_TYPE — solo si vino del intercept, el user eligió tipo.
+   * Output: lista de opciones (cap 5) para SELECT_TARGET.
+   */
+  private async _handleSwapSelectOwnOrType(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    session: ConversationSessionVO,
+    sessionEntities: Readonly<Record<string, any>>,
+    selection: string,
+    locale: string,
+  ): Promise<boolean> {
+    const step = sessionEntities.swapStep;
+    const shiftId =
+      step === 'SELECT_OWN'
         ? sessionEntities[`option${selection}_shiftId`]
         : sessionEntities.selectedOwnShiftId;
 
-      if (!shiftId) {
-        this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
-        return true;
-      }
+    if (!shiftId) {
+      this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
+      return true;
+    }
 
-      const now = new Date();
-      const { slots: allSlots, assignments: allAssignments } =
-        await this._loadTwoWeekContext(companyId, now);
+    const now = new Date();
+    const { slots: allSlots, assignments: allAssignments } =
+      await this._loadTwoWeekContext(companyId, now);
 
-      // Open slots: aún tienen capacidad libre (y el cierre es futuro)
-      const fillBySlotKey = new Map<string, number>();
-      for (const a of allAssignments) {
-        fillBySlotKey.set(a.slotKey, (fillBySlotKey.get(a.slotKey) ?? 0) + 1);
-      }
-      const openSlots = allSlots.filter((s) => {
-        if (s.endTime <= now) return false;
-        const cap = s.requiredEmployees;
-        if (cap === null || cap === undefined) return false;
-        return (fillBySlotKey.get(s.slotKey) ?? 0) < cap;
-      });
+    const openSlots = this._findOpenSlots(allSlots, allAssignments, now);
+    const otherAssignments = allAssignments.filter(
+      (a) => a.employeeId !== employeeId,
+    );
 
-      // Asignaciones de otros empleados (para swap con compañeros)
-      const otherAssignments = allAssignments.filter(
-        (a) => a.employeeId !== employeeId,
-      );
+    let targetTypeFilter: 'OPEN' | 'SWAP';
 
-      let targetTypeFilter: 'OPEN' | 'SWAP';
+    if (step === 'SELECT_OWN') {
+      const hasOpen = openSlots.length > 0;
+      const hasSwap = otherAssignments.length > 0;
 
-      if (step === 'SELECT_OWN') {
-        const hasOpen = openSlots.length > 0;
-        const hasSwap = otherAssignments.length > 0;
-
-        if (!hasOpen && !hasSwap) {
-          await this.sessionRepository.clearSession(from);
-          this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
-          return true;
-        }
-
-        // Intercept: If both types exist, ask the user what they prefer
-        if (hasOpen && hasSwap) {
-          let responseText = this.i18n.t('bot.swap.select_swap_type', { lang: locale }) + '\n\n';
-          responseText += `1. ${this.i18n.t('bot.swap.swap_type_open', { lang: locale })}\n`;
-          responseText += `2. ${this.i18n.t('bot.swap.swap_type_colleague', { lang: locale })}\n`;
-          
-          session = session.withIntent('swap_shift', {
-            pendingAction: 'swap_shift',
-            swapStep: 'SELECT_SWAP_TYPE',
-            selectedOwnShiftId: shiftId,
-          });
-          await this.sessionRepository.saveSession(session);
-          this._reply(from, responseText.trim());
-          return true;
-        }
-
-        // If only one exists, bypass intercept
-        targetTypeFilter = hasOpen ? 'OPEN' : 'SWAP';
-      } else {
-        // step === 'SELECT_SWAP_TYPE'
-        if (!['1', '2', 'uno', 'dos', 'libre', 'compañero', 'open', 'colleague'].includes(selection)) {
-          this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
-          return true;
-        }
-        targetTypeFilter = (selection === '1' || selection === 'uno' || selection === 'libre' || selection === 'open') ? 'OPEN' : 'SWAP';
-      }
-
-      // Load employee names
-      const employees = await this.employeeRepo.findAllByCompany(companyId);
-      const empMap = new Map(employees.map((e) => [e.id, e.name]));
-
-      // Build options list (cap at 5)
-      // `shiftId` en este flujo transporta el UUID de la assignment propia.
-      const ownAssignment = allAssignments.find((a) => a.id === shiftId);
-      const ownSlot = ownAssignment
-        ? allSlots.find((s) => s.slotKey === ownAssignment.slotKey)
-        : undefined;
-      const ownShiftDate = ownSlot
-        ? ownSlot.startTime.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-ES', { weekday: 'short', month: 'short', day: 'numeric' })
-        : '';
-        
-      let responseText = this.i18n.t('bot.swap.select_target_shift', { lang: locale, args: { date: ownShiftDate } }) + '\n\n';
-      const optionsEntities: Record<string, string> = {
-        pendingAction: 'swap_shift',
-        swapStep: 'SELECT_TARGET',
-        selectedOwnShiftId: shiftId,
-      };
-
-      let count = 0;
-
-      // 1. Add Open Slots — el target se guarda como slotKey (templateId|YYYY-MM-DD)
-      if (targetTypeFilter === 'OPEN') {
-        for (const slot of openSlots) {
-          if (count >= 5) break;
-          count++;
-          const desc = this._formatShiftLine({
-            shiftId: slot.slotKey,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-          }, locale);
-          const openLabel = this.i18n.t('bot.swap.open_shift_label', { lang: locale, defaultValue: 'Turno Libre' });
-          responseText += `${count}. *[${openLabel}]* — ${desc}\n`;
-          optionsEntities[`option${count}_shiftId`] = slot.slotKey;
-          optionsEntities[`option${count}_type`] = 'OPEN';
-        }
-      }
-
-      // 2. Add Colleague Assignments — agrupamos por slot (templateId|fecha)
-      if (targetTypeFilter === 'SWAP') {
-        const groupedBySlot = new Map<
-          string,
-          { slot: VirtualShiftSlot; assignments: ShiftAssignment[] }
-        >();
-        for (const assignment of otherAssignments) {
-          const slot = allSlots.find((s) => s.slotKey === assignment.slotKey);
-          if (!slot || slot.endTime <= now) continue;
-          if (!groupedBySlot.has(slot.slotKey)) {
-            groupedBySlot.set(slot.slotKey, { slot, assignments: [] });
-          }
-          groupedBySlot.get(slot.slotKey)!.assignments.push(assignment);
-        }
-
-        for (const group of groupedBySlot.values()) {
-          if (count >= 5) break;
-
-          const timeDesc = this._formatShiftLine({
-            shiftId: group.slot.slotKey,
-            startTime: group.slot.startTime,
-            endTime: group.slot.endTime,
-          }, locale);
-
-          responseText += `\n*${timeDesc}*\n`;
-
-          for (const assignment of group.assignments) {
-            if (count >= 5) break;
-            count++;
-            const empName = empMap.get(assignment.employeeId) || 'Compañero';
-            responseText += `${count}. ${empName}\n`;
-
-            // Para swap con compañero guardamos el UUID de SU assignment.
-            optionsEntities[`option${count}_shiftId`] = assignment.id;
-            optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
-            optionsEntities[`option${count}_type`] = 'SWAP';
-          }
-        }
-      }
-
-      if (count === 0) {
+      if (!hasOpen && !hasSwap) {
         await this.sessionRepository.clearSession(from);
         this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
         return true;
       }
 
-      session = session.withIntent('swap_shift', optionsEntities);
-      await this.sessionRepository.saveSession(session);
-      this._reply(from, responseText.trim());
-      return true;
-    }
+      // Intercept: si hay ambos tipos, preguntar al user qué prefiere.
+      if (hasOpen && hasSwap) {
+        await this._promptSwapTypeIntercept(from, session, shiftId, locale);
+        return true;
+      }
 
-    // ── Step 3: User selected target shift → ask for confirmation ──
-    if (step === 'SELECT_TARGET') {
-      const targetShiftId = sessionEntities[`option${selection}_shiftId`];
-      const targetType = sessionEntities[`option${selection}_type`];
-      const targetEmployeeId = sessionEntities[`option${selection}_employeeId`];
-      
-      if (!targetShiftId || !targetType) {
+      targetTypeFilter = hasOpen ? 'OPEN' : 'SWAP';
+    } else {
+      // step === 'SELECT_SWAP_TYPE'
+      const parsed = this._parseSwapTypeSelection(selection);
+      if (!parsed) {
         this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
         return true;
       }
+      targetTypeFilter = parsed;
+    }
 
-      const ownShiftId = sessionEntities.selectedOwnShiftId;
+    const employees = await this.employeeRepo.findAllByCompany(companyId);
+    const empMap = new Map(employees.map((e) => [e.id, e.name]));
 
-      const { slots: allSlots, assignments: allAssignments } =
-        await this._loadTwoWeekContext(companyId, new Date());
+    const ownDateLabel = this._formatOwnShiftDate(allSlots, allAssignments, shiftId, locale);
+    let responseText =
+      this.i18n.t('bot.swap.select_target_shift', {
+        lang: locale,
+        args: { date: ownDateLabel },
+      }) + '\n\n';
 
-      const ownAssignment = allAssignments.find((a) => a.id === ownShiftId);
-      const ownSlot = ownAssignment
-        ? allSlots.find((s) => s.slotKey === ownAssignment.slotKey)
-        : undefined;
+    const optionsEntities: Record<string, string> = {
+      pendingAction: 'swap_shift',
+      swapStep: 'SELECT_TARGET',
+      selectedOwnShiftId: shiftId,
+    };
 
-      // Target puede ser un slotKey (OPEN) o el UUID de la assignment del compañero (SWAP)
-      let targetSlot: VirtualShiftSlot | undefined;
-      if (targetType === 'OPEN') {
-        targetSlot = allSlots.find((s) => s.slotKey === targetShiftId);
-      } else {
-        const targetAssignment = allAssignments.find((a) => a.id === targetShiftId);
-        targetSlot = targetAssignment
-          ? allSlots.find((s) => s.slotKey === targetAssignment.slotKey)
-          : undefined;
-      }
+    const { text: optionsText, count } =
+      targetTypeFilter === 'OPEN'
+        ? this._buildOpenSlotOptions(openSlots, locale, optionsEntities)
+        : this._buildColleagueOptions(otherAssignments, allSlots, empMap, now, optionsEntities);
 
-      const employees = await this.employeeRepo.findAllByCompany(companyId);
+    responseText += optionsText;
 
-      const ownDesc = ownSlot
-        ? this._formatShiftLine({ shiftId: ownSlot.slotKey, startTime: ownSlot.startTime, endTime: ownSlot.endTime }, locale)
-        : ownShiftId;
-      const targetDesc = targetSlot
-        ? this._formatShiftLine({ shiftId: targetSlot.slotKey, startTime: targetSlot.startTime, endTime: targetSlot.endTime }, locale)
-        : targetShiftId;
-
-      let confirmMsg = '';
-      if (targetType === 'OPEN') {
-        confirmMsg = this.i18n.t('bot.swap.confirm_open_prompt', {
-          lang: locale,
-          args: { myShift: ownDesc, targetShift: targetDesc }
-        });
-      } else {
-        const targetName = employees.find((e) => e.id === targetEmployeeId)?.name || 'Compañero';
-        confirmMsg = this.i18n.t('bot.swap.confirm_prompt', {
-          lang: locale,
-          args: { myShift: ownDesc, targetShift: targetDesc, targetName }
-        });
-      }
-
-      session = session.withIntent('swap_shift', {
-        pendingAction: 'swap_shift',
-        swapStep: 'CONFIRM',
-        selectedOwnShiftId: ownShiftId,
-        selectedTargetShiftId: targetShiftId,
-        selectedTargetEmployeeId: targetEmployeeId,
-        selectedTargetType: targetType,
-      });
-      await this.sessionRepository.saveSession(session);
-      this._reply(from, confirmMsg);
+    if (count === 0) {
+      await this.sessionRepository.clearSession(from);
+      this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
       return true;
     }
 
-    // ── Step 4: User confirms or cancels ──
-    if (step === 'CONFIRM') {
-      if (['sí', 'si', 'yes', 'y', '1'].includes(selection)) {
-        const ownShiftId = sessionEntities.selectedOwnShiftId;
-        const targetShiftId = sessionEntities.selectedTargetShiftId;
-        const targetEmployeeId = sessionEntities.selectedTargetEmployeeId;
-        const targetType = sessionEntities.selectedTargetType;
+    const updated = session.withIntent('swap_shift', optionsEntities);
+    await this.sessionRepository.saveSession(updated);
+    this._reply(from, responseText.trim());
+    return true;
+  }
 
-        if (targetType === 'OPEN') {
-          const command = new TakeOpenShiftCommand(
-            employeeId,
-            ownShiftId,
-            targetShiftId,
-            companyId,
-          );
-          await this.commandBus.execute(command);
-          await this.sessionRepository.clearSession(from);
-          this._reply(from, this.i18n.t('bot.swap.open_shift_success', { lang: locale }));
-          return true;
-        } else {
-          const command = new SwapShiftCommand(
-            employeeId,
-            ownShiftId,
-            targetEmployeeId,
-            targetShiftId,
-            companyId,
-          );
+  /** Filtra slots con capacidad libre y endTime futuro. */
+  private _findOpenSlots(
+    allSlots: VirtualShiftSlot[],
+    allAssignments: ShiftAssignment[],
+    now: Date,
+  ): VirtualShiftSlot[] {
+    const fillBySlotKey = new Map<string, number>();
+    for (const a of allAssignments) {
+      fillBySlotKey.set(a.slotKey, (fillBySlotKey.get(a.slotKey) ?? 0) + 1);
+    }
+    return allSlots.filter((s) => {
+      if (s.endTime <= now) return false;
+      const cap = s.requiredEmployees;
+      if (cap === null || cap === undefined) return false;
+      return (fillBySlotKey.get(s.slotKey) ?? 0) < cap;
+    });
+  }
 
-          await this.commandBus.execute(command);
-          await this.sessionRepository.clearSession(from);
-          this._reply(from, this.i18n.t('bot.swap.request_received', { lang: locale }));
-          return true;
-        }
+  private async _promptSwapTypeIntercept(
+    from: string,
+    session: ConversationSessionVO,
+    ownShiftId: string,
+    locale: string,
+  ): Promise<void> {
+    let responseText =
+      this.i18n.t('bot.swap.select_swap_type', { lang: locale }) + '\n\n';
+    responseText += `1. ${this.i18n.t('bot.swap.swap_type_open', { lang: locale })}\n`;
+    responseText += `2. ${this.i18n.t('bot.swap.swap_type_colleague', { lang: locale })}\n`;
+
+    const updated = session.withIntent('swap_shift', {
+      pendingAction: 'swap_shift',
+      swapStep: 'SELECT_SWAP_TYPE',
+      selectedOwnShiftId: ownShiftId,
+    });
+    await this.sessionRepository.saveSession(updated);
+    this._reply(from, responseText.trim());
+  }
+
+  private _parseSwapTypeSelection(selection: string): 'OPEN' | 'SWAP' | null {
+    if (
+      !['1', '2', 'uno', 'dos', 'libre', 'compañero', 'open', 'colleague'].includes(selection)
+    ) {
+      return null;
+    }
+    return ['1', 'uno', 'libre', 'open'].includes(selection) ? 'OPEN' : 'SWAP';
+  }
+
+  private _formatOwnShiftDate(
+    allSlots: VirtualShiftSlot[],
+    allAssignments: ShiftAssignment[],
+    ownAssignmentId: string,
+    locale: string,
+  ): string {
+    const ownAssignment = allAssignments.find((a) => a.id === ownAssignmentId);
+    const ownSlot = ownAssignment
+      ? allSlots.find((s) => s.slotKey === ownAssignment.slotKey)
+      : undefined;
+    return ownSlot
+      ? ownSlot.startTime.toLocaleDateString(
+          locale === 'en' ? 'en-US' : 'es-ES',
+          { weekday: 'short', month: 'short', day: 'numeric' },
+        )
+      : '';
+  }
+
+  private _buildOpenSlotOptions(
+    openSlots: VirtualShiftSlot[],
+    locale: string,
+    optionsEntities: Record<string, string>,
+  ): { text: string; count: number } {
+    let text = '';
+    let count = 0;
+    const openLabel = this.i18n.t('bot.swap.open_shift_label', {
+      lang: locale,
+      defaultValue: 'Turno Libre',
+    });
+    for (const slot of openSlots) {
+      if (count >= 5) break;
+      count++;
+      const desc = this._formatShiftLine(
+        {
+          shiftId: slot.slotKey,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        },
+        locale,
+      );
+      text += `${count}. *[${openLabel}]* — ${desc}\n`;
+      optionsEntities[`option${count}_shiftId`] = slot.slotKey;
+      optionsEntities[`option${count}_type`] = 'OPEN';
+    }
+    return { text, count };
+  }
+
+  private _buildColleagueOptions(
+    otherAssignments: ShiftAssignment[],
+    allSlots: VirtualShiftSlot[],
+    empMap: Map<string, string>,
+    now: Date,
+    optionsEntities: Record<string, string>,
+  ): { text: string; count: number } {
+    const groupedBySlot = new Map<
+      string,
+      { slot: VirtualShiftSlot; assignments: ShiftAssignment[] }
+    >();
+    for (const assignment of otherAssignments) {
+      const slot = allSlots.find((s) => s.slotKey === assignment.slotKey);
+      if (!slot || slot.endTime <= now) continue;
+      if (!groupedBySlot.has(slot.slotKey)) {
+        groupedBySlot.set(slot.slotKey, { slot, assignments: [] });
       }
+      groupedBySlot.get(slot.slotKey)!.assignments.push(assignment);
+    }
 
-      if (['no', 'n', '2'].includes(selection)) {
-        await this.sessionRepository.clearSession(from);
-        this._reply(from, this.i18n.t('bot.swap.swap_cancelled', { lang: locale }));
-        return true;
+    let text = '';
+    let count = 0;
+    for (const group of groupedBySlot.values()) {
+      if (count >= 5) break;
+      const timeDesc = this._formatShiftLine(
+        {
+          shiftId: group.slot.slotKey,
+          startTime: group.slot.startTime,
+          endTime: group.slot.endTime,
+        },
+        'es', // locale-independent line builder
+      );
+      text += `\n*${timeDesc}*\n`;
+      for (const assignment of group.assignments) {
+        if (count >= 5) break;
+        count++;
+        const empName = empMap.get(assignment.employeeId) || 'Compañero';
+        text += `${count}. ${empName}\n`;
+        optionsEntities[`option${count}_shiftId`] = assignment.id;
+        optionsEntities[`option${count}_employeeId`] = assignment.employeeId;
+        optionsEntities[`option${count}_type`] = 'SWAP';
       }
+    }
+    return { text, count };
+  }
 
+  /**
+   * Step 3: user eligió un target shift → buildea el mensaje de
+   * confirmación con ambos shifts descriptos.
+   */
+  private async _handleSwapSelectTarget(
+    from: string,
+    companyId: string,
+    session: ConversationSessionVO,
+    sessionEntities: Readonly<Record<string, any>>,
+    selection: string,
+    locale: string,
+  ): Promise<boolean> {
+    const targetShiftId = sessionEntities[`option${selection}_shiftId`];
+    const targetType = sessionEntities[`option${selection}_type`];
+    const targetEmployeeId = sessionEntities[`option${selection}_employeeId`];
+
+    if (!targetShiftId || !targetType) {
       this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
       return true;
     }
 
-    return false; // not a swap selection step
+    const ownShiftId = sessionEntities.selectedOwnShiftId;
+    const { slots: allSlots, assignments: allAssignments } =
+      await this._loadTwoWeekContext(companyId, new Date());
+
+    const ownAssignment = allAssignments.find((a) => a.id === ownShiftId);
+    const ownSlot = ownAssignment
+      ? allSlots.find((s) => s.slotKey === ownAssignment.slotKey)
+      : undefined;
+
+    // Target puede ser un slotKey (OPEN) o el UUID de la assignment del compañero (SWAP)
+    let targetSlot: VirtualShiftSlot | undefined;
+    if (targetType === 'OPEN') {
+      targetSlot = allSlots.find((s) => s.slotKey === targetShiftId);
+    } else {
+      const targetAssignment = allAssignments.find((a) => a.id === targetShiftId);
+      targetSlot = targetAssignment
+        ? allSlots.find((s) => s.slotKey === targetAssignment.slotKey)
+        : undefined;
+    }
+
+    const ownDesc = ownSlot
+      ? this._formatShiftLine(
+          { shiftId: ownSlot.slotKey, startTime: ownSlot.startTime, endTime: ownSlot.endTime },
+          locale,
+        )
+      : ownShiftId;
+    const targetDesc = targetSlot
+      ? this._formatShiftLine(
+          { shiftId: targetSlot.slotKey, startTime: targetSlot.startTime, endTime: targetSlot.endTime },
+          locale,
+        )
+      : targetShiftId;
+
+    let confirmMsg: string;
+    if (targetType === 'OPEN') {
+      confirmMsg = this.i18n.t('bot.swap.confirm_open_prompt', {
+        lang: locale,
+        args: { myShift: ownDesc, targetShift: targetDesc },
+      });
+    } else {
+      const employees = await this.employeeRepo.findAllByCompany(companyId);
+      const targetName =
+        employees.find((e) => e.id === targetEmployeeId)?.name || 'Compañero';
+      confirmMsg = this.i18n.t('bot.swap.confirm_prompt', {
+        lang: locale,
+        args: { myShift: ownDesc, targetShift: targetDesc, targetName },
+      });
+    }
+
+    const updated = session.withIntent('swap_shift', {
+      pendingAction: 'swap_shift',
+      swapStep: 'CONFIRM',
+      selectedOwnShiftId: ownShiftId,
+      selectedTargetShiftId: targetShiftId,
+      selectedTargetEmployeeId: targetEmployeeId,
+      selectedTargetType: targetType,
+    });
+    await this.sessionRepository.saveSession(updated);
+    this._reply(from, confirmMsg);
+    return true;
+  }
+
+  /**
+   * Step 4: user confirma / cancela. Ejecuta TakeOpenShift o SwapShift
+   * según el targetType guardado en sesión.
+   */
+  private async _handleSwapConfirm(
+    from: string,
+    employeeId: string,
+    companyId: string,
+    sessionEntities: Readonly<Record<string, any>>,
+    selection: string,
+    locale: string,
+  ): Promise<boolean> {
+    if (['sí', 'si', 'yes', 'y', '1'].includes(selection)) {
+      const ownShiftId = sessionEntities.selectedOwnShiftId;
+      const targetShiftId = sessionEntities.selectedTargetShiftId;
+      const targetEmployeeId = sessionEntities.selectedTargetEmployeeId;
+      const targetType = sessionEntities.selectedTargetType;
+
+      const command =
+        targetType === 'OPEN'
+          ? new TakeOpenShiftCommand(employeeId, ownShiftId, targetShiftId, companyId)
+          : new SwapShiftCommand(
+              employeeId,
+              ownShiftId,
+              targetEmployeeId,
+              targetShiftId,
+              companyId,
+            );
+      await this.commandBus.execute(command);
+      await this.sessionRepository.clearSession(from);
+      this._reply(
+        from,
+        targetType === 'OPEN'
+          ? this.i18n.t('bot.swap.open_shift_success', { lang: locale })
+          : this.i18n.t('bot.swap.request_received', { lang: locale }),
+      );
+      return true;
+    }
+
+    if (['no', 'n', '2'].includes(selection)) {
+      await this.sessionRepository.clearSession(from);
+      this._reply(from, this.i18n.t('bot.swap.swap_cancelled', { lang: locale }));
+      return true;
+    }
+
+    this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
+    return true;
   }
 
   // ─── Private helpers ──────────────────────────────────────────────────────
