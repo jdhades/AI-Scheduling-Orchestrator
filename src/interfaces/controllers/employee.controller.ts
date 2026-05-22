@@ -159,7 +159,7 @@ export class EmployeeController {
   async getCalendar(
     @Param('id') employeeId: string,
     @Query() query: GetEmployeeCalendarDto,
-    @Headers('x-company-id') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<unknown> {
     return this.queryBus.execute(
       new GetEmployeeCalendarQuery(
