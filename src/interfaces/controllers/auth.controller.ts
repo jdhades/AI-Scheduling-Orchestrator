@@ -135,7 +135,7 @@ export class CreateInvitationDto {
   role!: 'owner' | 'manager' | 'employee';
 
   @IsOptional()
-  @IsUUID()
+  @IsUUID('all')
   departmentId?: string;
 }
 

@@ -21,6 +21,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   ValidateIf,
 } from 'class-validator';
@@ -34,17 +35,13 @@ import { AbsenceReportCreator } from '../../domain/services/absence-report-creat
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-// IDs validados como strings no vacíos (la seed data del proyecto usa
-// formato UUID-shape no estricto RFC 4122 — @IsUUID los rechazaría).
 export class CreateAbsenceReportDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID('all')
   employeeId!: string;
 
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID('all')
   assignmentId?: string | null;
 
   @IsString()

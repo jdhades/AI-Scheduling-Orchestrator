@@ -35,7 +35,7 @@ export interface AdminBudgetRow extends LLMModelBudget {
 class AdminUpsertBudgetDto {
   /** null = default global. UUID = override company-specific. */
   @ValidateIf((_o, v) => v !== null)
-  @IsUUID()
+  @IsUUID('all')
   companyId!: string | null;
 
   @IsString()

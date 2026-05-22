@@ -36,7 +36,7 @@ export class CreateSemanticRuleDto {
   ruleType: 'restriction' | 'preference' | 'requirement';
 
   @IsOptional()
-  @IsUUID()
+  @IsUUID('all')
   createdBy?: string;
 
   @IsOptional()

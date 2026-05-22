@@ -29,7 +29,7 @@ export interface ImpersonateTargetRow {
 }
 
 class ImpersonateDto {
-  @IsUUID()
+  @IsUUID('all')
   employeeId!: string;
 
   @IsOptional()

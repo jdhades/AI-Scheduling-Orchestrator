@@ -3,6 +3,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -16,7 +17,7 @@ import {
  */
 export class RegisterEmployeeDto {
   @IsOptional()
-  @IsString()
+  @IsUUID('all')
   employeeId?: string;
 
   @IsString()

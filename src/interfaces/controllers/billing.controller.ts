@@ -35,7 +35,7 @@ export class CreateCheckoutDto {
 }
 
 export class AdminCheckoutDto {
-  @IsUUID()
+  @IsUUID('all')
   companyId!: string;
 
   @IsIn(['starter', 'growth'])

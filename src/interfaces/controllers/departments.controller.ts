@@ -45,13 +45,9 @@ export class UpdateDepartmentDto {
    * para limpiar la asignación (vuelve al fallback "cualquier manager
    * del tenant"). Mandar undefined para no tocarlo.
    */
-  // Nota: NO usamos @IsUUID() porque los UUIDs del seed legacy no son
-  // v4 estrictos (vienen con `aaaa-bbbb-cccc` por legibilidad). La FK
-  // de la BD + el cross-tenant lookup hacen la validación real.
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID('all')
   managerEmployeeId?: string | null;
 
   /** Reservado para futuras ediciones (rename del depto). */
@@ -76,7 +72,7 @@ export class CreateDepartmentDto {
   @MinLength(2)
   name!: string;
 
-  @IsUUID()
+  @IsUUID('all')
   branchId!: string;
 }
 
