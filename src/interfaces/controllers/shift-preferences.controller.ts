@@ -31,6 +31,7 @@ import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.d
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { ManagerNotificationService } from '../../application/services/manager-notification.service';
 
 export type ShiftPreferenceKind =
   | 'prefer_to_work'
@@ -115,6 +116,7 @@ export class ShiftPreferencesController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
     private readonly notifications: NotificationsGateway,
+    private readonly managerNotifications: ManagerNotificationService,
   ) {}
 
   @Post()
@@ -163,9 +165,19 @@ export class ShiftPreferencesController {
       .single();
     if (error) throw new BadRequestException(error.message);
 
-    // Notificar al manager via WS (la campanita lo refresca). El
-    // outbound WhatsApp lo manejará Fase C.
+    // Notificar al manager. WS refresca la campanita inmediato;
+    // WhatsApp es fire-and-forget al manager del depto (resuelve
+    // ManagerNotificationService).
     this.notifications.notifyApprovalsChanged(companyId, 'shift_preference');
+    const employeeName = await this.lookupEmployeeName(
+      companyId,
+      user.employeeId,
+    );
+    void this.managerNotifications.notifyManagerForEmployee(
+      companyId,
+      user.employeeId,
+      buildPrefMessage(employeeName, dto),
+    );
 
     return this.toRow(data);
   }
@@ -247,6 +259,40 @@ export class ShiftPreferencesController {
       note: (r.note as string | null) ?? null,
       createdAt: r.created_at as string,
     };
+  }
+
+  private async lookupEmployeeName(
+    companyId: string,
+    employeeId: string,
+  ): Promise<string> {
+    const { data } = await this.supabase
+      .from('employees')
+      .select('name')
+      .eq('id', employeeId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    return (data?.name as string | undefined) ?? 'Employee';
+  }
+}
+
+/**
+ * Construye el WhatsApp para el manager. Texto plano corto — Twilio
+ * tiene ~1600 chars de límite y el manager lo lee en el celular.
+ * NOTA: i18n del outbound queda como follow-up — por ahora español
+ * por default (la mayoría de los tenants son LatAm).
+ */
+function buildPrefMessage(
+  employeeName: string,
+  dto: { kind: ShiftPreferenceKind; date?: string; startTime?: string; endTime?: string; note?: string },
+): string {
+  const date = dto.date ?? '—';
+  switch (dto.kind) {
+    case 'prefer_to_work':
+      return `${employeeName} quiere trabajar el ${date}.${dto.note ? '\nNota: ' + dto.note : ''}`;
+    case 'available_hours':
+      return `${employeeName} está disponible el ${date} de ${dto.startTime} a ${dto.endTime}.${dto.note ? '\nNota: ' + dto.note : ''}`;
+    case 'prefer_specific_shift':
+      return `${employeeName} prefiere un turno específico el ${date}.${dto.note ? '\nNota: ' + dto.note : ''}`;
   }
 }
 

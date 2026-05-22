@@ -26,6 +26,7 @@ import {
   type DayOffRequestStatus,
 } from '../../domain/aggregates/day-off-request.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
+import { ManagerNotificationService } from '../../application/services/manager-notification.service';
 import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -64,6 +65,7 @@ export class DayOffRequestsController {
     private readonly employeeRepo: IEmployeeRepository,
     private readonly managerScope: ManagerScopeService,
     private readonly absenceCreator: AbsenceReportCreator,
+    private readonly managerNotifications: ManagerNotificationService,
   ) {}
 
   @Post()
@@ -181,6 +183,14 @@ export class DayOffRequestsController {
       ruleSource: 'day-off',
     });
 
+    // Notificar al empleado del approve. Fire-and-forget — el aggregate
+    // ya está persistido; un fail del provider no debe romper el endpoint.
+    void this.managerNotifications.notifyEmployee(
+      companyId,
+      r.employeeId,
+      `Tu pedido de día libre para el ${r.date} fue APROBADO.`,
+    );
+
     return {
       deletedAssignmentIds: sideEffects.deleted.map((d) => d.id),
       rulesCreated: sideEffects.rulesCreated,
@@ -198,6 +208,11 @@ export class DayOffRequestsController {
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
     r.reject();
     await this.repo.save(r);
+    void this.managerNotifications.notifyEmployee(
+      companyId,
+      r.employeeId,
+      `Tu pedido de día libre para el ${r.date} fue rechazado por tu manager.`,
+    );
   }
 
   private toDto(r: DayOffRequest): object {

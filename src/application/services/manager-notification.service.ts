@@ -62,6 +62,40 @@ export class ManagerNotificationService {
   }
 
   /**
+   * Notifica directo al employee — usado cuando el manager aprueba o
+   * rechaza una solicitud (day_off / swap), o cuando le confirmamos
+   * que registramos una preferencia.
+   *
+   * Errores de delivery se loguean pero no se propagan (mismo patrón
+   * que notifyManagerForEmployee — la persistencia del aggregate
+   * importa más que la notificación).
+   */
+  async notifyEmployee(
+    companyId: string,
+    employeeId: string,
+    message: string,
+  ): Promise<boolean> {
+    const phone = await this.lookupEmployeePhone(companyId, employeeId);
+    if (!phone) {
+      this.logger.warn(
+        `notifyEmployee: no phone for employee ${employeeId} in ${companyId}; skipping.`,
+      );
+      return false;
+    }
+    try {
+      await this.notificationService.sendWhatsApp(phone, message);
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `notifyEmployee delivery failed (phone=${phone}): ${
+          (err as Error).message
+        }`,
+      );
+      return false;
+    }
+  }
+
+  /**
    * Expone el lookup sin disparar el envío — útil para handlers que
    * necesitan combinar varios mensajes o re-usar el phone para otra cosa.
    */
@@ -128,7 +162,9 @@ export class ManagerNotificationService {
     return this.fallbackPhone || null;
   }
 
-  private async lookupEmployeePhone(
+  // Cambio scope a public para que notifyEmployee y consumers externos
+  // puedan reusar el lookup sin duplicar lógica.
+  async lookupEmployeePhone(
     companyId: string,
     employeeId: string,
   ): Promise<string | null> {
