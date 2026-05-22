@@ -1,5 +1,6 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { GetCompanyScheduleQuery } from '../queries/get-company-schedule.query';
 import {
   SHIFT_ASSIGNMENT_REPOSITORY,
@@ -41,6 +42,9 @@ export interface CompanyScheduleAssignmentDTO {
    * ASC. Vacío si el shift no tiene descansos. Permite al frontend
    * renderear el badge ☕ + count sin un fetch separado por bloque. */
   breaks: CompanyScheduleAssignmentBreakDTO[];
+  /** Timestamp ISO cuando el empleado confirmó "leí el turno". null si
+   * no confirmado todavía o si la company no requiere confirmación. */
+  confirmedAt: string | null;
 }
 
 /**
@@ -67,6 +71,8 @@ export class GetCompanyScheduleHandler
     private readonly templateRepo: IShiftTemplateRepository,
     @Inject(SHIFT_ASSIGNMENT_BREAK_REPOSITORY)
     private readonly breakRepo: IShiftAssignmentBreakRepository,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   async execute(
@@ -106,9 +112,23 @@ export class GetCompanyScheduleHandler
     // badge ☕ por bloque dispararía N queries (N = assignments en la
     // semana). El repo expone findByAssignmentIds para esto.
     const assignmentIds = filtered.map((a) => a.id);
-    const allBreaks = await this.breakRepo.findByAssignmentIds(
-      assignmentIds,
-      query.companyId,
+    const [allBreaks, confirmedRows] = await Promise.all([
+      this.breakRepo.findByAssignmentIds(assignmentIds, query.companyId),
+      // confirmed_at vive en shift_assignments pero NO está en el
+      // aggregate (es metadata UX, no concepto de turno). Lo levantamos
+      // directo de supabase y lo mergeamos en el DTO.
+      assignmentIds.length === 0
+        ? Promise.resolve({ data: [] as Array<{ id: string; confirmed_at: string | null }> })
+        : this.supabase
+            .from('shift_assignments')
+            .select('id, confirmed_at')
+            .in('id', assignmentIds),
+    ]);
+    const confirmedById = new Map<string, string | null>(
+      (confirmedRows.data ?? []).map((r) => [
+        r.id as string,
+        (r.confirmed_at as string | null) ?? null,
+      ]),
     );
     const breaksByAssignmentId = new Map<
       string,
@@ -137,6 +157,7 @@ export class GetCompanyScheduleHandler
         actualEndTime: a.actualEndTime.toISOString(),
         origin: a.origin,
         breaks: breaksByAssignmentId.get(a.id) ?? [],
+        confirmedAt: confirmedById.get(a.id) ?? null,
       };
     });
   }

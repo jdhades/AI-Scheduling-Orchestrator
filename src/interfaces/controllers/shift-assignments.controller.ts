@@ -11,8 +11,10 @@ import {
 import {
   Body,
   ConflictException,
+  BadRequestException,
   Controller,
   Delete,
+  ForbiddenException,
   HttpCode,
   HttpStatus,
   Inject,
@@ -22,6 +24,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { IsOptional, IsString, IsNotEmpty, Matches, IsISO8601 } from 'class-validator';
 import {
   ShiftAssignmentMoverService,
@@ -112,6 +115,8 @@ export class ShiftAssignmentsController {
     private readonly notificationsGateway: NotificationsGateway,
     @Inject(ENTITY_AUDIT_SERVICE)
     private readonly audit: IEntityAuditService,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   /**
@@ -281,6 +286,47 @@ export class ShiftAssignmentsController {
       actualStartTime: a.actualStartTime.toISOString(),
       actualEndTime: a.actualEndTime.toISOString(),
     };
+  }
+
+  /**
+   * POST /shift-assignments/:id/confirm
+   *
+   * Empleado marca "leí mi turno". Solo el dueño del assignment puede
+   * confirmarse. Idempotente: si ya fue confirmado, devuelve OK sin
+   * actualizar el timestamp.
+   *
+   * NO requiere @Requires('schedule:write') porque es self-action del
+   * empleado sobre su propia row — el guard es employeeId match.
+   */
+  @Post(':id/confirm')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async confirm(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+  ): Promise<void> {
+    if (!user?.employeeId) {
+      throw new ForbiddenException(
+        'Only employees can confirm their own shifts',
+      );
+    }
+    const { data, error } = await this.supabase
+      .from('shift_assignments')
+      .select('id, employee_id, confirmed_at')
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException(`Assignment ${id} not found`);
+    if (data.employee_id !== user.employeeId) {
+      throw new ForbiddenException('Cannot confirm another employee shift');
+    }
+    if (data.confirmed_at) return; // Idempotente.
+    const { error: updErr } = await this.supabase
+      .from('shift_assignments')
+      .update({ confirmed_at: new Date().toISOString() })
+      .eq('id', id);
+    if (updErr) throw new BadRequestException(updErr.message);
   }
 
   /** Snapshot serializable usado por el audit log. */
