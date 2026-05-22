@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { IsEmail, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { PlatformAdmin } from '../../infrastructure/auth/decorators/platform-admin.decorator';
 import { PlatformSuperAdmin } from '../../infrastructure/auth/decorators/platform-super-admin.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
@@ -45,6 +45,16 @@ class CreatePlatformUserDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /**
+   * Si se provee, crea el auth.user nuevo con este password (no requiere
+   * que el target tenga cuenta previa). Si se omite, el comportamiento
+   * legacy: el target debe haberse registrado por su cuenta antes.
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
 }
 
 class UpdateRoleDto {
@@ -109,17 +119,35 @@ export class AdminPlatformUsersController {
     @Body() body: CreatePlatformUserDto,
     @Req() req: Request,
   ): Promise<PlatformUserRow> {
-    // El target user tiene que existir en auth.users. Buscamos su id por email.
+    // Buscamos al user por email. Si no existe Y el super pasó password,
+    // lo creamos al vuelo. Si no pasó password, 404.
     const { data: usersData, error: usersErr } =
       await this.supabase.auth.admin.listUsers();
     if (usersErr) throw new BadRequestException(usersErr.message);
-    const target = (usersData.users ?? []).find(
+    let target = (usersData.users ?? []).find(
       (u) => u.email?.toLowerCase() === body.email.toLowerCase(),
     );
     if (!target) {
-      throw new NotFoundException(
-        `No user with email ${body.email}. They must create an account first.`,
-      );
+      if (!body.password) {
+        throw new NotFoundException(
+          `No user with email ${body.email}. Provide a password to create one.`,
+        );
+      }
+      const { data: created, error: createErr } =
+        await this.supabase.auth.admin.createUser({
+          email: body.email,
+          password: body.password,
+          // Auto-confirmamos: el super lo está creando manualmente, no
+          // tiene sentido pedir confirmación por email.
+          email_confirm: true,
+          user_metadata: { created_by_platform_admin: true },
+        });
+      if (createErr || !created.user) {
+        throw new BadRequestException(
+          createErr?.message ?? 'Failed to create auth user',
+        );
+      }
+      target = created.user;
     }
 
     const role: PlatformRole = body.role ?? 'support';
