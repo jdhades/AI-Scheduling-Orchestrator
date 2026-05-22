@@ -47,7 +47,7 @@ export class UpdateDepartmentDto {
    */
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)
-  @IsUUID('all')
+  @IsUUID('loose')
   managerEmployeeId?: string | null;
 
   /** Reservado para futuras ediciones (rename del depto). */
@@ -72,7 +72,7 @@ export class CreateDepartmentDto {
   @MinLength(2)
   name!: string;
 
-  @IsUUID('all')
+  @IsUUID('loose')
   branchId!: string;
 }
 

@@ -47,11 +47,11 @@ export class CreateTaskDto {
   // Exactamente uno de los 2 debe venir. Validamos en el handler porque
   // class-validator no expresa "exactly one of" sin un custom validator.
   @IsOptional()
-  @IsUUID('all')
+  @IsUUID('loose')
   shiftTemplateId?: string;
 
   @IsOptional()
-  @IsUUID('all')
+  @IsUUID('loose')
   employeeId?: string;
 }
 

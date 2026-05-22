@@ -24,10 +24,10 @@ import { ShiftMembership } from '../../domain/aggregates/shift-membership.aggreg
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class CreateShiftMembershipDto {
-  @IsUUID('all')
+  @IsUUID('loose')
   employeeId!: string;
 
-  @IsUUID('all')
+  @IsUUID('loose')
   templateId!: string;
 
   /** YYYY-MM-DD */

@@ -36,12 +36,12 @@ import { AbsenceReportCreator } from '../../domain/services/absence-report-creat
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class CreateAbsenceReportDto {
-  @IsUUID('all')
+  @IsUUID('loose')
   employeeId!: string;
 
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)
-  @IsUUID('all')
+  @IsUUID('loose')
   assignmentId?: string | null;
 
   @IsString()

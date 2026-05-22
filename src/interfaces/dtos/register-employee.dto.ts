@@ -17,7 +17,7 @@ import {
  */
 export class RegisterEmployeeDto {
   @IsOptional()
-  @IsUUID('all')
+  @IsUUID('loose')
   employeeId?: string;
 
   @IsString()

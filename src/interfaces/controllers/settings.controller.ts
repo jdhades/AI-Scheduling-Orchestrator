@@ -62,10 +62,12 @@ class ScopeAssignmentInput {
   @IsIn(['branch', 'department'])
   type!: 'branch' | 'department';
 
-  // 'all' acepta cualquier versión RFC 4122. Los UUIDs del seed legacy
-  // (71000000-0000-0000-0000-000000000001) no son v4 — el default
-  // @IsUUID() los rechazaría. Mismo patrón que departments.controller.ts.
-  @IsUUID('all')
+  // 'loose' acepta cualquier formato hex 8-4-4-4-12 sin chequear bits
+  // de versión/variant. Los UUIDs del seed legacy
+  // (71000000-0000-0000-0000-000000000001) tienen version/variant en 0
+  // y caerían tanto en @IsUUID() (default v4) como en @IsUUID('all')
+  // (exige version 1-8 + variant [89ab]). Solo 'loose' los acepta.
+  @IsUUID('loose')
   id!: string;
 }
 
