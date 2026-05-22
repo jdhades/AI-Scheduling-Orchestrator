@@ -14,9 +14,14 @@ import {
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
+  IsInt,
+  IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -88,6 +93,47 @@ export class ReplaceCapabilitiesDto {
 export class UpdateCompanySettingsDto {
   @IsIn(['sunday', 'monday'])
   weekStartsOn!: 'sunday' | 'monday';
+}
+
+/**
+ * Preferencias UX del equipo. Todas opcionales — el PATCH solo actualiza
+ * los campos enviados. Defaults sensibles en el schema:
+ *   schedule_visibility_mode      = 'all'      (privacidad relajada)
+ *   availability_visibility       = 'public'   (transparencia entre pares)
+ *   availability_change_notice_days = 0        (sin restricción)
+ *   shift_confirmation_required   = false      (sin fricción)
+ *   absences_tracking_enabled     = true       (módulo de ausencias visible)
+ */
+export class UpdateTeamPreferencesDto {
+  @IsOptional()
+  @IsIn(['all', 'own_only'])
+  scheduleVisibilityMode?: 'all' | 'own_only';
+
+  @IsOptional()
+  @IsIn(['public', 'private'])
+  availabilityVisibility?: 'public' | 'private';
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  availabilityChangeNoticeDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  shiftConfirmationRequired?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  absencesTrackingEnabled?: boolean;
+}
+
+export interface TeamPreferencesResponse {
+  scheduleVisibilityMode: 'all' | 'own_only';
+  availabilityVisibility: 'public' | 'private';
+  availabilityChangeNoticeDays: number;
+  shiftConfirmationRequired: boolean;
+  absencesTrackingEnabled: boolean;
 }
 
 interface CapabilityInfo {
@@ -447,5 +493,69 @@ export class SettingsController {
     if (weekStartsOnChanged) {
       await this.fairnessRepo.deleteAllByCompany(companyId);
     }
+  }
+
+  // ─── Team preferences ───────────────────────────────────────────────
+  // 5 toggles UX (no son políticas de negocio ni features técnicas):
+  // schedule visibility, availability visibility + notice, shift
+  // confirmation, absences tracking. Visibles a quien tenga settings:manage.
+
+  @Get('preferences')
+  async getTeamPreferences(
+    @CurrentCompany() companyId: string,
+  ): Promise<TeamPreferencesResponse> {
+    const { data, error } = await this.supabase
+      .from('companies')
+      .select(
+        'schedule_visibility_mode, availability_visibility, availability_change_notice_days, shift_confirmation_required, absences_tracking_enabled',
+      )
+      .eq('id', companyId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Company not found');
+    return {
+      scheduleVisibilityMode:
+        (data.schedule_visibility_mode as 'all' | 'own_only') ?? 'all',
+      availabilityVisibility:
+        (data.availability_visibility as 'public' | 'private') ?? 'public',
+      availabilityChangeNoticeDays:
+        (data.availability_change_notice_days as number) ?? 0,
+      shiftConfirmationRequired:
+        (data.shift_confirmation_required as boolean) ?? false,
+      absencesTrackingEnabled:
+        (data.absences_tracking_enabled as boolean) ?? true,
+    };
+  }
+
+  @Patch('preferences')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async updateTeamPreferences(
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateTeamPreferencesDto,
+  ): Promise<void> {
+    const updates: Record<string, unknown> = {};
+    if (body.scheduleVisibilityMode !== undefined) {
+      updates.schedule_visibility_mode = body.scheduleVisibilityMode;
+    }
+    if (body.availabilityVisibility !== undefined) {
+      updates.availability_visibility = body.availabilityVisibility;
+    }
+    if (body.availabilityChangeNoticeDays !== undefined) {
+      updates.availability_change_notice_days =
+        body.availabilityChangeNoticeDays;
+    }
+    if (body.shiftConfirmationRequired !== undefined) {
+      updates.shift_confirmation_required = body.shiftConfirmationRequired;
+    }
+    if (body.absencesTrackingEnabled !== undefined) {
+      updates.absences_tracking_enabled = body.absencesTrackingEnabled;
+    }
+    if (Object.keys(updates).length === 0) return;
+
+    const { error } = await this.supabase
+      .from('companies')
+      .update(updates)
+      .eq('id', companyId);
+    if (error) throw new BadRequestException(error.message);
   }
 }
