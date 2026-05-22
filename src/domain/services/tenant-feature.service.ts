@@ -48,6 +48,12 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
       'Los empleados pueden auto-aprobar swaps entre pares sin pasar por el manager si los skills coinciden.',
     hasPayload: true,
   },
+  {
+    key: 'support_ticket_attachments',
+    label: 'Support ticket attachments',
+    description:
+      'Permite que managers/owners adjunten imagen/video al reportar un error. Requiere que el bucket de Supabase Storage support-attachments esté configurado. Off por default — soporte la activa cuando confirma que el storage está listo.',
+  },
 ];
 
 export interface TenantFeatureRow {
