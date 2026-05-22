@@ -27,9 +27,10 @@ DROP INDEX IF EXISTS tasks_shift_assignment_idx;
 DROP INDEX IF EXISTS tasks_employee_idx;
 
 ALTER TABLE public.tasks
-  ADD COLUMN shift_template_id UUID NULL
+  ADD COLUMN IF NOT EXISTS shift_template_id UUID NULL
     REFERENCES public.shift_templates(id) ON DELETE CASCADE;
 
+ALTER TABLE public.tasks DROP CONSTRAINT IF EXISTS tasks_exactly_one_target;
 ALTER TABLE public.tasks
   ADD CONSTRAINT tasks_exactly_one_target CHECK (
     (shift_template_id IS NOT NULL)::int +
