@@ -65,6 +65,10 @@ interface MeResponse {
   /** true si el caller está en `platform_admins`. El frontend usa esto
    * para mostrar el link a /admin y para evitar fetchs innecesarios. */
   isPlatformAdmin: boolean;
+  /** Sub-rol del platform_admin si aplica. null para non-admins. Los
+   * 'super' pueden gestionar otros admins; los 'support' solo operan
+   * el resto del panel. */
+  platformRole: 'super' | 'support' | null;
   /** Lista de capabilities efectivas del caller — unión de
    * company_role_capabilities[role] + employee_capabilities (overrides).
    * El frontend la usa para gatear UI (ocultar Settings si no tiene
@@ -280,7 +284,7 @@ export class AuthController {
     const platformAdminP = user.userId
       ? this.supabase
           .from('platform_admins')
-          .select('id')
+          .select('id, role')
           .eq('auth_user_id', user.userId)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null });
@@ -311,6 +315,9 @@ export class AuthController {
     const company = companyRes.data;
     const employee = employeeRes.data;
     const isPlatformAdmin = !!platformAdminRes.data;
+    const platformRole =
+      (platformAdminRes.data?.role as 'super' | 'support' | undefined) ??
+      null;
     const capabilities = Array.from(
       new Set([
         ...((roleCapsRes.data ?? []).map(
@@ -360,6 +367,7 @@ export class AuthController {
       },
       permissions,
       isPlatformAdmin,
+      platformRole,
       capabilities,
     };
   }

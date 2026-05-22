@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { PLATFORM_ADMIN_KEY } from '../decorators/platform-admin.decorator';
+import { PLATFORM_SUPER_ADMIN_KEY } from '../decorators/platform-super-admin.decorator';
 import type { AuthContext } from '../auth-context';
 
 /**
@@ -30,7 +31,13 @@ export class PlatformAdminGuard implements CanActivate {
       PLATFORM_ADMIN_KEY,
       [ctx.getHandler(), ctx.getClass()],
     );
-    if (!required) return true;
+    const requiresSuper = this.reflector.getAllAndOverride<boolean>(
+      PLATFORM_SUPER_ADMIN_KEY,
+      [ctx.getHandler(), ctx.getClass()],
+    );
+    // @PlatformSuperAdmin() implica @PlatformAdmin() — el endpoint
+    // marcado super sin @PlatformAdmin() igual chequea acceso.
+    if (!required && !requiresSuper) return true;
 
     const req = ctx.switchToHttp().getRequest<{ auth?: AuthContext }>();
     const auth = req.auth;
@@ -42,12 +49,15 @@ export class PlatformAdminGuard implements CanActivate {
 
     const { data } = await this.supabase
       .from('platform_admins')
-      .select('id')
+      .select('id, role')
       .eq('auth_user_id', auth.userId)
       .maybeSingle();
 
     if (!data) {
       throw new ForbiddenException('Platform admin access required');
+    }
+    if (requiresSuper && data.role !== 'super') {
+      throw new ForbiddenException('Platform super-admin access required');
     }
     return true;
   }
