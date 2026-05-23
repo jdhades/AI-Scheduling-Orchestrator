@@ -452,7 +452,11 @@ export class OperationalBreakdownService {
         const pct = Math.min((assigned / required) * 100, 100);
         sumPct += pct;
         count++;
-        if (assigned === 0) unfilled++;
+        // Asientos faltantes en este (template × instancia). Antes
+        // contábamos solo cuando assigned=0, lo cual escondía slots
+        // parcialmente cubiertos. Ahora el manager ve cuántos
+        // empleados le faltan asignar en total.
+        unfilled += Math.max(0, required - assigned);
       }
     }
     return {

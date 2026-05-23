@@ -34,6 +34,8 @@ import {
   ShiftAssignmentCreatorService,
   CreateAssignmentConflictError,
 } from '../../domain/services/shift-assignment-creator.service';
+import { FairnessHistoryRecomputerService } from '../../domain/services/fairness-history-recomputer.service';
+import { CompanyPreferencesService } from '../../application/services/company-preferences.service';
 import {
   SHIFT_ASSIGNMENT_REPOSITORY,
   type IShiftAssignmentRepository,
@@ -110,6 +112,8 @@ export class ShiftAssignmentsController {
   constructor(
     private readonly mover: ShiftAssignmentMoverService,
     private readonly creator: ShiftAssignmentCreatorService,
+    private readonly fairnessRecomputer: FairnessHistoryRecomputerService,
+    private readonly companyPreferences: CompanyPreferencesService,
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly repo: IShiftAssignmentRepository,
     private readonly notificationsGateway: NotificationsGateway,
@@ -118,6 +122,39 @@ export class ShiftAssignmentsController {
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
   ) {}
+
+  /** Best-effort recompute de fairness_history tras mutar una assignment.
+   * Errores se loguean y se silencian — el manager no debe ver un 500
+   * si el snapshot de KPIs falla. La próxima regeneración del horario
+   * sobrescribe igualmente toda la semana. */
+  private async refreshFairnessSnapshot(
+    companyId: string,
+    employeeId: string,
+    assignmentDateIso: string,
+  ): Promise<void> {
+    try {
+      const weekStartsOn = await this.companyPreferences.getWeekStartsOn(
+        companyId,
+      );
+      const weekStart =
+        FairnessHistoryRecomputerService.weekStartFromAssignmentDate(
+          assignmentDateIso,
+          weekStartsOn,
+        );
+      await this.fairnessRecomputer.recomputeForEmployeeWeek(
+        companyId,
+        employeeId,
+        weekStart,
+      );
+    } catch (err) {
+      // No relanzamos — el endpoint principal ya terminó con éxito.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[shift-assignments] fairness recompute failed for emp=${employeeId} date=${assignmentDateIso}:`,
+        err,
+      );
+    }
+  }
 
   /**
    * POST /shift-assignments?companyId=...
@@ -150,6 +187,11 @@ export class ShiftAssignmentsController {
         actorUserId: user?.userId ?? null,
         actorEmployeeId: user?.employeeId ?? null,
       });
+      await this.refreshFairnessSnapshot(
+        companyId,
+        assignment.employeeId,
+        assignment.date,
+      );
       return { assignment: this.toDto(assignment) };
     } catch (err) {
       if (err instanceof CreateAssignmentConflictError) {
@@ -192,6 +234,11 @@ export class ShiftAssignmentsController {
       actorUserId: user?.userId ?? null,
       actorEmployeeId: user?.employeeId ?? null,
     });
+    await this.refreshFairnessSnapshot(
+      companyId,
+      existing.employeeId,
+      existing.date,
+    );
     this.notificationsGateway.notifyAssignmentChanged(companyId);
   }
 
@@ -253,6 +300,25 @@ export class ShiftAssignmentsController {
           actorUserId: user?.userId ?? null,
           actorEmployeeId: user?.employeeId ?? null,
         });
+      }
+      // Refresh fairness snapshot — la posición previa (si cambió el
+      // empleado o la semana) Y la nueva. Si el move se quedó en el
+      // mismo (employee, weekStart), una sola pasada alcanza.
+      await this.refreshFairnessSnapshot(
+        companyId,
+        result.assignment.employeeId,
+        result.assignment.date,
+      );
+      if (
+        previous &&
+        (previous.employeeId !== result.assignment.employeeId ||
+          previous.date !== result.assignment.date)
+      ) {
+        await this.refreshFairnessSnapshot(
+          companyId,
+          previous.employeeId,
+          previous.date,
+        );
       }
       return {
         assignment: this.toDto(result.assignment),

@@ -108,7 +108,9 @@ describe('OperationalKpisService', () => {
     expect(kpis.coverage.totalRequiredCells).toBe(3);
     // (100 + 50 + 0) / 3 = 50
     expect(kpis.coverage.avgPercent).toBe(50);
-    expect(kpis.coverage.unfilledShifts).toBe(1);
+    // unfilledShifts = asientos faltantes (required - assigned), no
+    // "celdas con 0". Acá: 0 + 2 + 1 = 3 asientos faltan en total.
+    expect(kpis.coverage.unfilledShifts).toBe(3);
   });
 
   it('coverage: agrega sobre múltiples weekStarts', async () => {
@@ -121,7 +123,7 @@ describe('OperationalKpisService', () => {
     coverageService.getWeekCoverage.mockResolvedValueOnce(
       makeCoverageReport({
         weekStart: '2026-04-27',
-        cells: [{ required: 2, assigned: 0 }], // 0% + unfilled
+        cells: [{ required: 2, assigned: 0 }], // 0% + 2 asientos faltantes
       }),
     );
     service = new OperationalKpisService(coverageService, fairnessRepo, makeSupabaseStub({}));
@@ -130,7 +132,7 @@ describe('OperationalKpisService', () => {
 
     expect(kpis.coverage.totalRequiredCells).toBe(2);
     expect(kpis.coverage.avgPercent).toBe(50);
-    expect(kpis.coverage.unfilledShifts).toBe(1);
+    expect(kpis.coverage.unfilledShifts).toBe(2);
   });
 
   it('coverage: avgPercent=null cuando no hay celdas con required', async () => {

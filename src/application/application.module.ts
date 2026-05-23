@@ -72,6 +72,7 @@ import { ScheduleGenerationRunsService } from '../domain/services/schedule-gener
 import { LLMModelBudgetService } from '../domain/services/llm-model-budget.service';
 import { ShiftAssignmentMoverService } from '../domain/services/shift-assignment-mover.service';
 import { ShiftAssignmentCreatorService } from '../domain/services/shift-assignment-creator.service';
+import { FairnessHistoryRecomputerService } from '../domain/services/fairness-history-recomputer.service';
 import { ShiftBreakManager } from '../domain/services/shift-break-manager.service';
 import { ScheduleGenerationJobHandler } from './jobs/schedule-generation-job.handler';
 import { ScheduleGenerationDeadletterHandler } from './jobs/schedule-generation-deadletter.handler';
@@ -199,6 +200,11 @@ const DomainServices = [
   ShiftAssignmentMoverService,
   // Phase 19E — creación manual de assignments desde el panel.
   ShiftAssignmentCreatorService,
+  // Recompute single-row de fairness_history tras mutaciones manuales
+  // de assignments (create/move/delete/take-open/swap). Sin esto, los
+  // KPIs del dashboard (promedio horas, breakdown por dept/empleado,
+  // fairness CV) quedan con la foto vieja entre regeneraciones.
+  FairnessHistoryRecomputerService,
   // Sprint Add-a-break: domain service que gestiona breaks intra-shift
   // (validación de fit + no overlap + materialización de defaults del
   // template). El controller lo inyecta directo, el creator lo usa

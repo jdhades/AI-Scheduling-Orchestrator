@@ -1,20 +1,26 @@
 import { CommandHandler, EventBus, ICommandHandler } from '@nestjs/cqrs';
-import { Inject } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import { TakeOpenShiftCommand } from '../commands/take-open-shift.command';
 import { OpenShiftClaimedEvent } from '../../domain/events/open-shift-claimed.event';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
 import { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
+import { FairnessHistoryRecomputerService } from '../../domain/services/fairness-history-recomputer.service';
+import { CompanyPreferencesService } from '../services/company-preferences.service';
 import { randomUUID } from 'crypto';
 
 @CommandHandler(TakeOpenShiftCommand)
 export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftCommand> {
+  private readonly logger = new Logger(TakeOpenShiftHandler.name);
+
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly assignmentRepo: IShiftAssignmentRepository,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
+    private readonly fairnessRecomputer: FairnessHistoryRecomputerService,
+    private readonly companyPreferences: CompanyPreferencesService,
     private readonly eventBus: EventBus,
   ) {}
 
@@ -88,6 +94,45 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
       actualEndTime: actualEnd,
     });
     await this.assignmentRepo.save(newAssignment);
+
+    // Recompute fairness para AMBAS posiciones (vieja y nueva).
+    // Take-open mueve un employee de un slot a otro: pueden estar en
+    // la misma semana (deja un hueco + agrega al nuevo) o en distinta.
+    // Si requesterAssignment.date y targetDate caen en la misma
+    // (employee, week) basta una pasada — pero el recompute es barato
+    // y idempotente, así que hacemos las dos.
+    try {
+      const weekStartsOn =
+        await this.companyPreferences.getWeekStartsOn(companyId);
+      const oldWeek =
+        FairnessHistoryRecomputerService.weekStartFromAssignmentDate(
+          requesterAssignment.date,
+          weekStartsOn,
+        );
+      const newWeek =
+        FairnessHistoryRecomputerService.weekStartFromAssignmentDate(
+          targetDate,
+          weekStartsOn,
+        );
+      await this.fairnessRecomputer.recomputeForEmployeeWeek(
+        companyId,
+        requesterId,
+        newWeek,
+      );
+      if (oldWeek.getTime() !== newWeek.getTime()) {
+        await this.fairnessRecomputer.recomputeForEmployeeWeek(
+          companyId,
+          requesterId,
+          oldWeek,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `fairness recompute failed after take-open for emp=${requesterId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     this.eventBus.publish(
       new OpenShiftClaimedEvent(

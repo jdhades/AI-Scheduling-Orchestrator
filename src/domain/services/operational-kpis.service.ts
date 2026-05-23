@@ -98,7 +98,12 @@ export class OperationalKpisService {
           totalRequiredCells++;
           const pct = (cell.assigned / cell.required) * 100;
           totalPctSum += Math.min(pct, 100); // cap a 100 — overstaffing no cuenta como "más cubierto"
-          if (cell.assigned === 0) unfilledShifts++;
+          // Sumamos los asientos faltantes (required - assigned). Antes
+          // contábamos solo celdas con assigned=0, que confundía al
+          // manager: cubrir 1 de 2 huecos no reducía el número aunque
+          // sí mejorara la cobertura. La métrica nueva responde a
+          // "¿cuántos asientos me falta cubrir?".
+          unfilledShifts += Math.max(0, cell.required - cell.assigned);
         }
       }
     }
