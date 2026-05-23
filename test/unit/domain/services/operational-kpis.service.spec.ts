@@ -1,6 +1,8 @@
 import { OperationalKpisService } from '../../../../src/domain/services/operational-kpis.service';
 import type { CoverageService } from '../../../../src/domain/services/coverage.service';
 import type { IFairnessHistoryRepository } from '../../../../src/domain/repositories/fairness-history.repository';
+import type { IShiftAssignmentRepository } from '../../../../src/domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../../../src/domain/repositories/shift-template.repository';
 import { FairnessHistoryVO } from '../../../../src/domain/value-objects/fairness-history.vo';
 
 const COMPANY = 'co-1';
@@ -79,14 +81,39 @@ function makeSupabaseStub(behavior: {
   } as any;
 }
 
+function makeTpl(
+  id: string,
+  required: number,
+  dayOfWeek: number | null = 1,
+): any {
+  return {
+    id,
+    name: id,
+    dayOfWeek,
+    startTime: '09:00',
+    endTime: '17:00',
+    requiredEmployees: required,
+    isActive: true,
+    requiredSkillId: null,
+    demandScore: 1,
+    undesirableWeight: { normalized: () => 0 } as any,
+  };
+}
+
 describe('OperationalKpisService', () => {
   let service: OperationalKpisService;
   let coverageService: jest.Mocked<CoverageService>;
   let fairnessRepo: jest.Mocked<IFairnessHistoryRepository>;
+  let templateRepo: jest.Mocked<IShiftTemplateRepository>;
+  let assignmentRepo: jest.Mocked<IShiftAssignmentRepository>;
 
   beforeEach(() => {
     coverageService = { getWeekCoverage: jest.fn() } as any;
     fairnessRepo = { findByWeek: jest.fn().mockResolvedValue([]) } as any;
+    templateRepo = { findAllByCompany: jest.fn().mockResolvedValue([]) } as any;
+    assignmentRepo = {
+      findByCompanyAndDateRange: jest.fn().mockResolvedValue([]),
+    } as any;
   });
 
   it('coverage: promedio y unfilled — celdas sin demanda no cuentan', async () => {
@@ -101,19 +128,27 @@ describe('OperationalKpisService', () => {
         ],
       }),
     );
-    service = new OperationalKpisService(coverageService, fairnessRepo, makeSupabaseStub({}));
+    service = new OperationalKpisService(
+      coverageService,
+      fairnessRepo,
+      templateRepo,
+      assignmentRepo,
+      makeSupabaseStub({}),
+    );
 
     const kpis = await service.getKpis(COMPANY, ['2026-04-20'], 'monday');
 
     expect(kpis.coverage.totalRequiredCells).toBe(3);
     // (100 + 50 + 0) / 3 = 50
     expect(kpis.coverage.avgPercent).toBe(50);
-    // unfilledShifts = asientos faltantes (required - assigned), no
-    // "celdas con 0". Acá: 0 + 2 + 1 = 3 asientos faltan en total.
-    expect(kpis.coverage.unfilledShifts).toBe(3);
+    // unfilledShifts ahora se computa por turno-instancia (no celda-hora).
+    // Sin templates mockeados → 0 instancias → 0 huecos. La avgPercent
+    // sigue saliendo del cell-grid (que es lo que mide "% promedio de
+    // cobertura horaria").
+    expect(kpis.coverage.unfilledShifts).toBe(0);
   });
 
-  it('coverage: agrega sobre múltiples weekStarts', async () => {
+  it('coverage: agrega sobre múltiples weekStarts (avg)', async () => {
     coverageService.getWeekCoverage.mockResolvedValueOnce(
       makeCoverageReport({
         weekStart: '2026-04-20',
@@ -123,16 +158,54 @@ describe('OperationalKpisService', () => {
     coverageService.getWeekCoverage.mockResolvedValueOnce(
       makeCoverageReport({
         weekStart: '2026-04-27',
-        cells: [{ required: 2, assigned: 0 }], // 0% + 2 asientos faltantes
+        cells: [{ required: 2, assigned: 0 }], // 0%
       }),
     );
-    service = new OperationalKpisService(coverageService, fairnessRepo, makeSupabaseStub({}));
+    service = new OperationalKpisService(
+      coverageService,
+      fairnessRepo,
+      templateRepo,
+      assignmentRepo,
+      makeSupabaseStub({}),
+    );
 
     const kpis = await service.getKpis(COMPANY, ['2026-04-20', '2026-04-27'], 'monday');
 
     expect(kpis.coverage.totalRequiredCells).toBe(2);
     expect(kpis.coverage.avgPercent).toBe(50);
-    expect(kpis.coverage.unfilledShifts).toBe(2);
+  });
+
+  it('coverage: unfilledShifts cuenta por turno-instancia, no por hora', async () => {
+    // El test crítico: un turno de 6h que necesita 2 personas y nadie
+    // asignado debe contar 2 huecos, NO 12 (6 horas × 2). El cambio del
+    // formula vino justo de este bug — el manager veía 95 cuando
+    // realmente faltaban ~16 asignaciones.
+    coverageService.getWeekCoverage.mockResolvedValue(
+      makeCoverageReport({ weekStart: '2026-04-20', cells: [] }),
+    );
+    // 2026-04-20 es lunes → dayOfWeek=1.
+    templateRepo.findAllByCompany.mockResolvedValue([
+      makeTpl('tpl-morning', 2, 1), // requires 2, dow=Mon
+      makeTpl('tpl-evening', 3, 1), // requires 3, dow=Mon
+    ]);
+    // Solo 1 persona asignada al morning. evening sin nadie.
+    assignmentRepo.findByCompanyAndDateRange.mockResolvedValue([
+      { templateId: 'tpl-morning', date: '2026-04-20', id: 'a1' } as any,
+    ]);
+    service = new OperationalKpisService(
+      coverageService,
+      fairnessRepo,
+      templateRepo,
+      assignmentRepo,
+      makeSupabaseStub({}),
+    );
+
+    const kpis = await service.getKpis(COMPANY, ['2026-04-20'], 'monday');
+
+    // morning: required=2, assigned=1 → 1 hueco.
+    // evening: required=3, assigned=0 → 3 huecos.
+    // total = 4 (no inflado por horas).
+    expect(kpis.coverage.unfilledShifts).toBe(4);
   });
 
   it('coverage: avgPercent=null cuando no hay celdas con required', async () => {
@@ -142,7 +215,13 @@ describe('OperationalKpisService', () => {
         cells: [{ required: 0, assigned: 0 }],
       }),
     );
-    service = new OperationalKpisService(coverageService, fairnessRepo, makeSupabaseStub({}));
+    service = new OperationalKpisService(
+      coverageService,
+      fairnessRepo,
+      templateRepo,
+      assignmentRepo,
+      makeSupabaseStub({}),
+    );
 
     const kpis = await service.getKpis(COMPANY, ['2026-04-20'], 'monday');
     expect(kpis.coverage.avgPercent).toBeNull();
@@ -155,6 +234,8 @@ describe('OperationalKpisService', () => {
     service = new OperationalKpisService(
       coverageService,
       fairnessRepo,
+      templateRepo,
+      assignmentRepo,
       makeSupabaseStub({
         swapRows: [
           { status: 'accepted' },
@@ -187,6 +268,8 @@ describe('OperationalKpisService', () => {
     service = new OperationalKpisService(
       coverageService,
       fairnessRepo,
+      templateRepo,
+      assignmentRepo,
       makeSupabaseStub({
         swapRows: [{ status: 'pending' }],
         dayOffRows: [{ status: 'pending' }],
@@ -207,7 +290,13 @@ describe('OperationalKpisService', () => {
       fairnessVo('e3', 60),
     ]);
     fairnessRepo.findByWeek.mockResolvedValueOnce([]);
-    service = new OperationalKpisService(coverageService, fairnessRepo, makeSupabaseStub({}));
+    service = new OperationalKpisService(
+      coverageService,
+      fairnessRepo,
+      templateRepo,
+      assignmentRepo,
+      makeSupabaseStub({}),
+    );
 
     const kpis = await service.getKpis(COMPANY, ['2026-04-20', '2026-04-27'], 'monday');
 
@@ -223,6 +312,8 @@ describe('OperationalKpisService', () => {
     service = new OperationalKpisService(
       coverageService,
       fairnessRepo,
+      templateRepo,
+      assignmentRepo,
       makeSupabaseStub({
         runsRows: [
           { status: 'completed' },
