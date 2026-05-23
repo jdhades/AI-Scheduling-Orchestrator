@@ -1,10 +1,12 @@
 import { GetEmployeeCalendarHandler } from '../../../src/application/handlers/get-employee-calendar.handler';
 import { GetEmployeeCalendarQuery } from '../../../src/application/queries/get-employee-calendar.query';
 import type { IShiftAssignmentRepository } from '../../../src/domain/repositories/shift-assignment.repository';
+import type { IShiftTemplateRepository } from '../../../src/domain/repositories/shift-template.repository';
 
 describe('GetEmployeeCalendarHandler', () => {
   let handler: GetEmployeeCalendarHandler;
   let mockRepo: jest.Mocked<IShiftAssignmentRepository>;
+  let mockTemplateRepo: jest.Mocked<IShiftTemplateRepository>;
 
   beforeEach(() => {
     mockRepo = {
@@ -17,7 +19,10 @@ describe('GetEmployeeCalendarHandler', () => {
       findBySlot: jest.fn(),
       resolveShortId: jest.fn(),
     } as any;
-    handler = new GetEmployeeCalendarHandler(mockRepo);
+    mockTemplateRepo = {
+      findAllByCompany: jest.fn().mockResolvedValue([]),
+    } as any;
+    handler = new GetEmployeeCalendarHandler(mockRepo, mockTemplateRepo);
   });
 
   it('returns an array from the repository and normalizes the date range', async () => {
