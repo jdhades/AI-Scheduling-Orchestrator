@@ -54,6 +54,12 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
     description:
       'Permite que managers/owners adjunten imagen/video al reportar un error. Requiere que el bucket de Supabase Storage support-attachments esté configurado. Off por default — soporte la activa cuando confirma que el storage está listo.',
   },
+  {
+    key: 'help_ai_chat',
+    label: 'Help — AI chat tab',
+    description:
+      'Habilita la pestaña de chat con IA dentro del panel de ayuda (HelpPanel). Off por default — el backend del chat todavía no está implementado, así que cuando se active hay que tener la knowledge base + el agente listos. Las pestañas Guías y Soporte funcionan sin este flag.',
+  },
 ];
 
 export interface TenantFeatureRow {

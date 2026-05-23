@@ -35,6 +35,7 @@ import { Roles } from '../../infrastructure/auth/decorators/roles.decorator';
 import { Public } from '../../infrastructure/auth/decorators/public.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 
 interface MeResponse {
   user: { id: string | null; email: string | null };
@@ -75,6 +76,11 @@ interface MeResponse {
    * settings:manage, etc.). Backend igualmente valida en cada endpoint
    * via @Requires + CapabilityGuard. */
   capabilities: string[];
+  /** Feature flags habilitados en el tenant. Lista de keys (sin payload)
+   * — el frontend solo necesita saber si están on/off para gatear UI.
+   * Ejemplos: 'help_ai_chat' habilita la pestaña de chat del HelpPanel.
+   * Para platform_admins (sin company) viene como [] siempre. */
+  tenantFeatures: string[];
 }
 
 const MANAGER_PERMISSIONS = [
@@ -202,6 +208,7 @@ export class AuthController {
     // (rate-limit Supabase + email confirmation si está habilitada).
     @Inject('SUPABASE_ANON_CLIENT')
     private readonly supabaseAnon: SupabaseClient,
+    private readonly tenantFeatures: TenantFeatureService,
   ) {}
 
   /**
@@ -304,14 +311,29 @@ export class AuthController {
           .eq('employee_id', user.employeeId)
       : Promise.resolve({ data: [], error: null });
 
-    const [companyRes, employeeRes, platformAdminRes, roleCapsRes, overridesRes] =
-      await Promise.all([
-        companyP,
-        employeeP,
-        platformAdminP,
-        roleCapsP,
-        overridesP,
-      ]);
+    // Features del tenant — los keys habilitados (no payload). Platform
+    // admins no pertenecen a una company → lista vacía. El TenantFeatureService
+    // ya cachea por companyId, así que el costo es 1 query indexada (o cache hit).
+    const featuresP: Promise<Array<{ key: string; enabled: boolean }>> =
+      this.tenantFeatures
+        .listForCompany(user.companyId)
+        .catch(() => [] as Array<{ key: string; enabled: boolean }>);
+
+    const [
+      companyRes,
+      employeeRes,
+      platformAdminRes,
+      roleCapsRes,
+      overridesRes,
+      featuresList,
+    ] = await Promise.all([
+      companyP,
+      employeeP,
+      platformAdminP,
+      roleCapsP,
+      overridesP,
+      featuresP,
+    ]);
     const company = companyRes.data;
     const employee = employeeRes.data;
     const isPlatformAdmin = !!platformAdminRes.data;
@@ -369,6 +391,9 @@ export class AuthController {
       isPlatformAdmin,
       platformRole,
       capabilities,
+      tenantFeatures: featuresList
+        .filter((f) => f.enabled)
+        .map((f) => f.key),
     };
   }
 
