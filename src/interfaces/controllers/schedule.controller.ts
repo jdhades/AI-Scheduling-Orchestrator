@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   ConflictException,
@@ -15,6 +16,12 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GenerateHybridScheduleCommand } from '../../application/commands/generate-hybrid-schedule.command';
 import { GetCompanyScheduleQuery } from '../../application/queries/get-company-schedule.query';
 import { GenerateScheduleDto } from '../dtos/generate-schedule.dto';
+import { CloneScheduleDto } from '../dtos/clone-schedule.dto';
+import {
+  CloneScheduleCommand,
+  CloneScheduleConflictError,
+  type CloneScheduleResult,
+} from '../../application/commands/clone-schedule.command';
 import type { HybridScheduleResult } from '../../application/handlers/generate-hybrid-schedule.handler';
 import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 import { ScheduleGenerationLockedException } from '../../domain/services/schedule-generation-lock.service';
@@ -124,6 +131,50 @@ export class ScheduleController {
           weekStart: err.weekStart,
           since: err.acquiredAt,
           acquiredBy: err.acquiredBy,
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * POST /schedules/clone
+   *
+   * Clona los assignments de `sourceWeekStart` a una o más target weeks.
+   * Pre-checkea day_off_requests aprobados + absence_reports activas en
+   * destinos; lo que choca se omite y se reporta en la response. Si las
+   * targets ya tienen assignments y `overwrite=false` (default), tira
+   * 409 sin tocar nada.
+   *
+   * No corre el solver/LLM — es una copia determinística + filtro de
+   * conflictos. Para semanas vacías o continuidad simple es mucho más
+   * rápido que regenerar (instantáneo + zero LLM cost).
+   */
+  @Post('clone')
+  @Requires('schedule:write')
+  @HttpCode(HttpStatus.OK)
+  // 10/min/IP — más permisivo que /generate (no cuesta tokens LLM)
+  // pero capeado igual contra clicks accidentales repetidos.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async clone(
+    @Body() dto: CloneScheduleDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<CloneScheduleResult> {
+    try {
+      return await this.commandBus.execute(
+        new CloneScheduleCommand(
+          companyId,
+          dto.sourceWeekStart,
+          dto.targetWeekStarts,
+          dto.overwrite ?? false,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof CloneScheduleConflictError) {
+        throw new ConflictException({
+          error: 'target_weeks_have_assignments',
+          message: err.message,
+          conflicts: err.conflicts,
         });
       }
       throw err;

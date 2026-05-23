@@ -11,6 +11,7 @@ import { VerifyHandshakeHandler } from './handlers/verify-handshake.handler';
 import { HandshakeInitiatedHandler } from './handlers/handshake-initiated.handler';
 import { HandshakeVerifiedHandler } from './handlers/handshake-verified.handler';
 import { GenerateHybridScheduleHandler } from './handlers/generate-hybrid-schedule.handler';
+import { CloneScheduleHandler } from './handlers/clone-schedule.handler';
 import { GetCompanyScheduleHandler } from './handlers/get-company-schedule.handler';
 import { CreateSemanticRuleHandler } from './handlers/create-semantic-rule.handler';
 import { DeleteSemanticRuleHandler } from './handlers/delete-semantic-rule.handler';
@@ -95,6 +96,10 @@ const CommandHandlers = [
   InitiateHandshakeHandler,
   VerifyHandshakeHandler,
   GenerateHybridScheduleHandler,
+  // Clona el horario de una semana a N semanas destino. Pre-checkea
+  // day-offs/absences en target; opcional overwrite. Reusa el path
+  // estándar de save + dispara fairness recompute por (employee, week).
+  CloneScheduleHandler,
   CreateSemanticRuleHandler,
   UpdateSemanticRuleMetadataHandler,
   UpdateSemanticRuleTextHandler,
