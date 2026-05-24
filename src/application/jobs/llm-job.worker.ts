@@ -44,6 +44,12 @@ export class LlmJobWorker implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Gate: ENABLE_WORKERS=false desactiva los workers de LLM en este
+    // proceso. Sin set, default enabled (compat con todo el setup viejo).
+    if (process.env.ENABLE_WORKERS === 'false') {
+      this.logger.log('ENABLE_WORKERS=false — LLM workers NOT registered');
+      return;
+    }
     if (!this.pgBoss.isEnabled()) {
       this.logger.warn('pg-boss disabled — LLM workers NOT registered');
       return;

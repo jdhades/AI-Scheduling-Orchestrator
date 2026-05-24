@@ -59,6 +59,16 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Gate: ENABLE_WORKERS=false desactiva todos los workers en este
+    // proceso. Útil cuando querés correr el orchestrator solo como API
+    // (sin consumir jobs) y dejar el procesamiento a otro proceso/host.
+    // Default = enabled — sin variable, todo funciona como siempre.
+    if (process.env.ENABLE_WORKERS === 'false') {
+      this.logger.log(
+        `ENABLE_WORKERS=false — ${JOB_SCHEDULE_GENERATE} worker NOT registered`,
+      );
+      return;
+    }
     if (!this.pgBoss.isEnabled()) {
       this.logger.warn(
         `pg-boss disabled — ${JOB_SCHEDULE_GENERATE} worker NOT registered`,

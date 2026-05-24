@@ -56,11 +56,24 @@ import { ApplicationModule } from '../application/application.module';
 import { RepositoriesModule } from '../infrastructure/repositories/repositories.module';
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
+import { RedisModule } from '../infrastructure/redis/redis.module';
+import { TerminusModule } from '@nestjs/terminus';
+import { HealthController } from './controllers/health.controller';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
 @Module({
-  imports: [ApplicationModule, RepositoriesModule, SupabaseModule, WebsocketModule],
+  imports: [
+    ApplicationModule,
+    RepositoriesModule,
+    SupabaseModule,
+    WebsocketModule,
+    // Terminus + Redis para el HealthController. DB se chequea con un
+    // pool pg propio dentro del controller (pg-boss `.db` no es API
+    // pública en v12).
+    TerminusModule,
+    RedisModule,
+  ],
   controllers: [
     EmployeeController,
     HandshakeController,
@@ -116,6 +129,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     SupportTicketsController,
     AdminSupportTicketsController,
     AdminNotificationsController,
+    HealthController,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

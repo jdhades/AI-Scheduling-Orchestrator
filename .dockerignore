@@ -1,6 +1,45 @@
+# Build outputs y deps locales: el Dockerfile reinstala/recompila dentro
+# del container, no queremos copiar artifacts contaminados del host.
 node_modules
 dist
-.git
-.env
-supabase
 coverage
+
+# Git history y workflow files no van a la imagen.
+.git
+.github
+
+# Secretos y configs locales — el Dockerfile usa env vars en runtime.
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Supabase local stack — no tiene nada que hacer en la image de prod.
+supabase
+
+# Tests + test data
+**/__tests__
+**/__mocks__
+**/*.spec.ts
+**/*.test.ts
+test
+e2e
+
+# Editor / OS junk
+.vscode
+.idea
+.DS_Store
+*.swp
+*.log
+npm-debug.log*
+
+# Docs y compose locales — no se ejecutan dentro de la imagen.
+*.md
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# pnpm store local (cache) y locks de otros tools
+.pnpm-store
+yarn.lock
+package-lock.json

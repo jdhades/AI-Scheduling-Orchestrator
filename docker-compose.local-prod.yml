@@ -1,0 +1,67 @@
+# Smoke test local de la imagen production-like.
+#
+#   docker compose -f docker-compose.local-prod.yml up --build
+#
+# Levanta:
+#   - backend: la imagen del Dockerfile, conectada a Supabase local + redis
+#   - redis: instancia efímera para el cache + Health check
+#
+# El backend apunta a la stack de Supabase local (puerto 54321/54322 del
+# host) — para eso usa host.docker.internal. Si no tenés Supabase local
+# corriendo, primero arrancalo con `pnpm supabase start`.
+#
+# NO se usa para deploy en el VPS — eso vive en /opt/docker/hongoshop/
+# con su propio compose (con NPM network, sin redis interno si compartimos
+# uno, etc.).
+
+name: hs-orchestrator-local
+
+services:
+  backend:
+    build:
+      context: .
+      args:
+        COMMIT: local-test
+    image: hs-orchestrator:local
+    container_name: hs-backend-local
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "4000:4000"
+    extra_hosts:
+      # Para que el container pueda alcanzar Supabase corriendo en el
+      # host. Funciona en Docker Desktop y en linux con la flag
+      # host-gateway (Docker 20.10+).
+      - "host.docker.internal:host-gateway"
+    environment:
+      - NODE_ENV=production
+      - APP_ENV=development
+      - PORT=4000
+      - ENABLE_WORKERS=false
+      - SUPABASE_URL=http://host.docker.internal:54321
+      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:54322/postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ALLOWED_ORIGIN=http://localhost:5173
+    env_file:
+      # Toma todo lo demás del .env del repo: SUPABASE_ANON_KEY,
+      # SUPABASE_SERVICE_ROLE_KEY, JWT secret, etc.
+      - path: .env
+        required: true
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: hs-redis-local
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5

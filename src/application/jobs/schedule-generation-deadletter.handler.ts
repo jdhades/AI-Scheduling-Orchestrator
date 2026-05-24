@@ -45,6 +45,10 @@ export class ScheduleGenerationDeadletterHandler
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Gate: ENABLE_WORKERS=false desactiva el dead-letter handler junto
+    // con el resto de workers para que el API-only process no consuma
+    // jobs (ni los terminales). Sin set, default enabled.
+    if (process.env.ENABLE_WORKERS === 'false') return;
     if (!this.pgBoss.isEnabled()) return;
     const boss = this.pgBoss.getInstance();
     await boss.work<ScheduleGenerationJobPayload>(
