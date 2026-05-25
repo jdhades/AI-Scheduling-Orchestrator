@@ -9,9 +9,13 @@
 #   - ghcr.io/alternetica-io/ai-scheduling-orchestrator:<sha7>
 #   - ghcr.io/alternetica-io/ai-scheduling-orchestrator:master  (alias del último build de master)
 #
+# Deploy: el job final hace SSH al VPS y dispara
+#   /opt/docker/ai-scheduling/deploy.sh backend <sha7>
+# que bumpea BACKEND_TAG en .env, hace pull y recrea el container.
+# Restricción: la clave SSH (Secret DEPLOY_SSH_KEY) solo puede correr
+# ese script gracias a `command=` en authorized_keys del VPS.
+#
 # Lo que NO hace todavía:
-#   - Deploy al VPS (eso lo agregamos en Fase 4 cuando tengamos compose
-#     en el VPS + SSH key configurada como secret)
 #   - Trivy scan (Fase 7 — hardening posterior)
 
 name: build-and-push
@@ -132,3 +136,40 @@ jobs:
           echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:master" >> "$GITHUB_STEP_SUMMARY"
           echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha7 }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy al VPS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    # Solo deploya automático en push a master (no en dispatch manual,
+    # para dispatch usar el botón Run workflow de la UI).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    timeout-minutes: 5
+
+    steps:
+      - name: Set short commit SHA
+        id: vars
+        run: echo "sha7=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH
+        # La clave en DEPLOY_SSH_KEY tiene `command=` restrictiva en
+        # authorized_keys del VPS: solo puede correr deploy.sh con
+        # args validados (service + sha hex). No da shell.
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 194.163.140.60 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy backend
+        run: |
+          ssh -i ~/.ssh/id_ed25519 jhav@194.163.140.60 \
+            "backend ${{ steps.vars.outputs.sha7 }}"
+
+      - name: Summary
+        run: |
+          echo "### Deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "Servicio: backend" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA: ${{ steps.vars.outputs.sha7 }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "VPS: 194.163.140.60" >> "$GITHUB_STEP_SUMMARY"
