@@ -1,0 +1,134 @@
+# Build + push de la imagen del orchestrator a GHCR.
+#
+# Trigger:
+#   - push a master (build automático en cada merge)
+#   - workflow_dispatch (manual desde la UI de Actions)
+#
+# Salida:
+#   - ghcr.io/alternetica-io/ai-scheduling-orchestrator:latest
+#   - ghcr.io/alternetica-io/ai-scheduling-orchestrator:<sha7>
+#   - ghcr.io/alternetica-io/ai-scheduling-orchestrator:master  (alias del último build de master)
+#
+# Lo que NO hace todavía:
+#   - Deploy al VPS (eso lo agregamos en Fase 4 cuando tengamos compose
+#     en el VPS + SSH key configurada como secret)
+#   - Trivy scan (Fase 7 — hardening posterior)
+
+name: build-and-push
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'antigravity-vps*.zip'
+  workflow_dispatch:
+
+# Concurrency: si llegan varios pushes seguidos al master, cancelamos
+# los runs viejos — solo el último commit termina pusheando una imagen.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: alternetica-io/ai-scheduling-orchestrator
+
+jobs:
+  test:
+    name: Lint + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        # --ignore-scripts: pnpm 10+ bloquea unapproved lifecycle scripts.
+        # Mismo trato que en el Dockerfile — los packages que detecta
+        # no son críticos en runtime.
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Lint
+        run: pnpm lint
+        # `pnpm lint` corre eslint con --fix; en CI no queremos modificar
+        # archivos, pero el script existe así — si falla con errores
+        # reales, falla la build (deseable).
+
+      - name: Type-check
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests
+        # Solo unit. Integration requiere DB real (Supabase local) —
+        # corre vía un job separado o local.
+        run: pnpm test -- --selectProjects unit
+
+  build-and-push:
+    name: Build + push imagen
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 30
+    permissions:
+      # contents:read para checkout, packages:write para pushear a GHCR.
+      # El GITHUB_TOKEN gana acceso al package gracias al "Manage Actions
+      # access" configurado en la UI de GHCR (entry: este repo, Admin).
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set short commit SHA
+        id: vars
+        run: echo "sha7=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:master
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha7 }}
+          build-args: |
+            COMMIT=${{ steps.vars.outputs.sha7 }}
+          # Cache de capas en GitHub Actions cache. Acelera rebuilds
+          # cuando solo cambia el src/, manteniendo node_modules en cache.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Provenance attestation: deshabilitamos para evitar capas
+          # extras de attestation manifests en el registry. Volvemos a
+          # habilitar cuando sumemos firma + verificación en deploy.
+          provenance: false
+
+      - name: Summary
+        run: |
+          echo "### Imagen pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:master" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha7 }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
