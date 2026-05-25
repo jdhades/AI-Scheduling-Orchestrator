@@ -268,17 +268,23 @@ export class AuthController {
   @Get('me')
   @AllowExpiredTrial()
   async me(@CurrentUser() user: AuthContext): Promise<MeResponse> {
-    if (!user || !user.companyId) {
+    if (!user || !user.userId) {
       throw new NotFoundException('No authenticated context');
     }
 
-    const companyP = this.supabase
-      .from('companies')
-      .select(
-        'id, name, onboarded_at, subscription_status, trial_ends_at, week_starts_on',
-      )
-      .eq('id', user.companyId)
-      .maybeSingle();
+    // Platform admins no tienen company asociada (companyId=''). Sus
+    // queries de company/employee/role-caps devuelven null/vacío y la
+    // respuesta queda con isPlatformAdmin=true como discriminador.
+    const hasCompany = !!user.companyId;
+    const companyP = hasCompany
+      ? this.supabase
+          .from('companies')
+          .select(
+            'id, name, onboarded_at, subscription_status, trial_ends_at, week_starts_on',
+          )
+          .eq('id', user.companyId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null });
     const employeeP = user.employeeId
       ? this.supabase
           .from('employees')

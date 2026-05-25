@@ -134,21 +134,50 @@ export class SupabaseAuthGuard implements CanActivate {
       .select('id, company_id, role, department_id')
       .eq('auth_user_id', claims.sub)
       .maybeSingle();
-    if (error || !emp) {
-      this.logger.warn(
-        `JWT válido pero no linked a employee — user=${claims.sub}`,
-      );
-      throw new UnauthorizedException('User not linked to any employee');
+    if (emp) {
+      const auth: AuthContext = {
+        userId: claims.sub,
+        employeeId: emp.id,
+        companyId: emp.company_id,
+        role: emp.role,
+        departmentId: emp.department_id,
+      };
+      request.auth = auth;
+      request.user = { id: claims.sub, company_id: auth.companyId };
+      return true;
     }
-    const auth: AuthContext = {
-      userId: claims.sub,
-      employeeId: emp.id,
-      companyId: emp.company_id,
-      role: emp.role,
-      departmentId: emp.department_id,
-    };
-    request.auth = auth;
-    request.user = { id: claims.sub, company_id: auth.companyId };
-    return true;
+    if (error) {
+      this.logger.warn(
+        `employees lookup failed for user=${claims.sub}: ${error.message}`,
+      );
+    }
+
+    // Path B2: sin employee linkeado, puede ser un platform_admin
+    // (super/support) que opera cross-tenant. No tiene company.
+    // Dejamos pasar con companyId='' — los endpoints @PlatformAdmin()
+    // no leen companyId; los endpoints de tenant fallarán naturalmente
+    // si un platform_admin los toca sin impersonar.
+    const { data: pa } = await this.supabase
+      .from('platform_admins')
+      .select('id')
+      .eq('auth_user_id', claims.sub)
+      .maybeSingle();
+    if (pa) {
+      const auth: AuthContext = {
+        userId: claims.sub,
+        employeeId: null,
+        companyId: '',
+        role: null,
+        departmentId: null,
+      };
+      request.auth = auth;
+      request.user = { id: claims.sub, company_id: auth.companyId };
+      return true;
+    }
+
+    this.logger.warn(
+      `JWT válido pero no linked a employee ni platform_admin — user=${claims.sub}`,
+    );
+    throw new UnauthorizedException('User not linked to any employee');
   }
 }
