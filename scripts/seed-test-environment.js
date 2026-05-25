@@ -26,7 +26,11 @@
  */
 const { Client } = require('pg');
 
-const PG_URL = 'postgres://postgres:postgres@localhost:54322/postgres';
+// Local Supabase por default; override con DATABASE_URL para sembrar
+// staging/prod (ej. Session Pooler de Supabase Cloud).
+const PG_URL =
+  process.env.DATABASE_URL ||
+  'postgres://postgres:postgres@localhost:54322/postgres';
 
 // IDs estables (re-ejecutable). Forma UUID, no requiere ser RFC 4122 estricto.
 const COMPANY_ID    = '22222222-2222-3333-4444-555555555555';
