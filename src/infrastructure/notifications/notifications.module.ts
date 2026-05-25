@@ -1,16 +1,19 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TwilioService } from './twilio.service';
+import { EmailService } from './email.service';
 import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service';
 
 /**
  * NotificationsModule
  *
- * Provee el token NOTIFICATION_SERVICE con la implementación TwilioService.
- * Exportarlo permite que ApplicationModule lo use en los event handlers.
+ * Provee:
+ *   - NOTIFICATION_SERVICE (Twilio) — para SMS/WhatsApp
+ *   - EmailService — para mails transaccionales custom (invitaciones)
  *
- * 💡 Para tests, este módulo se reemplaza por un mock del token
- *    sin necesidad de modificar los handlers.
+ * Supabase Auth maneja signup-confirm + password-reset + email-change
+ * por su cuenta vía Custom SMTP del Dashboard; acá solo cubrimos mails
+ * que el backend dispara directo.
  */
 @Module({
   imports: [ConfigModule],
@@ -19,7 +22,8 @@ import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service
       provide: NOTIFICATION_SERVICE,
       useClass: TwilioService,
     },
+    EmailService,
   ],
-  exports: [NOTIFICATION_SERVICE],
+  exports: [NOTIFICATION_SERVICE, EmailService],
 })
 export class NotificationsModule {}

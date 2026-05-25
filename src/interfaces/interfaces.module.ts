@@ -57,6 +57,7 @@ import { RepositoriesModule } from '../infrastructure/repositories/repositories.
 import { SupabaseModule } from '../infrastructure/supabase/supabase.module';
 import { WebsocketModule } from '../infrastructure/websocket/websocket.module';
 import { RedisModule } from '../infrastructure/redis/redis.module';
+import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './controllers/health.controller';
 
@@ -73,6 +74,9 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     // pública en v12).
     TerminusModule,
     RedisModule,
+    // EmailService usado por AuthController.createInvitation para mandar
+    // el link al invitado. NotificationsModule lo expone.
+    NotificationsModule,
   ],
   controllers: [
     EmployeeController,

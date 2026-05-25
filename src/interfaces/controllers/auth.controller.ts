@@ -36,6 +36,7 @@ import { Public } from '../../infrastructure/auth/decorators/public.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
+import { EmailService } from '../../infrastructure/notifications/email.service';
 
 interface MeResponse {
   user: { id: string | null; email: string | null };
@@ -143,6 +144,28 @@ export class CreateInvitationDto {
   @IsOptional()
   @IsUUID('loose')
   departmentId?: string;
+
+  /**
+   * Si se setea, vincula la invitación a un employee existente.
+   * El trigger handle_new_user va a UPDATE ese row's auth_user_id en lugar
+   * de INSERT uno nuevo. Usado desde EmployeesPage → "Send Invite".
+   * Sin esto (path "ad-hoc" desde /team), el trigger crea employee nuevo.
+   */
+  @IsOptional()
+  @IsUUID('loose')
+  employeeId?: string;
+}
+
+export class AcceptInvitationDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  password!: string;
 }
 
 /**
@@ -209,6 +232,7 @@ export class AuthController {
     @Inject('SUPABASE_ANON_CLIENT')
     private readonly supabaseAnon: SupabaseClient,
     private readonly tenantFeatures: TenantFeatureService,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -452,10 +476,16 @@ export class AuthController {
   }
 
   /**
-   * POST /auth/invitations — crea fila con token random + TTL.
-   * Frontend manda email/phone + role + dept; el link/OTP se envía
-   * separado (futuro: Supabase Auth sendInviteEmail / SMS). De momento
-   * el manager copy-pastea el link manualmente.
+   * POST /auth/invitations — crea fila con token random + TTL, manda mail.
+   *
+   * Tres modos:
+   *   1) `email + employeeId` → link a employee existente (UPDATE en trigger).
+   *      Usado desde EmployeesPage → "Send Invite".
+   *   2) `email` solo → ad-hoc. El trigger crea employee nuevo al aceptar.
+   *      Usado desde /team (back-compat) cuando se invita a alguien que
+   *      todavía no está en la tabla.
+   *   3) `phoneNumber` → idem ad-hoc pero por SMS (Twilio, futuro). Hoy
+   *      el mail no se manda; el manager copia el link manual.
    */
   @Post('invitations')
   @Roles('owner', 'manager')
@@ -468,6 +498,54 @@ export class AuthController {
     if (!dto.email && !dto.phoneNumber) {
       throw new BadRequestException('Either email or phoneNumber is required');
     }
+
+    // Si vino employeeId, validar que sea del mismo tenant + que el row
+    // existe + que no esté ya linkeado a un auth_user.
+    let inviterName = 'A manager';
+    let companyName = 'Your company';
+    if (dto.employeeId) {
+      const { data: emp } = await this.supabase
+        .from('employees')
+        .select('id, name, company_id, auth_user_id, email')
+        .eq('id', dto.employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (!emp) {
+        throw new BadRequestException(
+          `Employee ${dto.employeeId} not found in this company`,
+        );
+      }
+      if (emp.auth_user_id) {
+        throw new ConflictException(
+          'Employee already has an active account; revoke + re-invite if needed',
+        );
+      }
+      // Si el row tenía email guardado y el caller mandó otro distinto, los
+      // alineamos (el caller del UI es la fuente de verdad ahora).
+      if (dto.email && emp.email && emp.email !== dto.email) {
+        await this.supabase
+          .from('employees')
+          .update({ email: dto.email })
+          .eq('id', emp.id);
+      }
+    }
+
+    // Nombre del inviter + company para usar en el template del mail.
+    if (user.employeeId) {
+      const { data: me } = await this.supabase
+        .from('employees')
+        .select('name')
+        .eq('id', user.employeeId)
+        .maybeSingle();
+      if (me?.name) inviterName = me.name as string;
+    }
+    const { data: co } = await this.supabase
+      .from('companies')
+      .select('name')
+      .eq('id', companyId)
+      .maybeSingle();
+    if (co?.name) companyName = co.name as string;
+
     // En DEV bypass user.employeeId puede ser null — guardamos
     // invited_by=null. En prod nunca pasa (bypass deshabilitado al
     // boot), así que invited_by siempre tendrá el employeeId del JWT.
@@ -484,6 +562,7 @@ export class AuthController {
         phone_number: dto.phoneNumber ?? null,
         role: dto.role,
         department_id: dto.departmentId ?? null,
+        employee_id: dto.employeeId ?? null,
         token,
         expires_at: expiresAt.toISOString(),
       })
@@ -497,7 +576,122 @@ export class AuthController {
       }
       throw new Error(error.message);
     }
+
+    // Mandar mail de invitación (si hay email). Si falla, el row queda
+    // creado igual — el manager puede mandar el link manual via "Copy link".
+    if (dto.email) {
+      try {
+        await this.emailService.sendInvitation({
+          to: dto.email,
+          token,
+          companyName,
+          inviterName,
+          role: dto.role === 'owner' ? 'manager' : dto.role,
+        });
+      } catch (err) {
+        // Log y seguimos — la invitación quedó válida en DB, el manager
+        // puede copiar el link manual.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `Invitation row created but email send failed for ${dto.email}: ${(err as Error).message}`,
+        );
+      }
+    }
+
     return this.toInvitationRow(data);
+  }
+
+  /**
+   * POST /auth/invitations/:token/accept — flujo público de aceptación.
+   *
+   * El user llega via el link del mail (`/accept?token=...`). El frontend
+   * pide name + password y postea acá. Usamos service_role.admin.createUser
+   * con email_confirm=true para evitar el doble-mail de signup-confirm:
+   * la invitación misma ES la confirmación.
+   *
+   * El trigger handle_new_user se dispara con el INSERT a auth.users y:
+   *   - Si invitation.employee_id está set → linkea el employee existente
+   *   - Else → crea employee nuevo (path ad-hoc /team)
+   *   - Marca la invitación consumed.
+   *
+   * Devuelve un access_token + refresh_token para que el frontend pueda
+   * loguear al user automáticamente (sin pasar por /login).
+   */
+  @Post('invitations/:token/accept')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  async acceptInvitation(
+    @Param('token') token: string,
+    @Body() dto: AcceptInvitationDto,
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    user: { id: string; email: string };
+  }> {
+    // Lookup de la invitación (sin RLS — service_role).
+    const { data: inv, error: invErr } = await this.supabase
+      .from('auth_invitations')
+      .select('id, email, phone_number, expires_at, consumed_at')
+      .eq('token', token)
+      .maybeSingle();
+    if (invErr || !inv) {
+      throw new NotFoundException('Invitation not found');
+    }
+    if (inv.consumed_at) {
+      throw new ConflictException('Invitation already used');
+    }
+    if (new Date(inv.expires_at as string) < new Date()) {
+      throw new ConflictException('Invitation expired');
+    }
+    if (!inv.email) {
+      // Path phone-only no implementado — necesita SMS OTP, no password.
+      throw new BadRequestException(
+        'Phone-based invitations not supported via this endpoint',
+      );
+    }
+
+    // 1) Crear el user en auth.users con email auto-confirmed. El trigger
+    //    handle_new_user fires y linkea/crea el employee.
+    const { data: created, error: createErr } =
+      await this.supabase.auth.admin.createUser({
+        email: inv.email as string,
+        password: dto.password,
+        email_confirm: true,
+        user_metadata: { name: dto.name },
+      });
+    if (createErr || !created?.user) {
+      // Si el user ya existe (raro pero posible si re-aceptan), avisamos.
+      if (createErr?.message?.toLowerCase().includes('already')) {
+        throw new ConflictException(
+          'A user with this email already exists. Try logging in.',
+        );
+      }
+      throw new Error(createErr?.message ?? 'Failed to create user');
+    }
+
+    // 2) Logueamos al recién creado para devolver tokens. Usamos el anon
+    //    client porque `signInWithPassword` necesita ese rol (no service).
+    const { data: session, error: signInErr } =
+      await this.supabaseAnon.auth.signInWithPassword({
+        email: inv.email as string,
+        password: dto.password,
+      });
+    if (signInErr || !session?.session) {
+      // El user quedó creado igual; el frontend puede mandarlo a /login.
+      // No es 500 — es un edge case (rate limit, etc).
+      throw new Error(
+        `User created but auto-login failed: ${signInErr?.message ?? 'no session'}`,
+      );
+    }
+
+    return {
+      accessToken: session.session.access_token,
+      refreshToken: session.session.refresh_token,
+      user: {
+        id: created.user.id,
+        email: created.user.email ?? (inv.email as string),
+      },
+    };
   }
 
   /**
