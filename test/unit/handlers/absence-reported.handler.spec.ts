@@ -78,7 +78,9 @@ describe('AbsenceReportedHandler', () => {
     await handler.handle(event);
 
     expect(employeeRepo.findById).toHaveBeenCalledWith('emp-1', 'comp-1');
-    expect(managerNotifications.notifyManagerForEmployee).toHaveBeenCalledTimes(1);
+    expect(managerNotifications.notifyManagerForEmployee).toHaveBeenCalledTimes(
+      1,
+    );
     const [companyId, employeeId, message] =
       managerNotifications.notifyManagerForEmployee.mock.calls[0];
     expect(companyId).toBe('comp-1');
@@ -123,7 +125,9 @@ describe('AbsenceReportedHandler', () => {
     );
     await handler.handle(event);
 
-    expect(managerNotifications.notifyManagerForEmployee).not.toHaveBeenCalled();
+    expect(
+      managerNotifications.notifyManagerForEmployee,
+    ).not.toHaveBeenCalled();
   });
 
   it('incluye listado de turnos afectados cuando los hay', async () => {

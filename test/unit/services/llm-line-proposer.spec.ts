@@ -20,7 +20,11 @@ function makeEmployee(id: string, name: string): Employee {
   });
 }
 
-function makeSlot(templateId: string, templateName: string, date: string): VirtualShiftSlot {
+function makeSlot(
+  templateId: string,
+  templateName: string,
+  date: string,
+): VirtualShiftSlot {
   return VirtualShiftSlot.create({
     templateId,
     companyId: COMPANY,
@@ -48,7 +52,10 @@ function fakeResolver(response: string): LlmResolverService {
 
 describe('LLMLineProposerService', () => {
   it('traduce nombres de empleado y template a UUIDs al parsear', async () => {
-    const emps = [makeEmployee('u-sofia', 'Sofía'), makeEmployee('u-pablo', 'Pablo')];
+    const emps = [
+      makeEmployee('u-sofia', 'Sofía'),
+      makeEmployee('u-pablo', 'Pablo'),
+    ];
     const slots = [
       makeSlot('tpl-diurno', 'Diurno', '2026-03-09'),
       makeSlot('tpl-noct', 'Nocturno', '2026-03-09'),
@@ -141,10 +148,12 @@ Listo.`;
       weekStart: new Date('2026-03-09T00:00:00Z'),
     });
     expect(result.size).toBe(2);
-    expect(result.get('a1b2c3d4-1111-2222-3333-444455556666')?.['2026-03-09']).toBe(
-      'a0b0c0d0-1111-1111-1111-111111111111',
-    );
-    expect(result.get('d4e5f607-aaaa-bbbb-cccc-ddddeeeeffff')?.['2026-03-09']).toBe('rest');
+    expect(
+      result.get('a1b2c3d4-1111-2222-3333-444455556666')?.['2026-03-09'],
+    ).toBe('a0b0c0d0-1111-1111-1111-111111111111');
+    expect(
+      result.get('d4e5f607-aaaa-bbbb-cccc-ddddeeeeffff')?.['2026-03-09'],
+    ).toBe('rest');
   });
 
   it('si el LLM dropea el sufijo en un nombre ambiguo, la línea se descarta + warning', async () => {

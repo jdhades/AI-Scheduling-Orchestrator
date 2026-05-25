@@ -34,11 +34,11 @@ describe('RulePriority Value Object', () => {
     });
 
     it('should throw for invalid priority value (0)', () => {
-      expect(() => RulePriority.create(0 as 1)).toThrow();
+      expect(() => RulePriority.create(0)).toThrow();
     });
 
     it('should throw for invalid priority value (4)', () => {
-      expect(() => RulePriority.create(4 as 1)).toThrow();
+      expect(() => RulePriority.create(4)).toThrow();
     });
   });
 
@@ -102,7 +102,7 @@ describe('RuleType Value Object', () => {
     });
 
     it('should throw for unknown type', () => {
-      expect(() => RuleType.create('unknown' as 'restriction')).toThrow();
+      expect(() => RuleType.create('unknown')).toThrow();
     });
   });
 

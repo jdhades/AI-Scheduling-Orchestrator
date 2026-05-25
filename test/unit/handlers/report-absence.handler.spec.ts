@@ -56,7 +56,7 @@ describe('ReportAbsenceHandler', () => {
       findByCompanyAndDateRange: jest.fn(),
       findBySlot: jest.fn(),
       resolveShortId: jest.fn(),
-    } as any;
+    };
 
     mockCreator = {
       create: jest.fn().mockResolvedValue({
@@ -103,7 +103,9 @@ describe('ReportAbsenceHandler', () => {
   it('throws when assignment does not exist', async () => {
     mockAssignmentRepo.findById.mockResolvedValue(null);
     await expect(
-      handler.execute(new ReportAbsenceCommand('req-1', 'a1', 'Sick', 'comp-1')),
+      handler.execute(
+        new ReportAbsenceCommand('req-1', 'a1', 'Sick', 'comp-1'),
+      ),
     ).rejects.toThrow('Assignment a1 is not assigned to employee req-1');
     expect(mockCreator.create).not.toHaveBeenCalled();
   });
@@ -113,7 +115,9 @@ describe('ReportAbsenceHandler', () => {
       makeAssignment('a3', '2026-03-05', 'other-emp'),
     );
     await expect(
-      handler.execute(new ReportAbsenceCommand('req-1', 'a3', 'Sick', 'comp-1')),
+      handler.execute(
+        new ReportAbsenceCommand('req-1', 'a3', 'Sick', 'comp-1'),
+      ),
     ).rejects.toThrow('Assignment a3 is not assigned to employee req-1');
     expect(mockCreator.create).not.toHaveBeenCalled();
   });

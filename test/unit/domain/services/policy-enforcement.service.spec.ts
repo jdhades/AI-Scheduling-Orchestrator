@@ -50,8 +50,16 @@ describe('PolicyEnforcementService', () => {
   describe('evaluate()', () => {
     it('clasifica violaciones hard / soft según la severidad de la policy', async () => {
       const policies = [
-        policyWithInterpreter('min_rest_hours_between_shifts', { hours: 11 }, 'hard'),
-        policyWithInterpreter('min_rest_days_per_week', { days: 2, holidayCounts: true }, 'soft'),
+        policyWithInterpreter(
+          'min_rest_hours_between_shifts',
+          { hours: 11 },
+          'hard',
+        ),
+        policyWithInterpreter(
+          'min_rest_days_per_week',
+          { days: 2, holidayCounts: true },
+          'soft',
+        ),
       ];
       const repo = makeRepo(policies);
       const service = new PolicyEnforcementService(repo, registry);
@@ -60,27 +68,62 @@ describe('PolicyEnforcementService', () => {
       // - rest hours: 8h entre turnos consecutivos.
       // - rest days: trabaja todos los días de la semana.
       const shifts = [
-        { employeeId: 'e1', startTime: new Date('2026-04-20T14:00:00Z'), endTime: new Date('2026-04-20T22:00:00Z') },
-        { employeeId: 'e1', startTime: new Date('2026-04-21T06:00:00Z'), endTime: new Date('2026-04-21T14:00:00Z') },
-        { employeeId: 'e1', startTime: new Date('2026-04-22T08:00:00Z'), endTime: new Date('2026-04-22T16:00:00Z') },
-        { employeeId: 'e1', startTime: new Date('2026-04-23T08:00:00Z'), endTime: new Date('2026-04-23T16:00:00Z') },
-        { employeeId: 'e1', startTime: new Date('2026-04-24T08:00:00Z'), endTime: new Date('2026-04-24T16:00:00Z') },
-        { employeeId: 'e1', startTime: new Date('2026-04-25T08:00:00Z'), endTime: new Date('2026-04-25T16:00:00Z') },
-        { employeeId: 'e1', startTime: new Date('2026-04-26T08:00:00Z'), endTime: new Date('2026-04-26T16:00:00Z') },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-20T14:00:00Z'),
+          endTime: new Date('2026-04-20T22:00:00Z'),
+        },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-21T06:00:00Z'),
+          endTime: new Date('2026-04-21T14:00:00Z'),
+        },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-22T08:00:00Z'),
+          endTime: new Date('2026-04-22T16:00:00Z'),
+        },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-23T08:00:00Z'),
+          endTime: new Date('2026-04-23T16:00:00Z'),
+        },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-24T08:00:00Z'),
+          endTime: new Date('2026-04-24T16:00:00Z'),
+        },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-25T08:00:00Z'),
+          endTime: new Date('2026-04-25T16:00:00Z'),
+        },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-26T08:00:00Z'),
+          endTime: new Date('2026-04-26T16:00:00Z'),
+        },
       ];
 
       const result = await service.evaluate('co-1', { shifts });
 
       expect(result.hardViolations.length).toBeGreaterThan(0);
-      expect(result.hardViolations[0].message).toMatch(/below the minimum of 11/);
+      expect(result.hardViolations[0].message).toMatch(
+        /below the minimum of 11/,
+      );
       expect(result.hardViolations[0].policyId).toBeDefined();
       expect(result.softViolations.length).toBeGreaterThan(0);
-      expect(result.softViolations[0].message).toMatch(/below the minimum of 2/);
+      expect(result.softViolations[0].message).toMatch(
+        /below the minimum of 2/,
+      );
       expect(result.llmOnlyPolicies).toEqual([]);
     });
 
     it('separa LLM-only policies en su array dedicado', async () => {
-      const llmOnly = policyLlmOnly('los empleados senior no trabajan feriados', 'soft');
+      const llmOnly = policyLlmOnly(
+        'los empleados senior no trabajan feriados',
+        'soft',
+      );
       const policies = [
         policyWithInterpreter('min_rest_hours_between_shifts', { hours: 11 }),
         llmOnly,
@@ -95,7 +138,9 @@ describe('PolicyEnforcementService', () => {
     });
 
     it('si el interpreterId persistido no existe en el registry, fallback a LLM-only', async () => {
-      const orphan = policyWithInterpreter('this_interpreter_was_removed', { foo: 'bar' });
+      const orphan = policyWithInterpreter('this_interpreter_was_removed', {
+        foo: 'bar',
+      });
       const repo = makeRepo([orphan]);
       const service = new PolicyEnforcementService(repo, registry);
 
@@ -113,9 +158,17 @@ describe('PolicyEnforcementService', () => {
       const service = new PolicyEnforcementService(repo, registry);
 
       const shifts = [
-        { employeeId: 'e1', startTime: new Date('2026-04-20T08:00:00Z'), endTime: new Date('2026-04-20T16:00:00Z') },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-20T08:00:00Z'),
+          endTime: new Date('2026-04-20T16:00:00Z'),
+        },
         // siguiente turno con 16h de descanso → cumple.
-        { employeeId: 'e1', startTime: new Date('2026-04-21T08:00:00Z'), endTime: new Date('2026-04-21T16:00:00Z') },
+        {
+          employeeId: 'e1',
+          startTime: new Date('2026-04-21T08:00:00Z'),
+          endTime: new Date('2026-04-21T16:00:00Z'),
+        },
       ];
 
       const result = await service.evaluate('co-1', { shifts });
@@ -128,8 +181,16 @@ describe('PolicyEnforcementService', () => {
   describe('formatForPrompt()', () => {
     it('agrupa hard / soft / LLM-only en secciones separadas', async () => {
       const policies = [
-        policyWithInterpreter('min_rest_hours_between_shifts', { hours: 11 }, 'hard'),
-        policyWithInterpreter('min_rest_days_per_week', { days: 2, holidayCounts: false }, 'soft'),
+        policyWithInterpreter(
+          'min_rest_hours_between_shifts',
+          { hours: 11 },
+          'hard',
+        ),
+        policyWithInterpreter(
+          'min_rest_days_per_week',
+          { days: 2, holidayCounts: false },
+          'soft',
+        ),
         policyLlmOnly('Senior employees should not work holidays', 'hard'),
       ];
       const repo = makeRepo(policies);
@@ -148,7 +209,11 @@ describe('PolicyEnforcementService', () => {
 
     it('omite secciones vacías', async () => {
       const policies = [
-        policyWithInterpreter('min_rest_hours_between_shifts', { hours: 11 }, 'hard'),
+        policyWithInterpreter(
+          'min_rest_hours_between_shifts',
+          { hours: 11 },
+          'hard',
+        ),
       ];
       const repo = makeRepo(policies);
       const service = new PolicyEnforcementService(repo, registry);

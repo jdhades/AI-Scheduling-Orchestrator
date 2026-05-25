@@ -15,12 +15,24 @@ import {
 const COMPANY = 'co-1';
 const RANGES = { junior: 6, intermediate: 24, senior: 999 };
 // Lunes 2026-03-09 → Dom 2026-03-15
-const WEEK = ['2026-03-09', '2026-03-10', '2026-03-11', '2026-03-12', '2026-03-13', '2026-03-14', '2026-03-15'];
+const WEEK = [
+  '2026-03-09',
+  '2026-03-10',
+  '2026-03-11',
+  '2026-03-12',
+  '2026-03-13',
+  '2026-03-14',
+  '2026-03-15',
+];
 const WEEK_START = new Date('2026-03-09T00:00:00Z');
 
 function makeEmployee(
   id: string,
-  opts: { skills?: string[]; availability?: EmployeeAvailability[]; experience?: number } = {},
+  opts: {
+    skills?: string[];
+    availability?: EmployeeAvailability[];
+    experience?: number;
+  } = {},
 ): Employee {
   const emp = Employee.fromPersistence({
     id,
@@ -96,7 +108,10 @@ function membership(
   });
 }
 
-function hardRule(employeeId: string | null, shiftId?: string): SemanticConstraint {
+function hardRule(
+  employeeId: string | null,
+  shiftId?: string,
+): SemanticConstraint {
   return {
     rule: `hard rule on ${employeeId ?? 'all'}${shiftId ? ' @ ' + shiftId : ''}`,
     weight: 2,
@@ -105,7 +120,8 @@ function hardRule(employeeId: string | null, shiftId?: string): SemanticConstrai
   };
 }
 
-const FIVE_EMPS = () => ['e1', 'e2', 'e3', 'e4', 'e5'].map((id) => makeEmployee(id));
+const FIVE_EMPS = () =>
+  ['e1', 'e2', 'e3', 'e4', 'e5'].map((id) => makeEmployee(id));
 const DEFAULT_BUILD = {
   histories: [] as never[],
   weekStart: WEEK_START,
@@ -151,9 +167,15 @@ describe('WeekScheduleBuilder', () => {
     // 5 empleados × 6 días = 30 asignaciones; 5 rest el día feriado
     expect(result.assignments).toHaveLength(30);
     expect(result.restDays).toHaveLength(5);
-    expect(result.restDays.every((r) => r.date === '2026-03-11' && r.reason === 'holiday')).toBe(true);
+    expect(
+      result.restDays.every(
+        (r) => r.date === '2026-03-11' && r.reason === 'holiday',
+      ),
+    ).toBe(true);
     // Diurno|11 tiene target=2 pero 0 cubiertos → underfilled
-    const under = result.underfilled.find((u) => u.slot.date === '2026-03-11' && u.slot.templateId === 'diurno');
+    const under = result.underfilled.find(
+      (u) => u.slot.date === '2026-03-11' && u.slot.templateId === 'diurno',
+    );
     expect(under).toBeDefined();
     expect(under!.target).toBe(2);
     expect(under!.filled).toBe(0);
@@ -162,21 +184,32 @@ describe('WeekScheduleBuilder', () => {
   it('hard block de empleado: Ana bloqueada el lunes → rest solo Ana, resto normal', () => {
     const slots = weekSlots();
     const diurnoLunes = slots.find((s) => s.slotKey === 'diurno|2026-03-09')!;
-    const nocturnoLunes = slots.find((s) => s.slotKey === 'nocturno|2026-03-09')!;
+    const nocturnoLunes = slots.find(
+      (s) => s.slotKey === 'nocturno|2026-03-09',
+    )!;
 
     const result = builder.build({
       ...DEFAULT_BUILD,
       employees: FIVE_EMPS(),
       slots,
-      semanticRules: [hardRule('e1', diurnoLunes.slotKey), hardRule('e1', nocturnoLunes.slotKey)],
+      semanticRules: [
+        hardRule('e1', diurnoLunes.slotKey),
+        hardRule('e1', nocturnoLunes.slotKey),
+      ],
     });
 
-    const anaLunes = result.assignments.find((a) => a.employeeId === 'e1' && a.date === '2026-03-09');
+    const anaLunes = result.assignments.find(
+      (a) => a.employeeId === 'e1' && a.date === '2026-03-09',
+    );
     expect(anaLunes).toBeUndefined();
-    const anaRest = result.restDays.find((r) => r.employeeId === 'e1' && r.date === '2026-03-09');
+    const anaRest = result.restDays.find(
+      (r) => r.employeeId === 'e1' && r.date === '2026-03-09',
+    );
     expect(anaRest).toBeDefined();
     // Los otros 4 trabajan el lunes normalmente
-    const otherLunes = result.assignments.filter((a) => a.date === '2026-03-09');
+    const otherLunes = result.assignments.filter(
+      (a) => a.date === '2026-03-09',
+    );
     expect(otherLunes).toHaveLength(4);
   });
 
@@ -221,7 +254,9 @@ describe('WeekScheduleBuilder', () => {
     });
 
     expect(result.assignments).toHaveLength(7);
-    expect(result.assignments.every((a) => a.templateId === 'diurno')).toBe(true);
+    expect(result.assignments.every((a) => a.templateId === 'diurno')).toBe(
+      true,
+    );
   });
 
   it('LLM rest se ignora cuando hay slot elástico disponible', () => {
@@ -249,7 +284,10 @@ describe('WeekScheduleBuilder', () => {
     const emps = FIVE_EMPS();
     // LLM propone a los 5 en Diurno todos los días
     const llmLines = new Map<string, Record<string, string | 'rest'>>(
-      emps.map((e) => [e.id, Object.fromEntries(WEEK.map((d) => [d, 'diurno']))]),
+      emps.map((e) => [
+        e.id,
+        Object.fromEntries(WEEK.map((d) => [d, 'diurno'])),
+      ]),
     );
 
     const result = builder.build({
@@ -276,7 +314,9 @@ describe('WeekScheduleBuilder', () => {
       slots.push(makeSlot('diurno', d, 8, 16, 2));
       slots.push(makeSlot('nocturno', d, 22, 6, 2));
     }
-    const emps = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) => makeEmployee(id));
+    const emps = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id) =>
+      makeEmployee(id),
+    );
 
     const result = builder.build({
       ...DEFAULT_BUILD,
@@ -297,26 +337,46 @@ describe('WeekScheduleBuilder', () => {
 
   it('día libre por regla textual: Pedro libre el miércoles, resto normal', () => {
     const slots = weekSlots();
-    const pedroWedDiurno = slots.find((s) => s.slotKey === 'diurno|2026-03-11')!;
-    const pedroWedNocturno = slots.find((s) => s.slotKey === 'nocturno|2026-03-11')!;
+    const pedroWedDiurno = slots.find(
+      (s) => s.slotKey === 'diurno|2026-03-11',
+    )!;
+    const pedroWedNocturno = slots.find(
+      (s) => s.slotKey === 'nocturno|2026-03-11',
+    )!;
 
     const result = builder.build({
       ...DEFAULT_BUILD,
       employees: FIVE_EMPS(),
       slots,
       // Bloquear Pedro (e2) ambos slots del miércoles
-      semanticRules: [hardRule('e2', pedroWedDiurno.slotKey), hardRule('e2', pedroWedNocturno.slotKey)],
+      semanticRules: [
+        hardRule('e2', pedroWedDiurno.slotKey),
+        hardRule('e2', pedroWedNocturno.slotKey),
+      ],
     });
 
-    const pedroWed = result.assignments.find((a) => a.employeeId === 'e2' && a.date === '2026-03-11');
+    const pedroWed = result.assignments.find(
+      (a) => a.employeeId === 'e2' && a.date === '2026-03-11',
+    );
     expect(pedroWed).toBeUndefined();
     expect(result.restDays).toContainEqual(
       expect.objectContaining({ employeeId: 'e2', date: '2026-03-11' }),
     );
     // Pedro trabaja los otros 6 días; otros 4 empleados trabajan el miércoles.
-    const pedroWorkDays = result.assignments.filter((a) => a.employeeId === 'e2').map((a) => a.date);
-    expect(pedroWorkDays.sort()).toEqual(['2026-03-09', '2026-03-10', '2026-03-12', '2026-03-13', '2026-03-14', '2026-03-15']);
-    const othersWed = result.assignments.filter((a) => a.date === '2026-03-11' && a.employeeId !== 'e2');
+    const pedroWorkDays = result.assignments
+      .filter((a) => a.employeeId === 'e2')
+      .map((a) => a.date);
+    expect(pedroWorkDays.sort()).toEqual([
+      '2026-03-09',
+      '2026-03-10',
+      '2026-03-12',
+      '2026-03-13',
+      '2026-03-14',
+      '2026-03-15',
+    ]);
+    const othersWed = result.assignments.filter(
+      (a) => a.date === '2026-03-11' && a.employeeId !== 'e2',
+    );
     expect(othersWed).toHaveLength(4);
   });
 
@@ -325,7 +385,9 @@ describe('WeekScheduleBuilder', () => {
       makeSlot('diurno', '2026-03-09', 8, 16, 2),
       makeSlot('nocturno', '2026-03-09', 22, 6, 2),
     ];
-    const emps = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7'].map((id) => makeEmployee(id));
+    const emps = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7'].map((id) =>
+      makeEmployee(id),
+    );
 
     const result = builder.build({
       ...DEFAULT_BUILD,
@@ -382,7 +444,9 @@ describe('WeekScheduleBuilder — buildWithRetries (LLM-autoritario)', () => {
     constructor(queue: Array<Map<string, Record<string, string | 'rest'>>>) {
       this.queue = queue;
     }
-    async proposeLines(params: { feedback?: string }): Promise<Map<string, Record<string, string | 'rest'>>> {
+    async proposeLines(params: {
+      feedback?: string;
+    }): Promise<Map<string, Record<string, string | 'rest'>>> {
       this.calls++;
       this.lastFeedback = params.feedback;
       return this.queue.shift() ?? new Map();
@@ -409,7 +473,9 @@ describe('WeekScheduleBuilder — buildWithRetries (LLM-autoritario)', () => {
     expect(result.attempts).toBe(1);
     expect(result.fellBackToDeterministic).toBe(false);
     expect(result.assignments).toHaveLength(35);
-    expect(result.assignments.every((a) => a.templateId === 'nocturno')).toBe(true);
+    expect(result.assignments.every((a) => a.templateId === 'nocturno')).toBe(
+      true,
+    );
   });
 
   it('intento 1 viola feriado, intento 2 corrige: aceptado en 2', async () => {
@@ -424,11 +490,12 @@ describe('WeekScheduleBuilder — buildWithRetries (LLM-autoritario)', () => {
       ...Object.fromEntries(WEEK.map((d) => [d, 'rest'])),
       '2026-03-11': 'diurno', // ← violación: feriado
     });
-    for (const id of ['e2', 'e3', 'e4', 'e5']) bad.set(id, lineFor('rest' as string) as any);
+    for (const id of ['e2', 'e3', 'e4', 'e5']) bad.set(id, lineFor('rest'));
 
     // Intento 2: todos rest (corrige la violación)
     const good = new Map<string, Record<string, string | 'rest'>>();
-    for (const id of ['e1', 'e2', 'e3', 'e4', 'e5']) good.set(id, lineFor('nocturno'));
+    for (const id of ['e1', 'e2', 'e3', 'e4', 'e5'])
+      good.set(id, lineFor('nocturno'));
     // Nadie trabaja el feriado
     for (const line of good.values()) line['2026-03-11'] = 'rest';
 

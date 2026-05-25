@@ -24,9 +24,9 @@ describe('CompanyPolicy aggregate', () => {
   });
 
   it('rejects text shorter than 10 chars', () => {
-    expect(() =>
-      CompanyPolicy.create({ ...baseInput, text: 'corta' }),
-    ).toThrow(/at least 10 characters/);
+    expect(() => CompanyPolicy.create({ ...baseInput, text: 'corta' })).toThrow(
+      /at least 10 characters/,
+    );
   });
 
   it('rejects effectiveFrom that is not YYYY-MM-DD', () => {
@@ -49,7 +49,10 @@ describe('CompanyPolicy aggregate', () => {
 
   it('detachInterpreter clears interpreterId and params', () => {
     const policy = CompanyPolicy.create(baseInput);
-    policy.attachInterpreter('min_rest_days_per_week', { days: 2, holidayCounts: false });
+    policy.attachInterpreter('min_rest_days_per_week', {
+      days: 2,
+      holidayCounts: false,
+    });
 
     policy.detachInterpreter();
 
@@ -60,11 +63,16 @@ describe('CompanyPolicy aggregate', () => {
 
   it('replaceText resets the interpreter (debe re-evaluarse)', () => {
     const policy = CompanyPolicy.create(baseInput);
-    policy.attachInterpreter('min_rest_days_per_week', { days: 2, holidayCounts: false });
+    policy.attachInterpreter('min_rest_days_per_week', {
+      days: 2,
+      holidayCounts: false,
+    });
 
     policy.replaceText('Cada empleado descansa al menos 3 días por semana');
 
-    expect(policy.getText()).toBe('Cada empleado descansa al menos 3 días por semana');
+    expect(policy.getText()).toBe(
+      'Cada empleado descansa al menos 3 días por semana',
+    );
     expect(policy.hasInterpreter()).toBe(false);
     expect(policy.getParams()).toEqual({});
   });

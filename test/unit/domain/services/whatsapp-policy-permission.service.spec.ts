@@ -1,6 +1,8 @@
 import { WhatsappPolicyPermissionService } from '../../../../src/domain/services/whatsapp-policy-permission.service';
 
-const makeSupabase = (rolesByCompany: Record<string, string[] | null | undefined> | null) => ({
+const makeSupabase = (
+  rolesByCompany: Record<string, string[] | null | undefined> | null,
+) => ({
   from: jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
@@ -24,11 +26,13 @@ const makeSupabaseFor = (
   from: jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockImplementation((col: string, val: string) => ({
-        maybeSingle: jest.fn().mockResolvedValue(
-          col === 'id' && val === companyId
-            ? { data: payload, error: null }
-            : { data: null, error: null },
-        ),
+        maybeSingle: jest
+          .fn()
+          .mockResolvedValue(
+            col === 'id' && val === companyId
+              ? { data: payload, error: null }
+              : { data: null, error: null },
+          ),
       })),
     }),
   }),
@@ -42,13 +46,22 @@ describe('WhatsappPolicyPermissionService', () => {
     const service = new WhatsappPolicyPermissionService(supabase as any);
 
     expect(
-      await service.canCreatePolicy({ employeeRole: 'manager', companyId: 'c1' }),
+      await service.canCreatePolicy({
+        employeeRole: 'manager',
+        companyId: 'c1',
+      }),
     ).toBe(true);
     expect(
-      await service.canCreatePolicy({ employeeRole: 'shift-leader', companyId: 'c1' }),
+      await service.canCreatePolicy({
+        employeeRole: 'shift-leader',
+        companyId: 'c1',
+      }),
     ).toBe(true);
     expect(
-      await service.canCreatePolicy({ employeeRole: 'employee', companyId: 'c1' }),
+      await service.canCreatePolicy({
+        employeeRole: 'employee',
+        companyId: 'c1',
+      }),
     ).toBe(false);
   });
 
@@ -59,10 +72,16 @@ describe('WhatsappPolicyPermissionService', () => {
     const service = new WhatsappPolicyPermissionService(supabase as any);
 
     expect(
-      await service.canCreatePolicy({ employeeRole: 'manager', companyId: 'c1' }),
+      await service.canCreatePolicy({
+        employeeRole: 'manager',
+        companyId: 'c1',
+      }),
     ).toBe(true);
     expect(
-      await service.canCreatePolicy({ employeeRole: 'employee', companyId: 'c1' }),
+      await service.canCreatePolicy({
+        employeeRole: 'employee',
+        companyId: 'c1',
+      }),
     ).toBe(false);
   });
 
@@ -71,7 +90,10 @@ describe('WhatsappPolicyPermissionService', () => {
     const service = new WhatsappPolicyPermissionService(supabase as any);
 
     expect(
-      await service.canCreatePolicy({ employeeRole: 'manager', companyId: 'c1' }),
+      await service.canCreatePolicy({
+        employeeRole: 'manager',
+        companyId: 'c1',
+      }),
     ).toBe(false);
   });
 

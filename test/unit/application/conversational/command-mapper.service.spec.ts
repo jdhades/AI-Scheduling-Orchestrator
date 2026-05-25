@@ -46,7 +46,9 @@ describe('CommandMapperService', () => {
 
       expect(result.command).toBeNull();
       expect(result.missingFields).toContain('ruleText');
-      expect(result.clarificationMessage).toBe('translated_bot.rules.missing_text');
+      expect(result.clarificationMessage).toBe(
+        'translated_bot.rules.missing_text',
+      );
     });
 
     it('should map to CreateSemanticRuleCommand with NO expiration if expiresAt is null', () => {
@@ -82,7 +84,7 @@ describe('CommandMapperService', () => {
 
       expect(result.command).toBeInstanceOf(CreateSemanticRuleCommand);
       const cmd = result.command as CreateSemanticRuleCommand;
-      
+
       expect(cmd.expiresAt).toBeDefined();
       expect(cmd.expiresAt?.toISOString()).toBe('2026-04-09T23:59:59.000Z');
     });

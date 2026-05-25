@@ -42,9 +42,7 @@ describe('MinRestHoursBetweenShiftsInterpreter', () => {
     });
 
     it('cae al default 11 si no encuentra número', async () => {
-      const params = await interpreter.extractParams(
-        'descanso entre turnos',
-      );
+      const params = await interpreter.extractParams('descanso entre turnos');
       expect(params).toEqual({ hours: 11 });
     });
   });

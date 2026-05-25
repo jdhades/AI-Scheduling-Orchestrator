@@ -64,17 +64,29 @@ function makeSupabaseStub(behavior: {
   return {
     from: jest.fn((table: string) => {
       if (table === 'shift_swap_requests') {
-        return make(async () => ({ data: behavior.swapRows ?? [], error: null }));
+        return make(async () => ({
+          data: behavior.swapRows ?? [],
+          error: null,
+        }));
       }
       if (table === 'day_off_requests') {
-        return make(async () => ({ data: behavior.dayOffRows ?? [], error: null }));
+        return make(async () => ({
+          data: behavior.dayOffRows ?? [],
+          error: null,
+        }));
       }
       if (table === 'absence_reports') {
         // count: 'exact', head: true → devuelve {count, error}
-        return make(async () => ({ count: behavior.absenceCount ?? 0, error: null }));
+        return make(async () => ({
+          count: behavior.absenceCount ?? 0,
+          error: null,
+        }));
       }
       if (table === 'schedule_generation_runs') {
-        return make(async () => ({ data: behavior.runsRows ?? [], error: null }));
+        return make(async () => ({
+          data: behavior.runsRows ?? [],
+          error: null,
+        }));
       }
       throw new Error(`unexpected table: ${table}`);
     }),
@@ -169,7 +181,11 @@ describe('OperationalKpisService', () => {
       makeSupabaseStub({}),
     );
 
-    const kpis = await service.getKpis(COMPANY, ['2026-04-20', '2026-04-27'], 'monday');
+    const kpis = await service.getKpis(
+      COMPANY,
+      ['2026-04-20', '2026-04-27'],
+      'monday',
+    );
 
     expect(kpis.coverage.totalRequiredCells).toBe(2);
     expect(kpis.coverage.avgPercent).toBe(50);
@@ -254,8 +270,16 @@ describe('OperationalKpisService', () => {
 
     const kpis = await service.getKpis(COMPANY, ['2026-04-20'], 'monday');
 
-    expect(kpis.approvals.swap).toEqual({ pending: 1, approved: 2, rejected: 1 });
-    expect(kpis.approvals.dayOff).toEqual({ pending: 1, approved: 1, rejected: 1 });
+    expect(kpis.approvals.swap).toEqual({
+      pending: 1,
+      approved: 2,
+      rejected: 1,
+    });
+    expect(kpis.approvals.dayOff).toEqual({
+      pending: 1,
+      approved: 1,
+      rejected: 1,
+    });
     expect(kpis.approvals.absenceReportsCount).toBe(5);
     // approved=3, rejected=2 → 3/5 = 60%
     expect(kpis.approvals.approvalRate).toBe(60);
@@ -298,7 +322,11 @@ describe('OperationalKpisService', () => {
       makeSupabaseStub({}),
     );
 
-    const kpis = await service.getKpis(COMPANY, ['2026-04-20', '2026-04-27'], 'monday');
+    const kpis = await service.getKpis(
+      COMPANY,
+      ['2026-04-20', '2026-04-27'],
+      'monday',
+    );
 
     // hours=[20,40,60], mean=40, stdDev=√(400+0+400)/3=√(266.67)≈16.33, CV=40.82%
     expect(kpis.fairness.avgCv).toBeCloseTo(40.8, 0);

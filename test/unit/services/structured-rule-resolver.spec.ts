@@ -28,7 +28,11 @@ function makeEmployee(id: string, name: string): Employee {
     name,
     role: 'employee',
     phoneNumber: PhoneNumber.create('+34612345678'),
-    experience: new ExperienceLevel(12, { junior: 6, intermediate: 24, senior: 999 }),
+    experience: new ExperienceLevel(12, {
+      junior: 6,
+      intermediate: 24,
+      senior: 999,
+    }),
   });
 }
 
@@ -39,8 +43,12 @@ function makeSlot(props: {
   endHour: number;
   name?: string;
 }): VirtualShiftSlot {
-  const start = new Date(`${props.date}T${String(props.startHour).padStart(2, '0')}:00:00Z`);
-  let end = new Date(`${props.date}T${String(props.endHour).padStart(2, '0')}:00:00Z`);
+  const start = new Date(
+    `${props.date}T${String(props.startHour).padStart(2, '0')}:00:00Z`,
+  );
+  let end = new Date(
+    `${props.date}T${String(props.endHour).padStart(2, '0')}:00:00Z`,
+  );
   if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
   return VirtualShiftSlot.create({
     templateId: props.templateId,
@@ -56,8 +64,18 @@ describe('StructuredRuleResolver (virtual slots)', () => {
   const svc = new StructuredRuleResolver();
 
   it('resolves iso-date block to slots of that day', () => {
-    const slot13 = makeSlot({ templateId: 't1', date: '2026-04-13', startHour: 10, endHour: 16 });
-    const slot14 = makeSlot({ templateId: 't1', date: '2026-04-14', startHour: 10, endHour: 16 });
+    const slot13 = makeSlot({
+      templateId: 't1',
+      date: '2026-04-13',
+      startHour: 10,
+      endHour: 16,
+    });
+    const slot14 = makeSlot({
+      templateId: 't1',
+      date: '2026-04-14',
+      startHour: 10,
+      endHour: 16,
+    });
     const rule = makeRule('feriado 13/4', {
       intent: 'block',
       employeeMatchers: [{ type: 'all' }],
@@ -70,8 +88,20 @@ describe('StructuredRuleResolver (virtual slots)', () => {
   });
 
   it('resolves shiftNameMatchers via case-insensitive substring on template name', () => {
-    const morning = makeSlot({ templateId: 'ta', date: '2026-04-13', startHour: 6, endHour: 14, name: 'Apertura Cocina' });
-    const evening = makeSlot({ templateId: 'tb', date: '2026-04-13', startHour: 14, endHour: 22, name: 'Cierre Cocina' });
+    const morning = makeSlot({
+      templateId: 'ta',
+      date: '2026-04-13',
+      startHour: 6,
+      endHour: 14,
+      name: 'Apertura Cocina',
+    });
+    const evening = makeSlot({
+      templateId: 'tb',
+      date: '2026-04-13',
+      startHour: 14,
+      endHour: 22,
+      name: 'Cierre Cocina',
+    });
     const rule = makeRule('Juan no hace apertura', {
       intent: 'block',
       employeeMatchers: [{ type: 'name', value: 'Juan' }],
@@ -89,9 +119,24 @@ describe('StructuredRuleResolver (virtual slots)', () => {
   });
 
   it('resolves hourRangeMatchers with midnight-crossing range', () => {
-    const evening = makeSlot({ templateId: 'day', date: '2026-04-13', startHour: 10, endHour: 16 });
-    const night = makeSlot({ templateId: 'night', date: '2026-04-13', startHour: 22, endHour: 6 });
-    const earlyMorning = makeSlot({ templateId: 'dawn', date: '2026-04-13', startHour: 4, endHour: 10 });
+    const evening = makeSlot({
+      templateId: 'day',
+      date: '2026-04-13',
+      startHour: 10,
+      endHour: 16,
+    });
+    const night = makeSlot({
+      templateId: 'night',
+      date: '2026-04-13',
+      startHour: 22,
+      endHour: 6,
+    });
+    const earlyMorning = makeSlot({
+      templateId: 'dawn',
+      date: '2026-04-13',
+      startHour: 4,
+      endHour: 10,
+    });
     const rule = makeRule('Pedro not overnight', {
       intent: 'block',
       employeeMatchers: [{ type: 'name', value: 'Pedro' }],
@@ -111,7 +156,12 @@ describe('StructuredRuleResolver (virtual slots)', () => {
 
   it('marks rotating day-off rules as complex via safety net (>50% coverage)', () => {
     const slots = Array.from({ length: 14 }, (_, i) =>
-      makeSlot({ templateId: `t${i}`, date: `2026-04-${13 + (i % 7)}`, startHour: 10, endHour: 16 }),
+      makeSlot({
+        templateId: `t${i}`,
+        date: `2026-04-${13 + (i % 7)}`,
+        startHour: 10,
+        endHour: 16,
+      }),
     );
     const rule = makeRule('Cada empleado un día libre', {
       intent: 'block',
@@ -129,11 +179,18 @@ describe('StructuredRuleResolver (virtual slots)', () => {
     const out = svc.resolve([rule], [], slots);
     expect(out.constraints).toHaveLength(0);
     expect(out.complexRules).toHaveLength(1);
-    expect(out.complexRules[0].reason).toMatch(/probablemente es una regla de distribución/);
+    expect(out.complexRules[0].reason).toMatch(
+      /probablemente es una regla de distribución/,
+    );
   });
 
   it('generates permit-multi-shift for specific day', () => {
-    const slot = makeSlot({ templateId: 't1', date: '2026-04-15', startHour: 10, endHour: 14 });
+    const slot = makeSlot({
+      templateId: 't1',
+      date: '2026-04-15',
+      startHour: 10,
+      endHour: 14,
+    });
     const rule = makeRule('Maria doble turno 15/4', {
       intent: 'permit-multi-shift',
       employeeMatchers: [{ type: 'name', value: 'Maria' }],
@@ -158,7 +215,12 @@ describe('StructuredRuleResolver (virtual slots)', () => {
   });
 
   it('passes through preference intent without generating constraints', () => {
-    const slot = makeSlot({ templateId: 't1', date: '2026-04-13', startHour: 10, endHour: 16 });
+    const slot = makeSlot({
+      templateId: 't1',
+      date: '2026-04-13',
+      startHour: 10,
+      endHour: 16,
+    });
     const rule = makeRule('Pedro prefiere mañanas', {
       intent: 'preference',
       employeeMatchers: [{ type: 'name', value: 'Pedro' }],

@@ -51,11 +51,11 @@ describe('QwenConversationalService', () => {
                 intent: 'swap_shift',
                 confidence: 0.95,
                 entities: { date: '2025-10-10' },
-                transcription: null
-              })
-            }
-          }
-        ]
+                transcription: null,
+              }),
+            },
+          },
+        ],
       };
 
       global.fetch = jest.fn().mockResolvedValue({
@@ -76,27 +76,27 @@ describe('QwenConversationalService', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,
         status: 429,
-        text: async () => 'Rate limit exceeded'
+        text: async () => 'Rate limit exceeded',
       });
 
-      // Bypasses the delays automatically thanks to jest mocks optionally, 
+      // Bypasses the delays automatically thanks to jest mocks optionally,
       // but might wait slightly. We'll add fake timers if needed later.
       const text = 'cambia mi turno';
       jest.spyOn(service as any, '_delay').mockResolvedValue(undefined); // bypass timeout waits
-      
+
       const result = await service.processText(text);
       expect(result.getIntent()).toBe('system_unavailable');
     });
-    
+
     it('should handle invalid JSON from Qwen safely', async () => {
       const mockApiResponse = {
         choices: [
           {
             message: {
-              content: '{ invalid json ]'
-            }
-          }
-        ]
+              content: '{ invalid json ]',
+            },
+          },
+        ],
       };
 
       global.fetch = jest.fn().mockResolvedValue({

@@ -62,7 +62,9 @@ describe('MinRestDaysPerWeekInterpreter', () => {
     const shift = (dateStr: string, hour = 9) => ({
       employeeId,
       startTime: new Date(`${dateStr}T${String(hour).padStart(2, '0')}:00:00Z`),
-      endTime: new Date(`${dateStr}T${String(hour + 8).padStart(2, '0')}:00:00Z`),
+      endTime: new Date(
+        `${dateStr}T${String(hour + 8).padStart(2, '0')}:00:00Z`,
+      ),
     });
 
     it('no hay violación si trabaja menos días que (7 - mínimo)', async () => {

@@ -21,7 +21,9 @@ describe('LlmRuleRephraseService', () => {
   ];
 
   beforeEach(() => {
-    registry = new PolicyInterpreterRegistry([new MinRestDaysPerWeekInterpreter()]);
+    registry = new PolicyInterpreterRegistry([
+      new MinRestDaysPerWeekInterpreter(),
+    ]);
   });
 
   it('devuelve sugerencias verificadas cuando el LLM propone reformulaciones que matchean', async () => {
@@ -84,11 +86,14 @@ describe('LlmRuleRephraseService', () => {
 
   it('respeta MAX_SUGGESTIONS=3 aunque el LLM proponga más', async () => {
     const llmResponse = `[
-      ${Array.from({ length: 5 }, (_, i) => `{
+      ${Array.from(
+        { length: 5 },
+        (_, i) => `{
         "suggestedText": "Cada empleado debe tener al menos ${i + 1} día libre por semana",
         "matchedInterpreter": "min_rest_days_per_week",
         "explanation": "ok"
-      }`).join(',')}
+      }`,
+      ).join(',')}
     ]`;
 
     const service = new LlmRuleRephraseService(makeLlm(llmResponse), registry);

@@ -69,11 +69,11 @@ describe('MessageRouterService', () => {
     mockConversationalService = {
       processText: jest.fn(),
       processAudio: jest.fn(),
-    } as any;
+    };
 
     mockNotificationService = {
       sendWhatsApp: jest.fn().mockResolvedValue(true),
-    } as any;
+    };
 
     mockSessionRepository = {
       getSession: jest.fn(),
@@ -122,8 +122,10 @@ describe('MessageRouterService', () => {
 
     const mockI18nService = {
       t: jest.fn().mockImplementation((key) => {
-        if (key === 'bot.general.success') return '✅ Tu solicitud fue procesada correctamente.';
-        if (key === 'bot.general.clarification') return '❓ No pude entender tu solicitud. ¿Puedes reformularla?';
+        if (key === 'bot.general.success')
+          return '✅ Tu solicitud fue procesada correctamente.';
+        if (key === 'bot.general.clarification')
+          return '❓ No pude entender tu solicitud. ¿Puedes reformularla?';
         if (key === 'bot.swap.select_own_shift') return 'Intercambio de turno';
         return key;
       }),
@@ -148,8 +150,17 @@ describe('MessageRouterService', () => {
         { provide: CommandBus, useValue: mockCommandBus },
         { provide: QueryBus, useValue: mockQueryBus },
         { provide: I18nService, useValue: mockI18nService },
-        { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockShiftTemplateRepo },
-        { provide: 'SUPABASE_CLIENT', useValue: { from: jest.fn().mockReturnThis(), select: jest.fn().mockReturnValue({ data: [], error: null }) } },
+        {
+          provide: 'SHIFT_TEMPLATE_REPOSITORY',
+          useValue: mockShiftTemplateRepo,
+        },
+        {
+          provide: 'SUPABASE_CLIENT',
+          useValue: {
+            from: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnValue({ data: [], error: null }),
+          },
+        },
         // Suggestion-loop por WhatsApp (commit 9 follow-up): mocks que no
         // disparan el flow (canCreatePolicy=false bloquea el camino de
         // create_rule, findActiveByEmployee=null evita branchear al
@@ -207,24 +218,34 @@ describe('MessageRouterService', () => {
         // sólo los inyecta, no se invocan en los tests actuales (que
         // disparan paths que NO usan absenceCreator ni scheduleDispatcher).
         {
-          provide: require('../../../src/infrastructure/observability/llm-usage-logger.service').LLMUsageLogger,
+          provide:
+            require('../../../src/infrastructure/observability/llm-usage-logger.service')
+              .LLMUsageLogger,
           useValue: {
             // El router envuelve el flujo en withContext(ctx, fn) — el stub
             // tiene que ejecutar fn y devolver su resultado.
-            withContext: jest.fn().mockImplementation((_ctx: any, fn: any) => fn()),
+            withContext: jest
+              .fn()
+              .mockImplementation((_ctx: any, fn: any) => fn()),
             record: jest.fn(),
           },
         },
         {
-          provide: require('../../../src/domain/services/absence-report-creator.service').AbsenceReportCreator,
+          provide:
+            require('../../../src/domain/services/absence-report-creator.service')
+              .AbsenceReportCreator,
           useValue: { create: jest.fn() },
         },
         {
-          provide: require('../../../src/application/jobs/schedule-generation-dispatcher.service').ScheduleGenerationDispatcher,
+          provide:
+            require('../../../src/application/jobs/schedule-generation-dispatcher.service')
+              .ScheduleGenerationDispatcher,
           useValue: { dispatchScheduleGeneration: jest.fn() },
         },
         {
-          provide: require('../../../src/application/services/company-preferences.service').CompanyPreferencesService,
+          provide:
+            require('../../../src/application/services/company-preferences.service')
+              .CompanyPreferencesService,
           useValue: { getWeekStartsOn: jest.fn().mockResolvedValue('monday') },
         },
       ],
@@ -259,20 +280,34 @@ describe('MessageRouterService', () => {
       mockConversationalService.processText.mockResolvedValueOnce(mockIntent);
       mockSessionRepository.getSession.mockResolvedValueOnce(null);
 
-      const commandMapped = new ReportAbsenceCommand('emp', 'shift-1', 'enfermo', 'comp');
+      const commandMapped = new ReportAbsenceCommand(
+        'emp',
+        'shift-1',
+        'enfermo',
+        'comp',
+      );
       mockCommandMapper.map.mockReturnValueOnce({
         command: commandMapped,
         missingFields: [],
         clarificationMessage: null,
       });
 
-      mockAssignmentRepo.resolveShortId.mockResolvedValueOnce('550e8400-e29b-41d4-a716-446655440000');
-      const expectedCommandToExecute = new ReportAbsenceCommand('emp', '550e8400-e29b-41d4-a716-446655440000', 'enfermo', 'comp');
+      mockAssignmentRepo.resolveShortId.mockResolvedValueOnce(
+        '550e8400-e29b-41d4-a716-446655440000',
+      );
+      const expectedCommandToExecute = new ReportAbsenceCommand(
+        'emp',
+        '550e8400-e29b-41d4-a716-446655440000',
+        'enfermo',
+        'comp',
+      );
 
       await service.route(msg);
 
       expect(mockConversationalService.processText).toHaveBeenCalled();
-      expect(mockCommandBus.execute).toHaveBeenCalledWith(expectedCommandToExecute);
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        expectedCommandToExecute,
+      );
       expect(mockSessionRepository.clearSession).toHaveBeenCalledWith(
         '+1234567890',
       );

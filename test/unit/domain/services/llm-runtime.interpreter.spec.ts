@@ -7,11 +7,7 @@ const makeLlm = (response: string): jest.Mocked<ILLMService> =>
     completeMultimodal: jest.fn(),
   }) as never;
 
-const shift = (
-  employeeId: string,
-  startISO: string,
-  endISO: string,
-) => ({
+const shift = (employeeId: string, startISO: string, endISO: string) => ({
   employeeId,
   startTime: new Date(startISO),
   endTime: new Date(endISO),
@@ -42,7 +38,9 @@ describe('LLMRuntimeInterpreter', () => {
     const itp = new LLMRuntimeInterpreter(llm);
     const out = await itp.apply(
       {
-        shifts: [shift('emp-1', '2026-05-04T08:00:00Z', '2026-05-05T08:00:00Z')],
+        shifts: [
+          shift('emp-1', '2026-05-04T08:00:00Z', '2026-05-05T08:00:00Z'),
+        ],
       },
       { originalText: 'Nadie trabaja más de 24h consecutivas.' },
     );
@@ -63,7 +61,11 @@ describe('LLMRuntimeInterpreter', () => {
     }`);
     const itp = new LLMRuntimeInterpreter(llm);
     const out = await itp.apply(
-      { shifts: [shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z')] },
+      {
+        shifts: [
+          shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z'),
+        ],
+      },
       { originalText: 'foo' },
     );
     expect(out).toHaveLength(2);
@@ -78,7 +80,11 @@ describe('LLMRuntimeInterpreter', () => {
     } as never;
     const itp = new LLMRuntimeInterpreter(llm);
     const out = await itp.apply(
-      { shifts: [shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z')] },
+      {
+        shifts: [
+          shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z'),
+        ],
+      },
       { originalText: 'foo' },
     );
     expect(out).toEqual([]);
@@ -87,19 +93,25 @@ describe('LLMRuntimeInterpreter', () => {
   it('apply() devuelve [] si el LLM devuelve JSON inválido', async () => {
     const itp = new LLMRuntimeInterpreter(makeLlm('not a json at all'));
     const out = await itp.apply(
-      { shifts: [shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z')] },
+      {
+        shifts: [
+          shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z'),
+        ],
+      },
       { originalText: 'foo' },
     );
     expect(out).toEqual([]);
   });
 
   it('apply() acepta JSON dentro de code fences', async () => {
-    const llm = makeLlm(
-      '```json\n{"violations":[{"message":"hola"}]}\n```',
-    );
+    const llm = makeLlm('```json\n{"violations":[{"message":"hola"}]}\n```');
     const itp = new LLMRuntimeInterpreter(llm);
     const out = await itp.apply(
-      { shifts: [shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z')] },
+      {
+        shifts: [
+          shift('emp-1', '2026-05-04T00:00:00Z', '2026-05-04T08:00:00Z'),
+        ],
+      },
       { originalText: 'foo' },
     );
     expect(out).toHaveLength(1);

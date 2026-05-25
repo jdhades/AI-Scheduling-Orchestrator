@@ -30,9 +30,12 @@ describe('LlmSemanticRuleRephraseService', () => {
   });
 
   it('respeta el cap de 3 sugerencias aunque el LLM proponga más', async () => {
-    const llmResponse = `[${Array.from({ length: 5 }, (_, i) => `
+    const llmResponse = `[${Array.from(
+      { length: 5 },
+      (_, i) => `
       {"suggestedText":"opcion ${i}","previewIntent":"block","explanation":"x"}
-    `).join(',')}]`;
+    `,
+    ).join(',')}]`;
 
     const service = new LlmSemanticRuleRephraseService(makeLlm(llmResponse));
     const result = await service.suggest({
@@ -78,7 +81,9 @@ describe('LlmSemanticRuleRephraseService', () => {
 
   it('incluye el complexReason del extractor en el prompt', async () => {
     const completeSpy = jest.fn().mockResolvedValue('[]');
-    const service = new LlmSemanticRuleRephraseService({ complete: completeSpy });
+    const service = new LlmSemanticRuleRephraseService({
+      complete: completeSpy,
+    });
 
     await service.suggest({
       originalText: 'cosa rara',

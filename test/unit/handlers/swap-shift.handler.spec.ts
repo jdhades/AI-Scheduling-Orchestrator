@@ -75,10 +75,10 @@ describe('SwapShiftHandler', () => {
   it('throws if the requester assignment does not belong to requester', async () => {
     mockRepo.findById.mockResolvedValue(null);
     await expect(
-      handler.execute(
-        new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1'),
-      ),
-    ).rejects.toThrow('Assignment a1 is not assigned to the requesting employee');
+      handler.execute(new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1')),
+    ).rejects.toThrow(
+      'Assignment a1 is not assigned to the requesting employee',
+    );
   });
 
   it('throws if the target assignment does not belong to target', async () => {
@@ -87,9 +87,7 @@ describe('SwapShiftHandler', () => {
       return null;
     });
     await expect(
-      handler.execute(
-        new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1'),
-      ),
+      handler.execute(new SwapShiftCommand('req-1', 'a1', 'tgt-1', 'a2', 'c1')),
     ).rejects.toThrow('Assignment a2 is not assigned to the target employee');
   });
 });

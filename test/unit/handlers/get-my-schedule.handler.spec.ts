@@ -76,7 +76,10 @@ describe('GetMyScheduleHandler', () => {
         { provide: SHIFT_ASSIGNMENT_REPOSITORY, useValue: mockRepo },
         { provide: 'SHIFT_TEMPLATE_REPOSITORY', useValue: mockTemplateRepo },
         { provide: I18nService, useValue: mockI18nService },
-        { provide: CompanyPreferencesService, useValue: mockCompanyPreferences },
+        {
+          provide: CompanyPreferencesService,
+          useValue: mockCompanyPreferences,
+        },
       ],
     }).compile();
 

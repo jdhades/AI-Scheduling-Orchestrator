@@ -13,7 +13,8 @@ describe('CommandMapperService', () => {
   beforeEach(async () => {
     const mockI18nService = {
       t: jest.fn().mockImplementation((key) => {
-        if (key === 'bot.general.unknown_intent') return 'No entendí bien. ¿Qué necesitas?';
+        if (key === 'bot.general.unknown_intent')
+          return 'No entendí bien. ¿Qué necesitas?';
         if (key === 'bot.day_off.missing_date') return 'fecha';
         if (key === 'bot.absence.missing_both') return 'motivo';
         if (key === 'bot.absence.missing_shift') return 'turno';

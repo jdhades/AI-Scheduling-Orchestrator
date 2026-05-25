@@ -30,7 +30,6 @@ export class GeminiLLMService implements ILLMService {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async complete(prompt: string, _signal?: AbortSignal): Promise<string> {
     if (!this.apiKey) {
       throw new Error('GeminiLLMService: GEMINI_API_KEY is not configured');

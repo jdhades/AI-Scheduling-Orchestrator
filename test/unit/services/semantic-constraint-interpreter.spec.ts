@@ -41,12 +41,16 @@ describe('SemanticConstraintInterpreter', () => {
 
   describe('sin constraints', () => {
     it('returns empty when no constraints', () => {
-      expect(SemanticConstraintInterpreter.interpret([], employees, slots)).toEqual([]);
+      expect(
+        SemanticConstraintInterpreter.interpret([], employees, slots),
+      ).toEqual([]);
     });
 
     it('returns originals when no slots', () => {
       const cs = [constraint('nadie trabaja el 16 de abril')];
-      expect(SemanticConstraintInterpreter.interpret(cs, employees, [])).toEqual(cs);
+      expect(
+        SemanticConstraintInterpreter.interpret(cs, employees, []),
+      ).toEqual(cs);
     });
   });
 
@@ -57,7 +61,9 @@ describe('SemanticConstraintInterpreter', () => {
         employees,
         slots,
       );
-      const blocked = result.filter((c) => c.employeeId === SEMANTIC_BLOCKED_ALL);
+      const blocked = result.filter(
+        (c) => c.employeeId === SEMANTIC_BLOCKED_ALL,
+      );
       expect(blocked.length).toBeGreaterThan(0);
       blocked.forEach((c) => {
         expect(c.shiftId).toBe(slotTue.slotKey);
@@ -71,7 +77,9 @@ describe('SemanticConstraintInterpreter', () => {
         employees,
         slots,
       );
-      const blocked = result.filter((c) => c.employeeId === SEMANTIC_BLOCKED_ALL);
+      const blocked = result.filter(
+        (c) => c.employeeId === SEMANTIC_BLOCKED_ALL,
+      );
       expect(blocked[0].shiftId).toBe(slotMon.slotKey);
     });
 
@@ -81,7 +89,9 @@ describe('SemanticConstraintInterpreter', () => {
         employees,
         slots,
       );
-      const blocked = result.filter((c) => c.employeeId === SEMANTIC_BLOCKED_ALL);
+      const blocked = result.filter(
+        (c) => c.employeeId === SEMANTIC_BLOCKED_ALL,
+      );
       expect(blocked).toHaveLength(1);
       expect(blocked[0].shiftId).toBe(slotWed.slotKey);
     });
@@ -107,7 +117,9 @@ describe('SemanticConstraintInterpreter', () => {
         employees,
         slots,
       );
-      const blocked = result.filter((c) => c.employeeId === SEMANTIC_BLOCKED_ALL);
+      const blocked = result.filter(
+        (c) => c.employeeId === SEMANTIC_BLOCKED_ALL,
+      );
       expect(blocked.some((c) => c.shiftId === slotMon.slotKey)).toBe(true);
     });
   });
@@ -129,7 +141,9 @@ describe('SemanticConstraintInterpreter', () => {
         employees,
         slots,
       );
-      expect(result.filter((c) => c.employeeId === 'emp-2').length).toBeGreaterThan(0);
+      expect(
+        result.filter((c) => c.employeeId === 'emp-2').length,
+      ).toBeGreaterThan(0);
     });
 
     it('employee block without date applies across all slots (shiftId undefined)', () => {
@@ -147,7 +161,11 @@ describe('SemanticConstraintInterpreter', () => {
   describe('constraint sin match', () => {
     it('returns untouched when nothing matches', () => {
       const cs = [constraint('se requiere actitud positiva en el trabajo', 1)];
-      const result = SemanticConstraintInterpreter.interpret(cs, employees, slots);
+      const result = SemanticConstraintInterpreter.interpret(
+        cs,
+        employees,
+        slots,
+      );
       expect(result).toEqual(cs);
     });
   });

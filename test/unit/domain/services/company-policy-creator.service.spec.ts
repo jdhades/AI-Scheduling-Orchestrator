@@ -49,7 +49,12 @@ describe('CompanyPolicyCreator', () => {
     const rephrase: IRuleRephraseService = {
       suggest: jest.fn().mockResolvedValue([]),
     };
-    const creator = new CompanyPolicyCreator(repo, registry, rephrase, makeLlm());
+    const creator = new CompanyPolicyCreator(
+      repo,
+      registry,
+      rephrase,
+      makeLlm(),
+    );
 
     const result = await creator.create(baseInput);
 
@@ -79,7 +84,12 @@ describe('CompanyPolicyCreator', () => {
         },
       ]),
     };
-    const creator = new CompanyPolicyCreator(repo, registry, rephrase, makeLlm());
+    const creator = new CompanyPolicyCreator(
+      repo,
+      registry,
+      rephrase,
+      makeLlm(),
+    );
 
     const result = await creator.create({
       ...baseInput,
@@ -99,7 +109,12 @@ describe('CompanyPolicyCreator', () => {
     const rephrase: IRuleRephraseService = {
       suggest: jest.fn().mockResolvedValue([]),
     };
-    const creator = new CompanyPolicyCreator(repo, registry, rephrase, makeLlm());
+    const creator = new CompanyPolicyCreator(
+      repo,
+      registry,
+      rephrase,
+      makeLlm(),
+    );
 
     const result = await creator.create({
       ...baseInput,
@@ -134,7 +149,12 @@ describe('CompanyPolicyCreator', () => {
     ]);
     const repo = makeRepo();
     const rephrase: IRuleRephraseService = { suggest: jest.fn() };
-    const creator = new CompanyPolicyCreator(repo, localRegistry, rephrase, llm);
+    const creator = new CompanyPolicyCreator(
+      repo,
+      localRegistry,
+      rephrase,
+      llm,
+    );
 
     const result = await creator.create({
       ...baseInput,
@@ -156,7 +176,10 @@ describe('CompanyPolicyCreator', () => {
   it('matchea y el LLM confirma que la estructura preserva la intención → sigue como matched', async () => {
     // matchPreservesIntent devuelve fullyCovered=true → camino actual.
     const llm = makeLlm(async () =>
-      JSON.stringify({ fullyCovered: true, reason: 'el texto se reduce a N días por semana' }),
+      JSON.stringify({
+        fullyCovered: true,
+        reason: 'el texto se reduce a N días por semana',
+      }),
     );
     const repo = makeRepo();
     const rephrase: IRuleRephraseService = { suggest: jest.fn() };
@@ -181,7 +204,12 @@ describe('CompanyPolicyCreator', () => {
     const rephrase: IRuleRephraseService = {
       suggest: jest.fn().mockResolvedValue([]),
     };
-    const creator = new CompanyPolicyCreator(repo, registry, rephrase, makeLlm());
+    const creator = new CompanyPolicyCreator(
+      repo,
+      registry,
+      rephrase,
+      makeLlm(),
+    );
 
     await creator.create({
       ...baseInput,

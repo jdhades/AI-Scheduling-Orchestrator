@@ -67,7 +67,7 @@ describe('CreateSemanticRuleHandler', () => {
       repository,
       eventBus,
       { extract: jest.fn().mockResolvedValue(null) } as any,
-      { suggest: jest.fn().mockResolvedValue([]) } as any,
+      { suggest: jest.fn().mockResolvedValue([]) },
     );
   });
 
@@ -151,7 +151,7 @@ describe('CreateSemanticRuleHandler — deduplication', () => {
       repository,
       eventBus,
       { extract: jest.fn().mockResolvedValue(null) } as any,
-      { suggest: jest.fn().mockResolvedValue([]) } as any,
+      { suggest: jest.fn().mockResolvedValue([]) },
     );
   });
 
@@ -213,7 +213,9 @@ describe('CreateSemanticRuleHandler — deduplication', () => {
   });
 
   it('should proceed with creation when dedup check throws (fail-safe)', async () => {
-    repository.findRelevantRules.mockRejectedValue(new Error('pgvector timeout'));
+    repository.findRelevantRules.mockRejectedValue(
+      new Error('pgvector timeout'),
+    );
 
     const cmd = new CreateSemanticRuleCommand(
       'company-1',

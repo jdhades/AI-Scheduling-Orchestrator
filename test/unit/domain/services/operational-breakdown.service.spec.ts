@@ -17,7 +17,11 @@ function emp(id: string, name: string, departmentId?: string): Employee {
     name,
     role: 'employee',
     phoneNumber: PhoneNumber.create('+5491100000000'),
-    experience: new ExperienceLevel(12, { junior: 6, intermediate: 18, senior: 36 }),
+    experience: new ExperienceLevel(12, {
+      junior: 6,
+      intermediate: 18,
+      senior: 36,
+    }),
     departmentId,
   });
 }
@@ -50,7 +54,11 @@ function tpl(opts: {
   });
 }
 
-function assignment(templateId: string, date: string, employeeId: string): ShiftAssignment {
+function assignment(
+  templateId: string,
+  date: string,
+  employeeId: string,
+): ShiftAssignment {
   return ShiftAssignment.create({
     id: `${templateId}-${date}-${employeeId}`,
     templateId,
@@ -65,7 +73,11 @@ function assignment(templateId: string, date: string, employeeId: string): Shift
   });
 }
 
-function fairnessVo(employeeId: string, hours: number, weekStart = '2026-04-20'): FairnessHistoryVO {
+function fairnessVo(
+  employeeId: string,
+  hours: number,
+  weekStart = '2026-04-20',
+): FairnessHistoryVO {
   return FairnessHistoryVO.create({
     employeeId,
     companyId: COMPANY,
@@ -101,12 +113,34 @@ function supabaseStub(behavior: {
   };
   return {
     from: jest.fn((table: string) => {
-      if (table === 'departments') return make(async () => ({ data: behavior.depts ?? [], error: null }));
-      if (table === 'shift_swap_requests') return make(async () => ({ data: behavior.swapRows ?? [], error: null }));
-      if (table === 'day_off_requests') return make(async () => ({ data: behavior.dayOffRows ?? [], error: null }));
-      if (table === 'absence_reports') return make(async () => ({ data: behavior.absenceRows ?? [], error: null, count: behavior.absenceRows?.length ?? 0 }));
-      if (table === 'llm_usage_log') return make(async () => ({ data: behavior.llmRows ?? [], error: null }));
-      if (table === 'schedule_generation_runs') return make(async () => ({ data: behavior.runRows ?? [], error: null }));
+      if (table === 'departments')
+        return make(async () => ({ data: behavior.depts ?? [], error: null }));
+      if (table === 'shift_swap_requests')
+        return make(async () => ({
+          data: behavior.swapRows ?? [],
+          error: null,
+        }));
+      if (table === 'day_off_requests')
+        return make(async () => ({
+          data: behavior.dayOffRows ?? [],
+          error: null,
+        }));
+      if (table === 'absence_reports')
+        return make(async () => ({
+          data: behavior.absenceRows ?? [],
+          error: null,
+          count: behavior.absenceRows?.length ?? 0,
+        }));
+      if (table === 'llm_usage_log')
+        return make(async () => ({
+          data: behavior.llmRows ?? [],
+          error: null,
+        }));
+      if (table === 'schedule_generation_runs')
+        return make(async () => ({
+          data: behavior.runRows ?? [],
+          error: null,
+        }));
       if (table === 'entity_audit_log') {
         return make(async () => ({
           data: behavior.auditRows ?? [],
@@ -128,24 +162,44 @@ describe('OperationalBreakdownService', () => {
         emp('e3', 'Carla', 'd-caja'),
       ];
       const templates = [
-        tpl({ id: 't-retail-mon', name: 'Retail Mon', dayOfWeek: 1, start: '09:00', end: '13:00', required: 2, departmentId: 'd-retail' }),
-        tpl({ id: 't-caja-mon', name: 'Caja Mon', dayOfWeek: 1, start: '09:00', end: '13:00', required: 1, departmentId: 'd-caja' }),
+        tpl({
+          id: 't-retail-mon',
+          name: 'Retail Mon',
+          dayOfWeek: 1,
+          start: '09:00',
+          end: '13:00',
+          required: 2,
+          departmentId: 'd-retail',
+        }),
+        tpl({
+          id: 't-caja-mon',
+          name: 'Caja Mon',
+          dayOfWeek: 1,
+          start: '09:00',
+          end: '13:00',
+          required: 1,
+          departmentId: 'd-caja',
+        }),
       ];
       const assignments = [
         assignment('t-retail-mon', '2026-04-20', 'e1'), // 1/2 retail
-        assignment('t-caja-mon', '2026-04-20', 'e3'),   // 1/1 caja
+        assignment('t-caja-mon', '2026-04-20', 'e3'), // 1/1 caja
       ];
 
       const service = new OperationalBreakdownService(
         { findAllByCompany: jest.fn().mockResolvedValue(employees) } as any,
         { findAllByCompany: jest.fn().mockResolvedValue(templates) } as any,
-        { findByCompanyAndDateRange: jest.fn().mockResolvedValue(assignments) } as any,
         {
-          findByWeek: jest.fn().mockResolvedValue([
-            fairnessVo('e1', 8),
-            fairnessVo('e2', 8),
-            fairnessVo('e3', 8),
-          ]),
+          findByCompanyAndDateRange: jest.fn().mockResolvedValue(assignments),
+        } as any,
+        {
+          findByWeek: jest
+            .fn()
+            .mockResolvedValue([
+              fairnessVo('e1', 8),
+              fairnessVo('e2', 8),
+              fairnessVo('e3', 8),
+            ]),
         } as any,
         supabaseStub({
           depts: [
@@ -155,7 +209,11 @@ describe('OperationalBreakdownService', () => {
         }),
       );
 
-      const rows = await service.byDepartment(COMPANY, ['2026-04-20'], 'monday');
+      const rows = await service.byDepartment(
+        COMPANY,
+        ['2026-04-20'],
+        'monday',
+      );
 
       const retail = rows.find((r) => r.id === 'd-retail')!;
       expect(retail.employeeCount).toBe(2);
@@ -175,7 +233,11 @@ describe('OperationalBreakdownService', () => {
         { findByWeek: jest.fn().mockResolvedValue([]) } as any,
         supabaseStub({ depts: [{ id: 'd', name: 'X' }] }),
       );
-      const rows = await service.byDepartment(COMPANY, ['2026-04-20'], 'monday');
+      const rows = await service.byDepartment(
+        COMPANY,
+        ['2026-04-20'],
+        'monday',
+      );
       expect(rows[0].coverageAvgPercent).toBeNull();
     });
   });
@@ -187,11 +249,15 @@ describe('OperationalBreakdownService', () => {
         { findAllByCompany: jest.fn().mockResolvedValue(employees) } as any,
         { findAllByCompany: jest.fn() } as any,
         { findByCompanyAndDateRange: jest.fn() } as any,
-        { findByWeek: jest.fn().mockResolvedValue([fairnessVo('e1', 40), fairnessVo('e2', 20)]) } as any,
+        {
+          findByWeek: jest
+            .fn()
+            .mockResolvedValue([fairnessVo('e1', 40), fairnessVo('e2', 20)]),
+        } as any,
         supabaseStub({
-          swapRows: [{ requester_id: 'e1' }],          // e1: 1 swap
+          swapRows: [{ requester_id: 'e1' }], // e1: 1 swap
           dayOffRows: [{ employee_id: 'e2' }, { employee_id: 'e2' }], // e2: 2 dayoffs
-          absenceRows: [{ employee_id: 'e2' }],         // e2: 1 absence
+          absenceRows: [{ employee_id: 'e2' }], // e2: 1 absence
         }),
       );
 
@@ -218,7 +284,14 @@ describe('OperationalBreakdownService', () => {
   describe('byTemplate', () => {
     it('fillRate + avgAssigned + manualModifications', async () => {
       const templates = [
-        tpl({ id: 't1', name: 'Morning', dayOfWeek: 1, start: '09:00', end: '13:00', required: 2 }),
+        tpl({
+          id: 't1',
+          name: 'Morning',
+          dayOfWeek: 1,
+          start: '09:00',
+          end: '13:00',
+          required: 2,
+        }),
       ];
       const assignments = [
         assignment('t1', '2026-04-20', 'e1'), // 1/2 → no fill
@@ -228,7 +301,9 @@ describe('OperationalBreakdownService', () => {
       const service = new OperationalBreakdownService(
         { findAllByCompany: jest.fn() } as any,
         { findAllByCompany: jest.fn().mockResolvedValue(templates) } as any,
-        { findByCompanyAndDateRange: jest.fn().mockResolvedValue(assignments) } as any,
+        {
+          findByCompanyAndDateRange: jest.fn().mockResolvedValue(assignments),
+        } as any,
         { findByWeek: jest.fn() } as any,
         supabaseStub({
           auditRows: [
@@ -261,7 +336,9 @@ describe('OperationalBreakdownService', () => {
       const service = new OperationalBreakdownService(
         { findAllByCompany: jest.fn() } as any,
         { findAllByCompany: jest.fn() } as any,
-        { findByCompanyAndDateRange: jest.fn().mockResolvedValue(assignments) } as any,
+        {
+          findByCompanyAndDateRange: jest.fn().mockResolvedValue(assignments),
+        } as any,
         { findByWeek: jest.fn() } as any,
         supabaseStub({
           runRows: [

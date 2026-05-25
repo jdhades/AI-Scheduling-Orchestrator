@@ -76,9 +76,9 @@ describe('WhatsappPendingClarification aggregate', () => {
       ...baseInput,
       ttlSeconds: 1,
     });
-    expect(entry.isExpired(new Date(entry.getCreatedAt().getTime() + 500))).toBe(
-      false,
-    );
+    expect(
+      entry.isExpired(new Date(entry.getCreatedAt().getTime() + 500)),
+    ).toBe(false);
     expect(
       entry.isExpired(new Date(entry.getCreatedAt().getTime() + 1500)),
     ).toBe(true);
