@@ -40,9 +40,10 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * típica (~30-50 assignments × 4 target weeks = ~200 inserts).
  */
 @CommandHandler(CloneScheduleCommand)
-export class CloneScheduleHandler
-  implements ICommandHandler<CloneScheduleCommand, CloneScheduleResult>
-{
+export class CloneScheduleHandler implements ICommandHandler<
+  CloneScheduleCommand,
+  CloneScheduleResult
+> {
   private readonly logger = new Logger(CloneScheduleHandler.name);
 
   constructor(
@@ -170,9 +171,7 @@ export class CloneScheduleHandler
         }
         // Conflicto: absence activa que cubre esa fecha.
         const empAbsences = absencesByEmp.get(src.employeeId);
-        if (
-          empAbsences?.some((a) => newDate >= a.start && newDate <= a.end)
-        ) {
+        if (empAbsences?.some((a) => newDate >= a.start && newDate <= a.end)) {
           skipped.push({
             employeeId: src.employeeId,
             date: newDate,

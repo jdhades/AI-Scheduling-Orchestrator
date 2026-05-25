@@ -5,9 +5,7 @@ import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.reposito
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 
 @CommandHandler(UpdateEmployeeCommand)
-export class UpdateEmployeeHandler
-  implements ICommandHandler<UpdateEmployeeCommand>
-{
+export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeCommand> {
   constructor(
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,

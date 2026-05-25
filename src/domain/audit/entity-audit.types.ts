@@ -18,10 +18,7 @@ export type AuditAction = 'create' | 'update' | 'delete';
  * (string | number | boolean | null | array | object). Solo se logean
  * campos cuyo valor cambió.
  */
-export type ChangeSet = Record<
-  string,
-  { before: unknown; after: unknown }
->;
+export type ChangeSet = Record<string, { before: unknown; after: unknown }>;
 
 export interface EntityAuditEntry {
   id: string;

@@ -15,9 +15,7 @@ import {
  */
 @Controller('schedule-generation-runs')
 export class ScheduleGenerationRunsController {
-  constructor(
-    private readonly runsService: ScheduleGenerationRunsService,
-  ) {}
+  constructor(private readonly runsService: ScheduleGenerationRunsService) {}
 
   @Get()
   async list(

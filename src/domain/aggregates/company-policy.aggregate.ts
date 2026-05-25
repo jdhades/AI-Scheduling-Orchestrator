@@ -93,7 +93,10 @@ function validateScope(scope: PolicyScope): void {
       'CompanyPolicy: scope.id must be null when scope.type="company".',
     );
   }
-  if (!isCompany && (scope.id === null || scope.id === undefined || scope.id === '')) {
+  if (
+    !isCompany &&
+    (scope.id === null || scope.id === undefined || scope.id === '')
+  ) {
     throw new Error(
       `CompanyPolicy: scope.id is required when scope.type="${scope.type}".`,
     );
@@ -146,7 +149,10 @@ export class CompanyPolicy {
   }
 
   /** Asocia un interpreter (cuando el registry detecta el patrón post-create). */
-  attachInterpreter(interpreterId: string, params: Record<string, unknown>): void {
+  attachInterpreter(
+    interpreterId: string,
+    params: Record<string, unknown>,
+  ): void {
     if (!interpreterId) {
       throw new Error('attachInterpreter: interpreterId cannot be empty');
     }

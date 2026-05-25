@@ -122,7 +122,9 @@ export class DepartmentsController {
       .single();
     if (error) {
       if ((error as { code?: string }).code === '23505') {
-        throw new ConflictException('Department name already exists in this branch');
+        throw new ConflictException(
+          'Department name already exists in this branch',
+        );
       }
       throw new BadRequestException(error.message);
     }

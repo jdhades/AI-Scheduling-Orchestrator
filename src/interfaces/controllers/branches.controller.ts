@@ -102,7 +102,7 @@ export class BranchesController {
       createdAt: b.created_at as string,
       departmentCount:
         Array.isArray(b.departments) && b.departments[0]
-          ? ((b.departments[0] as { count: number }).count ?? 0)
+          ? (b.departments[0].count ?? 0)
           : 0,
     }));
   }
@@ -147,7 +147,8 @@ export class BranchesController {
   ): Promise<BranchRow> {
     const patch: Record<string, unknown> = {};
     if (dto.name !== undefined) patch.name = dto.name.trim();
-    if (dto.timezone !== undefined) patch.timezone = dto.timezone.trim() || 'UTC';
+    if (dto.timezone !== undefined)
+      patch.timezone = dto.timezone.trim() || 'UTC';
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('No fields to update');
     }
@@ -167,7 +168,7 @@ export class BranchesController {
       createdAt: data.created_at as string,
       departmentCount:
         Array.isArray(data.departments) && data.departments[0]
-          ? ((data.departments[0] as { count: number }).count ?? 0)
+          ? (data.departments[0].count ?? 0)
           : 0,
     };
   }

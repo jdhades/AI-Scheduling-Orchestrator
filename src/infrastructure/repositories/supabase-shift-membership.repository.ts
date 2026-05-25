@@ -21,7 +21,8 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       effective_from: membership.effectiveFrom,
       effective_until: membership.effectiveUntil,
     });
-    if (error) throw new Error(`ShiftMembershipRepository.save: ${error.message}`);
+    if (error)
+      throw new Error(`ShiftMembershipRepository.save: ${error.message}`);
   }
 
   async delete(id: string, companyId: string): Promise<void> {
@@ -31,10 +32,14 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       .eq('id', id)
       .eq('company_id', companyId)
       .is('deleted_at', null);
-    if (error) throw new Error(`ShiftMembershipRepository.delete: ${error.message}`);
+    if (error)
+      throw new Error(`ShiftMembershipRepository.delete: ${error.message}`);
   }
 
-  async findById(id: string, companyId: string): Promise<ShiftMembership | null> {
+  async findById(
+    id: string,
+    companyId: string,
+  ): Promise<ShiftMembership | null> {
     const { data, error } = await this.supabase
       .from('shift_memberships')
       .select('*')
@@ -42,7 +47,8 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       .eq('company_id', companyId)
       .is('deleted_at', null)
       .maybeSingle();
-    if (error) throw new Error(`ShiftMembershipRepository.findById: ${error.message}`);
+    if (error)
+      throw new Error(`ShiftMembershipRepository.findById: ${error.message}`);
     return data ? ShiftMembership.fromPersistence(data as never) : null;
   }
 
@@ -64,7 +70,9 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
     }
     const { data, error } = await q;
     if (error)
-      throw new Error(`ShiftMembershipRepository.findAllByCompany: ${error.message}`);
+      throw new Error(
+        `ShiftMembershipRepository.findAllByCompany: ${error.message}`,
+      );
     return (data ?? []).map((r) => ShiftMembership.fromPersistence(r as never));
   }
 
@@ -79,7 +87,10 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       .is('deleted_at', null)
       .lte('effective_from', dateISO)
       .or(`effective_until.is.null,effective_until.gte.${dateISO}`);
-    if (error) throw new Error(`ShiftMembershipRepository.findActiveOnDate: ${error.message}`);
+    if (error)
+      throw new Error(
+        `ShiftMembershipRepository.findActiveOnDate: ${error.message}`,
+      );
     return (data ?? []).map((r) => ShiftMembership.fromPersistence(r as never));
   }
 
@@ -95,7 +106,10 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       .is('deleted_at', null)
       .lte('effective_from', toISO)
       .or(`effective_until.is.null,effective_until.gte.${fromISO}`);
-    if (error) throw new Error(`ShiftMembershipRepository.findActiveInRange: ${error.message}`);
+    if (error)
+      throw new Error(
+        `ShiftMembershipRepository.findActiveInRange: ${error.message}`,
+      );
     return (data ?? []).map((r) => ShiftMembership.fromPersistence(r as never));
   }
 
@@ -109,7 +123,10 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       .eq('company_id', companyId)
       .eq('employee_id', employeeId)
       .is('deleted_at', null);
-    if (error) throw new Error(`ShiftMembershipRepository.findByEmployee: ${error.message}`);
+    if (error)
+      throw new Error(
+        `ShiftMembershipRepository.findByEmployee: ${error.message}`,
+      );
     return (data ?? []).map((r) => ShiftMembership.fromPersistence(r as never));
   }
 
@@ -123,7 +140,10 @@ export class SupabaseShiftMembershipRepository implements IShiftMembershipReposi
       .eq('company_id', companyId)
       .eq('template_id', templateId)
       .is('deleted_at', null);
-    if (error) throw new Error(`ShiftMembershipRepository.findByTemplate: ${error.message}`);
+    if (error)
+      throw new Error(
+        `ShiftMembershipRepository.findByTemplate: ${error.message}`,
+      );
     return (data ?? []).map((r) => ShiftMembership.fromPersistence(r as never));
   }
 }

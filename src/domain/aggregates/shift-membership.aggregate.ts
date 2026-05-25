@@ -20,11 +20,15 @@ export class ShiftMembership {
     public readonly createdAt: Date,
   ) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) {
-      throw new Error(`effectiveFrom must be YYYY-MM-DD, got: ${effectiveFrom}`);
+      throw new Error(
+        `effectiveFrom must be YYYY-MM-DD, got: ${effectiveFrom}`,
+      );
     }
     if (effectiveUntil !== null) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveUntil)) {
-        throw new Error(`effectiveUntil must be YYYY-MM-DD or null, got: ${effectiveUntil}`);
+        throw new Error(
+          `effectiveUntil must be YYYY-MM-DD or null, got: ${effectiveUntil}`,
+        );
       }
       if (effectiveUntil < effectiveFrom) {
         throw new Error(
@@ -76,7 +80,8 @@ export class ShiftMembership {
   /** ¿Esta membresía está activa en la fecha dada? */
   isActiveOn(dateISO: string): boolean {
     if (dateISO < this.effectiveFrom) return false;
-    if (this.effectiveUntil !== null && dateISO > this.effectiveUntil) return false;
+    if (this.effectiveUntil !== null && dateISO > this.effectiveUntil)
+      return false;
     return true;
   }
 }

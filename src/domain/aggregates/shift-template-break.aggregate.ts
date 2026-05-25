@@ -26,14 +26,10 @@ export class ShiftTemplateBreak {
     public readonly createdAt: Date,
   ) {
     if (startOffsetMinutes < 0) {
-      throw new Error(
-        'ShiftTemplateBreak.startOffsetMinutes must be >= 0',
-      );
+      throw new Error('ShiftTemplateBreak.startOffsetMinutes must be >= 0');
     }
     if (durationMinutes <= 0) {
-      throw new Error(
-        'ShiftTemplateBreak.durationMinutes must be > 0',
-      );
+      throw new Error('ShiftTemplateBreak.durationMinutes must be > 0');
     }
   }
 

@@ -96,7 +96,8 @@ export class LLMScheduleProposalVO {
         employeeId: a.employeeId,
         reason: typeof a.reason === 'string' ? a.reason : 'No reason provided',
         confidence:
-          a.employeeId === 'NONE' || String(a.employeeId).toUpperCase() === 'NONE'
+          a.employeeId === 'NONE' ||
+          String(a.employeeId).toUpperCase() === 'NONE'
             ? 1.0
             : typeof a.confidence === 'number'
               ? Math.max(0, Math.min(1, a.confidence))
@@ -106,9 +107,12 @@ export class LLMScheduleProposalVO {
 
     // Parsear blocks opcionales — descartar items inválidos silenciosamente
     const blocks: ProposedBlock[] = Array.isArray(parsed.blocks)
-      ? (parsed.blocks as unknown[]).reduce<ProposedBlock[]>((acc, item) => {
+      ? parsed.blocks.reduce<ProposedBlock[]>((acc, item) => {
           const b = item as Record<string, unknown>;
-          if (typeof b.employeeId === 'string' && typeof b.shiftId === 'string') {
+          if (
+            typeof b.employeeId === 'string' &&
+            typeof b.shiftId === 'string'
+          ) {
             acc.push({ employeeId: b.employeeId, shiftId: b.shiftId });
           }
           return acc;
@@ -119,7 +123,7 @@ export class LLMScheduleProposalVO {
     const multiShiftPermits: ProposedMultiShiftPermit[] = Array.isArray(
       parsed.multi_shift_permits,
     )
-      ? (parsed.multi_shift_permits as unknown[]).reduce<ProposedMultiShiftPermit[]>(
+      ? parsed.multi_shift_permits.reduce<ProposedMultiShiftPermit[]>(
           (acc, item) => {
             const p = item as Record<string, unknown>;
             if (typeof p.employeeId === 'string' && typeof p.day === 'string') {

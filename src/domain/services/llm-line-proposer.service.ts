@@ -60,7 +60,18 @@ export class LLMLineProposerService {
      */
     signal?: AbortSignal;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
-    const { companyId, jobId, employees, slots, semanticRules, rawRuleTexts, weekStart, feedback, policyPromptBlock, signal } = params;
+    const {
+      companyId,
+      jobId,
+      employees,
+      slots,
+      semanticRules,
+      rawRuleTexts,
+      weekStart,
+      feedback,
+      policyPromptBlock,
+      signal,
+    } = params;
 
     if (employees.length === 0 || slots.length === 0) {
       return new Map();
@@ -79,7 +90,11 @@ export class LLMLineProposerService {
         ...(rawRuleTexts ?? []),
       ]),
     ];
-    const englishRuleTexts = await this.translateRulesToEnglish(combinedRuleTexts, llm, signal);
+    const englishRuleTexts = await this.translateRulesToEnglish(
+      combinedRuleTexts,
+      llm,
+      signal,
+    );
 
     const { prompt, empMaps, templateMaps } = this.buildPrompt({
       employees,
@@ -110,9 +125,7 @@ export class LLMLineProposerService {
       return new Map();
     }
 
-    this.logger.log(
-      `📥 LLM raw response (${raw.length} chars):\n${raw}`,
-    );
+    this.logger.log(`📥 LLM raw response (${raw.length} chars):\n${raw}`);
 
     return this.parse(raw, {
       employees,
@@ -212,14 +225,23 @@ Expected output format:
     empMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
     templateMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
   } {
-    const { employees, slots, ruleTexts, weekStart, feedback, policyPromptBlock } = params;
+    const {
+      employees,
+      slots,
+      ruleTexts,
+      weekStart,
+      feedback,
+      policyPromptBlock,
+    } = params;
 
     // Mapeo de nombres a UUIDs. Sufijo `-xxxxxx` (6 chars del UUID) se incluye
     // SIEMPRE para que el LLM use un identificador estable y desambiguado.
     const empMaps = this.buildIdentifierMaps(
       employees.map((e) => ({ id: e.id, name: e.name })),
     );
-    const empIdToName = new Map([...empMaps.display.entries()].map(([n, id]) => [id, n]));
+    const empIdToName = new Map(
+      [...empMaps.display.entries()].map(([n, id]) => [id, n]),
+    );
 
     const templates = this.uniqueTemplates(slots);
     const templateMaps = this.buildIdentifierMaps(
@@ -260,9 +282,10 @@ Expected output format:
         ? ruleTexts.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
         : '  (no additional rules)';
 
-    const policiesBlock = policyPromptBlock && policyPromptBlock.trim().length > 0
-      ? `\n## Company-wide policies\n${policyPromptBlock}\n`
-      : '';
+    const policiesBlock =
+      policyPromptBlock && policyPromptBlock.trim().length > 0
+        ? `\n## Company-wide policies\n${policyPromptBlock}\n`
+        : '';
 
     const feedbackBlock = feedback
       ? `\n## Your previous attempt was invalid\n\n${feedback}\n\nFix those problems in the new response.\n`
@@ -371,12 +394,18 @@ Reason (3–5 lines), then return the JSON.`;
   private weekdayLabel(dateISO: string): string {
     const d = new Date(`${dateISO}T12:00:00Z`);
     const dow = d.getUTCDay();
-    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow];
+    return [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ][dow];
   }
 
-  private uniqueTemplates(
-    slots: VirtualShiftSlot[],
-  ): {
+  private uniqueTemplates(slots: VirtualShiftSlot[]): {
     templateId: string;
     templateName: string;
     startLabel: string;
@@ -411,9 +440,7 @@ Reason (3–5 lines), then return the JSON.`;
    * `nameToIds`   — `normalize(nombre) → [uuids]` (fallback si el LLM
    *                 dropea el sufijo; >1 candidato ⇒ ambigüedad reportada).
    */
-  private buildIdentifierMaps(
-    entries: { id: string; name: string }[],
-  ): {
+  private buildIdentifierMaps(entries: { id: string; name: string }[]): {
     display: Map<string, string>;
     prefixToId: Map<string, string>;
     nameToIds: Map<string, string[]>;
@@ -482,7 +509,11 @@ Reason (3–5 lines), then return the JSON.`;
         continue;
       }
       if (typeof line?.employee !== 'string') continue;
-      const empId = this.resolveIdentifier(line.employee, context.empMaps, 'employee');
+      const empId = this.resolveIdentifier(
+        line.employee,
+        context.empMaps,
+        'employee',
+      );
       if (!empId) continue; // resolveIdentifier ya warnea
       if (typeof line?.days !== 'object' || !line.days) continue;
 
@@ -501,7 +532,11 @@ Reason (3–5 lines), then return the JSON.`;
         ) {
           clean[date] = 'rest';
         } else {
-          const tplId = this.resolveIdentifier(value, context.templateMaps, 'shift');
+          const tplId = this.resolveIdentifier(
+            value,
+            context.templateMaps,
+            'shift',
+          );
           if (tplId) clean[date] = tplId;
           // Valor desconocido: el `resolveIdentifier` ya warneó; la celda queda
           // sin sugerencia y el builder decidirá.
@@ -519,12 +554,14 @@ Reason (3–5 lines), then return the JSON.`;
       const emp = context.employees.find((e) => e.id === empId);
       const tplIdToShort = new Map<string, string>();
       for (const s of context.slots) {
-        if (!tplIdToShort.has(s.templateId)) tplIdToShort.set(s.templateId, s.templateName);
+        if (!tplIdToShort.has(s.templateId))
+          tplIdToShort.set(s.templateId, s.templateName);
       }
       const summary = Object.entries(days)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([d, v]) => {
-          const short = v === 'rest' ? 'REST' : tplIdToShort.get(v) ?? v.slice(0, 6);
+          const short =
+            v === 'rest' ? 'REST' : (tplIdToShort.get(v) ?? v.slice(0, 6));
           return `${d.slice(5)}→${short}`;
         })
         .join(' ');

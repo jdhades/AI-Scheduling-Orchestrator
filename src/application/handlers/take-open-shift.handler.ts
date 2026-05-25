@@ -25,13 +25,17 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
   ) {}
 
   async execute(command: TakeOpenShiftCommand): Promise<void> {
-    const { requesterId, currentAssignmentId, targetSlotKey, companyId } = command;
+    const { requesterId, currentAssignmentId, targetSlotKey, companyId } =
+      command;
 
     const requesterAssignment = await this.assignmentRepo.findById(
       currentAssignmentId,
       companyId,
     );
-    if (!requesterAssignment || requesterAssignment.employeeId !== requesterId) {
+    if (
+      !requesterAssignment ||
+      requesterAssignment.employeeId !== requesterId
+    ) {
       throw new Error(
         `Assignment ${currentAssignmentId} is not assigned to the requesting employee`,
       );
@@ -45,9 +49,14 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
       );
     }
 
-    const template = await this.templateRepo.findById(targetTemplateId, companyId);
+    const template = await this.templateRepo.findById(
+      targetTemplateId,
+      companyId,
+    );
     if (!template) {
-      throw new Error(`Template ${targetTemplateId} not found for company ${companyId}`);
+      throw new Error(
+        `Template ${targetTemplateId} not found for company ${companyId}`,
+      );
     }
 
     // "Abierto" = capacidad del slot aún no alcanzada. Si requiredEmployees es
@@ -64,7 +73,9 @@ export class TakeOpenShiftHandler implements ICommandHandler<TakeOpenShiftComman
       );
     }
     if (existing.some((a) => a.employeeId === requesterId)) {
-      throw new Error(`Employee ${requesterId} is already assigned to slot ${targetSlotKey}`);
+      throw new Error(
+        `Employee ${requesterId} is already assigned to slot ${targetSlotKey}`,
+      );
     }
 
     await this.assignmentRepo.deleteById(currentAssignmentId, companyId);

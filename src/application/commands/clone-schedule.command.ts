@@ -30,7 +30,10 @@ export class CloneScheduleCommand {
 
 export class CloneScheduleConflictError extends Error {
   constructor(
-    public readonly conflicts: Array<{ weekStart: string; existingCount: number }>,
+    public readonly conflicts: Array<{
+      weekStart: string;
+      existingCount: number;
+    }>,
   ) {
     super(
       `Target weeks already have assignments: ${conflicts

@@ -46,20 +46,13 @@ export class NotificationsGateway
   async handleConnection(client: Socket): Promise<void> {
     const token =
       (client.handshake.auth?.token as string | undefined) ??
-      (client.handshake.headers.authorization as string | undefined)?.replace(
-        /^Bearer\s+/i,
-        '',
-      );
+      client.handshake.headers.authorization?.replace(/^Bearer\s+/i, '');
     const devCompanyId =
       (client.handshake.auth?.companyId as string | undefined) ??
       (client.handshake.headers['x-company-id'] as string | undefined);
 
     // ─── DEV bypass ────────────────────────────────────────────────────
-    if (
-      process.env.DEV_AUTH_BYPASS === 'true' &&
-      devCompanyId &&
-      !token
-    ) {
+    if (process.env.DEV_AUTH_BYPASS === 'true' && devCompanyId && !token) {
       void client.join(`company:${devCompanyId}`);
       client.data.companyId = devCompanyId;
       this.logger.log(
@@ -121,7 +114,10 @@ export class NotificationsGateway
    * Clients should listen to 'ScheduleGenerated' to invalidate their caches.
    */
   notifyScheduleGenerated(companyId: string, weekStart: string) {
-    this.emitToCompany(companyId, 'ScheduleGenerated', { companyId, weekStart });
+    this.emitToCompany(companyId, 'ScheduleGenerated', {
+      companyId,
+      weekStart,
+    });
     this.logger.log(
       `Broadcasted ScheduleGenerated for company ${companyId}, week ${weekStart}`,
     );
@@ -295,6 +291,8 @@ export class NotificationsGateway
       companyId,
       error,
     });
-    this.logger.log(`Broadcasted LlmJobFailed job=${jobId} type=${type}: ${error}`);
+    this.logger.log(
+      `Broadcasted LlmJobFailed job=${jobId} type=${type}: ${error}`,
+    );
   }
 }

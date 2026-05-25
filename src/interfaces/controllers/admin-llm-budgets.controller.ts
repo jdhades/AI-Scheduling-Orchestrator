@@ -96,7 +96,9 @@ export class AdminLLMBudgetsController {
     return rows.map((r) => ({
       id: r.id,
       companyId: r.company_id,
-      companyName: r.company_id ? (companyNames.get(r.company_id) ?? null) : null,
+      companyName: r.company_id
+        ? (companyNames.get(r.company_id) ?? null)
+        : null,
       model: r.model,
       monthlyBudgetTokens: r.monthly_budget_tokens,
       notes: r.notes,

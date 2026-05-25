@@ -25,8 +25,12 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
       .eq('is_active', true)
       .is('deleted_at', null);
     if (error)
-      throw new Error(`CompanySkillRepository.findAllByCompany: ${error.message}`);
-    return (data ?? []).map((row) => this.toDomain(row as Record<string, unknown>));
+      throw new Error(
+        `CompanySkillRepository.findAllByCompany: ${error.message}`,
+      );
+    return (data ?? []).map((row) =>
+      this.toDomain(row as Record<string, unknown>),
+    );
   }
 
   async findById(id: string, companyId: string): Promise<CompanySkill | null> {
@@ -39,7 +43,7 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
       .maybeSingle();
     if (error)
       throw new Error(`CompanySkillRepository.findById: ${error.message}`);
-    return data ? this.toDomain(data as Record<string, unknown>) : null;
+    return data ? this.toDomain(data) : null;
   }
 
   async create(companyId: string, name: string): Promise<CompanySkill> {
@@ -53,7 +57,9 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
       .select('id, name')
       .limit(1);
     if (upsertErr)
-      throw new Error(`CompanySkillRepository.create(catalog): ${upsertErr.message}`);
+      throw new Error(
+        `CompanySkillRepository.create(catalog): ${upsertErr.message}`,
+      );
     const skill = (skillRows ?? [])[0];
     if (!skill) throw new Error('Failed to upsert skill in catalog');
     const skillId = skill.id as string;
@@ -72,7 +78,9 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
       .limit(1)
       .maybeSingle();
     if (findErr)
-      throw new Error(`CompanySkillRepository.create(lookup): ${findErr.message}`);
+      throw new Error(
+        `CompanySkillRepository.create(lookup): ${findErr.message}`,
+      );
 
     if (existing) {
       if (existing.deleted_at !== null) {
@@ -85,8 +93,10 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
           .select('id, company_id, skills ( id, name )')
           .single();
         if (reviveErr)
-          throw new Error(`CompanySkillRepository.create(revive): ${reviveErr.message}`);
-        return this.toDomain(revived as Record<string, unknown>);
+          throw new Error(
+            `CompanySkillRepository.create(revive): ${reviveErr.message}`,
+          );
+        return this.toDomain(revived);
       }
       // Ya existe activo: el manager intentó duplicar. Devolvemos 409 con
       // un errorCode que el frontend traduce. El dialog queda abierto y
@@ -107,8 +117,10 @@ export class SupabaseCompanySkillRepository implements ICompanySkillRepository {
       .select('id, company_id, skills ( id, name )')
       .single();
     if (insertErr)
-      throw new Error(`CompanySkillRepository.create(insert): ${insertErr.message}`);
-    return this.toDomain(inserted as Record<string, unknown>);
+      throw new Error(
+        `CompanySkillRepository.create(insert): ${insertErr.message}`,
+      );
+    return this.toDomain(inserted);
   }
 
   async delete(id: string, companyId: string): Promise<void> {

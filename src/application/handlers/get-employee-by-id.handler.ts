@@ -5,9 +5,7 @@ import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.reposito
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 
 @QueryHandler(GetEmployeeByIdQuery)
-export class GetEmployeeByIdHandler
-  implements IQueryHandler<GetEmployeeByIdQuery>
-{
+export class GetEmployeeByIdHandler implements IQueryHandler<GetEmployeeByIdQuery> {
   constructor(
     @Inject(EMPLOYEE_REPOSITORY)
     private readonly employeeRepository: IEmployeeRepository,

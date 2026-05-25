@@ -62,7 +62,9 @@ export class VirtualShiftSlot {
 
   /** Duración del slot en horas (gross, sin restar breaks). */
   getDuration(): number {
-    return (this.endTime.getTime() - this.startTime.getTime()) / (1000 * 60 * 60);
+    return (
+      (this.endTime.getTime() - this.startTime.getTime()) / (1000 * 60 * 60)
+    );
   }
 
   /**

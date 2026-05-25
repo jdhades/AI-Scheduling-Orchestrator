@@ -4,7 +4,7 @@ export class ShiftTemplate {
     public readonly departmentId: string,
     public readonly name: string,
     public readonly timeStart: string, // e.g. "08:00:00"
-    public readonly timeEnd: string,   // e.g. "16:00:00"
+    public readonly timeEnd: string, // e.g. "16:00:00"
     public readonly createdAt: Date = new Date(),
   ) {}
 

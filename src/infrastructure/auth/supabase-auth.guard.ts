@@ -109,9 +109,7 @@ export class SupabaseAuthGuard implements CanActivate {
     try {
       claims = await this.jwtValidator.verify(token);
     } catch (err) {
-      throw new UnauthorizedException(
-        `Invalid JWT: ${(err as Error).message}`,
-      );
+      throw new UnauthorizedException(`Invalid JWT: ${(err as Error).message}`);
     }
 
     // Path A: hook de Supabase ya inyecta custom claims → uso directo.

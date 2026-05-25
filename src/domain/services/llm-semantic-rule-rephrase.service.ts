@@ -16,9 +16,7 @@ import {
  * interface).
  */
 @Injectable()
-export class LlmSemanticRuleRephraseService
-  implements ISemanticRuleRephraseService
-{
+export class LlmSemanticRuleRephraseService implements ISemanticRuleRephraseService {
   private readonly logger = new Logger(LlmSemanticRuleRephraseService.name);
   private static readonly MAX_SUGGESTIONS = 3;
 

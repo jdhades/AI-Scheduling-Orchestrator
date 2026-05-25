@@ -110,7 +110,10 @@ interface CompanyPolicyResponse {
   text: string;
   severity: 'hard' | 'soft';
   /** Phase 14.1 — alcance al que aplica la policy. */
-  scope: { type: 'company' | 'branch' | 'department' | 'employee'; id: string | null };
+  scope: {
+    type: 'company' | 'branch' | 'department' | 'employee';
+    id: string | null;
+  };
   params: Record<string, unknown>;
   interpreterId: string | null;
   /** True si el sistema tiene un interpreter en código que aplica esta
@@ -219,7 +222,7 @@ export class CompanyPoliciesController {
     const scope: PolicyScope | undefined = dto.scope
       ? {
           type: dto.scope.type,
-          id: dto.scope.type === 'company' ? null : dto.scope.id ?? null,
+          id: dto.scope.type === 'company' ? null : (dto.scope.id ?? null),
         }
       : undefined;
 

@@ -185,9 +185,7 @@ export class StripeWebhookController {
     );
   }
 
-  private async onSubscriptionChange(
-    sub: StripeSubscription,
-  ): Promise<void> {
+  private async onSubscriptionChange(sub: StripeSubscription): Promise<void> {
     const status = this.mapStripeStatus(sub.status);
     const customerId = typeof sub.customer === 'string' ? sub.customer : null;
     if (!customerId) return;
@@ -269,9 +267,11 @@ export class StripeWebhookController {
     if (typeof subAny.current_period_end === 'number') {
       return subAny.current_period_end;
     }
-    const first = sub.items.data[0] as unknown as {
-      current_period_end?: number;
-    } | undefined;
+    const first = sub.items.data[0] as unknown as
+      | {
+          current_period_end?: number;
+        }
+      | undefined;
     return first?.current_period_end ?? null;
   }
 }

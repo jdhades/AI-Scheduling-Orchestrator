@@ -17,12 +17,7 @@ import {
   Query,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  ValidateIf,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
 import { randomUUID } from 'crypto';
 import {
   SHIFT_SWAP_REQUEST_REPOSITORY,
@@ -171,7 +166,8 @@ export class ShiftSwapRequestsController {
     const rows = await this.repo.findAllByCompany(companyId, {
       requesterId,
       targetId,
-      status: statusList && statusList.length === 1 ? statusList[0] : statusList,
+      status:
+        statusList && statusList.length === 1 ? statusList[0] : statusList,
     });
     // Phase 15.2 — filter por manager: si vino el query, filtramos a los
     // requests cuyo `requesterId` esté en el scope del manager (su depto

@@ -33,7 +33,8 @@ export class OperationalBreakdownController {
     @Query('weekStarts') weekStartsParam: string,
   ): Promise<DepartmentBreakdownRow[]> {
     const weekStarts = this._parseWeekStarts(weekStartsParam);
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     return this.service.byDepartment(companyId, weekStarts, weekStartsOn);
   }
 
@@ -43,7 +44,8 @@ export class OperationalBreakdownController {
     @Query('weekStarts') weekStartsParam: string,
   ): Promise<EmployeeBreakdownRow[]> {
     const weekStarts = this._parseWeekStarts(weekStartsParam);
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     return this.service.byEmployee(companyId, weekStarts, weekStartsOn);
   }
 
@@ -53,7 +55,8 @@ export class OperationalBreakdownController {
     @Query('weekStarts') weekStartsParam: string,
   ): Promise<TemplateBreakdownRow[]> {
     const weekStarts = this._parseWeekStarts(weekStartsParam);
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     return this.service.byTemplate(companyId, weekStarts, weekStartsOn);
   }
 
@@ -63,7 +66,8 @@ export class OperationalBreakdownController {
     @Query('weekStarts') weekStartsParam: string,
   ): Promise<CrossCuttingMetrics> {
     const weekStarts = this._parseWeekStarts(weekStartsParam);
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     return this.service.crossCutting(companyId, weekStarts, weekStartsOn);
   }
 

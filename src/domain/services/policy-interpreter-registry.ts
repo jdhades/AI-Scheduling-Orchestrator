@@ -25,7 +25,6 @@ export class PolicyInterpreterRegistry {
   constructor(
     @Optional()
     @Inject(POLICY_INTERPRETERS_TOKEN)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     interpreters: Array<PolicyInterpreter<any>> = [],
   ) {
     const map = new Map<string, PolicyInterpreter>();

@@ -109,24 +109,26 @@ export class ScheduleGenerationRunsService {
       );
       return [];
     }
-    return (data ?? []).map((r): ScheduleGenerationRunRow => ({
-      id: r.id,
-      companyId: r.company_id,
-      weekStart: r.week_start,
-      jobId: r.job_id,
-      status: r.status,
-      source: r.source,
-      durationMs: r.duration_ms,
-      assignmentsCount: r.assignments_count,
-      unfilledCount: r.unfilled_count,
-      llmCalls: r.llm_calls,
-      llmPromptTokens: r.llm_prompt_tokens,
-      llmCompletionTokens: r.llm_completion_tokens,
-      llmTotalTokens: r.llm_total_tokens,
-      explanation: r.explanation,
-      warnings: r.warnings,
-      errorMessage: r.error_message,
-      createdAt: r.created_at,
-    }));
+    return (data ?? []).map(
+      (r): ScheduleGenerationRunRow => ({
+        id: r.id,
+        companyId: r.company_id,
+        weekStart: r.week_start,
+        jobId: r.job_id,
+        status: r.status,
+        source: r.source,
+        durationMs: r.duration_ms,
+        assignmentsCount: r.assignments_count,
+        unfilledCount: r.unfilled_count,
+        llmCalls: r.llm_calls,
+        llmPromptTokens: r.llm_prompt_tokens,
+        llmCompletionTokens: r.llm_completion_tokens,
+        llmTotalTokens: r.llm_total_tokens,
+        explanation: r.explanation,
+        warnings: r.warnings,
+        errorMessage: r.error_message,
+        createdAt: r.created_at,
+      }),
+    );
   }
 }

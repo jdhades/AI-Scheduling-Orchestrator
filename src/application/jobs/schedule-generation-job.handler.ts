@@ -9,9 +9,7 @@ import { I18nService } from 'nestjs-i18n';
 import type { Job } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
 import { JobCancellationRegistry } from '../../infrastructure/queue/job-cancellation.registry';
-import {
-  JOB_SCHEDULE_GENERATE,
-} from '../../infrastructure/queue/job-names';
+import { JOB_SCHEDULE_GENERATE } from '../../infrastructure/queue/job-names';
 import type { ScheduleGenerationJobPayload } from '../../infrastructure/queue/job-types';
 import { GenerateHybridScheduleCommand } from '../commands/generate-hybrid-schedule.command';
 import type { HybridScheduleResult } from '../../application/handlers/generate-hybrid-schedule.handler';
@@ -84,7 +82,10 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     // tiene rate-limit por cuenta — más concurrencia satura.
     const concurrency = Math.max(
       1,
-      Math.min(parseInt(process.env.SCHEDULE_WORKER_CONCURRENCY ?? '2', 10) || 2, 10),
+      Math.min(
+        parseInt(process.env.SCHEDULE_WORKER_CONCURRENCY ?? '2', 10) || 2,
+        10,
+      ),
     );
     await boss.work<ScheduleGenerationJobPayload>(
       JOB_SCHEDULE_GENERATE,

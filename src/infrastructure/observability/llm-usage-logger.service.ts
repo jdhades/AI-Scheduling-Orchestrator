@@ -88,9 +88,7 @@ export class LLMUsageLogger {
   record(input: RecordCallInput): void {
     const ctx = this.als.getStore();
     void this.persist(ctx, input).catch((err) => {
-      this.logger.warn(
-        `Failed to log LLM usage: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Failed to log LLM usage: ${(err as Error).message}`);
     });
   }
 
@@ -98,18 +96,16 @@ export class LLMUsageLogger {
     ctx: LLMUsageContext | undefined,
     input: RecordCallInput,
   ): Promise<void> {
-    const { error } = await this.supabase
-      .from('llm_usage_log')
-      .insert({
-        company_id: ctx?.companyId ?? null,
-        operation: ctx?.operation ?? 'unknown',
-        model: input.model,
-        prompt_tokens: input.promptTokens,
-        completion_tokens: input.completionTokens,
-        total_tokens: input.totalTokens,
-        duration_ms: input.durationMs ?? null,
-        job_id: ctx?.jobId ?? null,
-      });
+    const { error } = await this.supabase.from('llm_usage_log').insert({
+      company_id: ctx?.companyId ?? null,
+      operation: ctx?.operation ?? 'unknown',
+      model: input.model,
+      prompt_tokens: input.promptTokens,
+      completion_tokens: input.completionTokens,
+      total_tokens: input.totalTokens,
+      duration_ms: input.durationMs ?? null,
+      job_id: ctx?.jobId ?? null,
+    });
     if (error) throw new Error(error.message);
   }
 
@@ -120,12 +116,15 @@ export class LLMUsageLogger {
    * el caller quiere TODAS las companies, se usa otra ruta.
    */
   async summary(days: number, companyId?: string): Promise<UsageSummary> {
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      .toISOString();
+    const since = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
 
     let query = this.supabase
       .from('llm_usage_log')
-      .select('operation, model, prompt_tokens, completion_tokens, total_tokens')
+      .select(
+        'operation, model, prompt_tokens, completion_tokens, total_tokens',
+      )
       .gte('created_at', since);
     if (companyId) {
       query = query.eq('company_id', companyId);
@@ -145,7 +144,12 @@ export class LLMUsageLogger {
     };
     const byOpMap = new Map<
       string,
-      { calls: number; promptTokens: number; completionTokens: number; totalTokens: number }
+      {
+        calls: number;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+      }
     >();
     const byModelMap = new Map<
       string,
@@ -227,7 +231,12 @@ export class LLMUsageLogger {
     // Bucket por día (UTC). Llave = YYYY-MM-DD.
     const buckets = new Map<
       string,
-      { calls: number; promptTokens: number; completionTokens: number; totalTokens: number }
+      {
+        calls: number;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+      }
     >();
     for (let i = 0; i < days; i++) {
       const d = new Date(since);

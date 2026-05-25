@@ -112,7 +112,8 @@ export class AbsenceReportedHandler implements IEventHandler<AbsenceReportedEven
         assignment.templateId,
         companyId,
       );
-      const name = template?.name ?? `template ${assignment.templateId.slice(0, 8)}`;
+      const name =
+        template?.name ?? `template ${assignment.templateId.slice(0, 8)}`;
       const start = template ? this.shortTime(template.startTime) : '';
       const end = template ? this.shortTime(template.endTime) : '';
       const timeRange = start && end ? ` ${start}–${end}` : '';

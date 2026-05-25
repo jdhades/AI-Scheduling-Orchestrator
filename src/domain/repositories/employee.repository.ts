@@ -34,8 +34,15 @@ export interface IEmployeeRepository {
   save(employee: Employee): Promise<void>;
   findById(id: string, companyId: string): Promise<Employee | null>;
   findByPhone(phone: string, companyId: string): Promise<Employee | null>;
-  findAllByCompany(companyId: string, options?: { departmentId?: string; branchId?: string }): Promise<Employee[]>;
+  findAllByCompany(
+    companyId: string,
+    options?: { departmentId?: string; branchId?: string },
+  ): Promise<Employee[]>;
   markWhatsappVerified(employeeId: string): Promise<void>;
-  updatePartial(id: string, companyId: string, patch: EmployeePatch): Promise<void>;
+  updatePartial(
+    id: string,
+    companyId: string,
+    patch: EmployeePatch,
+  ): Promise<void>;
   softDelete(id: string, companyId: string): Promise<void>;
 }

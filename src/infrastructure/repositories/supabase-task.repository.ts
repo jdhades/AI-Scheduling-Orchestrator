@@ -72,7 +72,8 @@ export class SupabaseTaskRepository implements ITaskRepository {
       .order('created_at', { ascending: false });
     if (filters?.isDone !== undefined) q = q.eq('is_done', filters.isDone);
     const { data, error } = await q;
-    if (error) throw new Error(`TaskRepository.findByCompany: ${error.message}`);
+    if (error)
+      throw new Error(`TaskRepository.findByCompany: ${error.message}`);
     return (data ?? []).map((r) => this.rowToAggregate(r as TaskRow));
   }
 

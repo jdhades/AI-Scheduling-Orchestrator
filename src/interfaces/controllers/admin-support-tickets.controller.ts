@@ -58,9 +58,7 @@ export class AdminSupportTicketsController {
   ): Promise<AdminSupportTicketRow[]> {
     let query = this.supabase
       .from('support_tickets')
-      .select(
-        '*, support_ticket_attachments(count), companies!inner(name)',
-      )
+      .select('*, support_ticket_attachments(count), companies!inner(name)')
       .order('created_at', { ascending: false })
       .limit(200);
     if (status) query = query.eq('status', status);
@@ -119,9 +117,7 @@ export class AdminSupportTicketsController {
       .from('support_tickets')
       .update(update)
       .eq('id', id)
-      .select(
-        '*, support_ticket_attachments(count), companies(name)',
-      )
+      .select('*, support_ticket_attachments(count), companies(name)')
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Ticket not found');

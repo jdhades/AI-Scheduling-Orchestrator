@@ -51,7 +51,7 @@ export class GeminiConversationalService implements IConversationalService {
       const errMsg = (err as Error).message;
       this.logger.error(`[processText] Gemini call failed: ${errMsg}`);
       if (errMsg.includes('429')) {
-         return ConversationIntentVO.systemUnavailable(text);
+        return ConversationIntentVO.systemUnavailable(text);
       }
       return ConversationIntentVO.unknown(text);
     }
@@ -91,7 +91,7 @@ export class GeminiConversationalService implements IConversationalService {
       const errMsg = (err as Error).message;
       this.logger.error(`[processAudio] Gemini call failed: ${errMsg}`);
       if (errMsg.includes('429')) {
-         return ConversationIntentVO.systemUnavailable('(audio no transcrito)');
+        return ConversationIntentVO.systemUnavailable('(audio no transcrito)');
       }
       return ConversationIntentVO.unknown('(error procesando audio)');
     }
@@ -237,7 +237,8 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
         });
       } catch (err: any) {
         clearTimeout(timer);
-        if (attempt === maxRetries) throw new Error(`Gemini fetch error: ${err.message}`);
+        if (attempt === maxRetries)
+          throw new Error(`Gemini fetch error: ${err.message}`);
         await this._delay(baseDelayMs * Math.pow(2, attempt - 1));
         continue;
       }
@@ -247,7 +248,9 @@ Responde ÚNICAMENTE con JSON válido, sin texto adicional:
         const errorText = await response.text();
         if (response.status === 429) {
           if (attempt === maxRetries) {
-            throw new Error(`(429) Gemini Timeout Exhausted: Rate Limit Exceeded`);
+            throw new Error(
+              `(429) Gemini Timeout Exhausted: Rate Limit Exceeded`,
+            );
           }
           this.logger.warn(`Gemini 429 on attempt ${attempt}. Retrying...`);
           await this._delay(baseDelayMs * Math.pow(2, attempt - 1));

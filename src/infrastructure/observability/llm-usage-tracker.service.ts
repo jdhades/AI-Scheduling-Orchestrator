@@ -26,9 +26,7 @@ interface Acc extends LLMUsage {}
 export class LLMUsageTracker {
   private readonly als = new AsyncLocalStorage<Acc>();
 
-  async run<T>(
-    fn: () => Promise<T>,
-  ): Promise<{ result: T; usage: LLMUsage }> {
+  async run<T>(fn: () => Promise<T>): Promise<{ result: T; usage: LLMUsage }> {
     const acc: Acc = { prompt: 0, completion: 0, total: 0, calls: 0 };
     const result = await this.als.run(acc, fn);
     return { result, usage: { ...acc } };

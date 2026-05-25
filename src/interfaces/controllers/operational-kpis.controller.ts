@@ -40,7 +40,8 @@ export class OperationalKpisController {
         );
       }
     }
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     return this.kpisService.getKpis(companyId, weekStarts, weekStartsOn);
   }
 }

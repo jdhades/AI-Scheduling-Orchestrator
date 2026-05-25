@@ -126,14 +126,20 @@ export class MessageRouterService {
     try {
       // 1. Detect type and classify intent
       const intent = await this._classifyMessage(msg);
-      
+
       const employee = await this.employeeRepo.findById(employeeId, companyId);
       if (employee) {
         const detectedLang = intent.getEntities().detectedLanguage;
-        if (detectedLang && detectedLang.length === 2 && detectedLang.toLowerCase() !== employee.locale) {
+        if (
+          detectedLang &&
+          detectedLang.length === 2 &&
+          detectedLang.toLowerCase() !== employee.locale
+        ) {
           employee.updateLocale(detectedLang);
           await this.employeeRepo.save(employee);
-          this.logger.log(`Updated employee ${employeeId} locale to ${employee.locale}`);
+          this.logger.log(
+            `Updated employee ${employeeId} locale to ${employee.locale}`,
+          );
         }
         locale = employee.locale;
       }
@@ -149,7 +155,7 @@ export class MessageRouterService {
 
       const intentEntities = intent.getEntities();
       const sessionEntities = session.getCollectedEntities();
-      let mergedEntities = { ...sessionEntities, ...intentEntities };
+      const mergedEntities = { ...sessionEntities, ...intentEntities };
 
       let currentIntent = intent.getIntent();
 
@@ -176,13 +182,17 @@ export class MessageRouterService {
       }
 
       // Context Retention: If NLP loses context answering a clarification, inherit pending intent
-      if ((currentIntent === 'unknown' || currentIntent === session.getPendingIntent()) && session.getPendingIntent()) {
-          currentIntent = session.getPendingIntent()!;
-          
-          // Harvest the raw text as the reason if it was missing 
-          if (currentIntent === 'report_absence' && !mergedEntities.reason) {
-              mergedEntities.reason = intent.getRawText().trim();
-          }
+      if (
+        (currentIntent === 'unknown' ||
+          currentIntent === session.getPendingIntent()) &&
+        session.getPendingIntent()
+      ) {
+        currentIntent = session.getPendingIntent()!;
+
+        // Harvest the raw text as the reason if it was missing
+        if (currentIntent === 'report_absence' && !mergedEntities.reason) {
+          mergedEntities.reason = intent.getRawText().trim();
+        }
       }
 
       // Handle Option Selection for report_absence
@@ -304,7 +314,9 @@ export class MessageRouterService {
 
       // Handle Option Selection for generate_schedule (SELECT_TEMPLATE)
       if (
-        (currentIntent === 'select_option' || currentIntent === 'unknown' || currentIntent === 'generate_schedule') &&
+        (currentIntent === 'select_option' ||
+          currentIntent === 'unknown' ||
+          currentIntent === 'generate_schedule') &&
         sessionEntities.pendingAction === 'generate_schedule'
       ) {
         const rawText = intent.getRawText().trim().toLowerCase();
@@ -373,7 +385,14 @@ export class MessageRouterService {
 
       // 4a. Handle SWAP_SELECT_SHIFT — start the guided swap flow
       if (mapResult.actionRequired === 'SWAP_SELECT_SHIFT') {
-        await this._startSwapFlow(from, employeeId, companyId, session, mergedEntities, locale);
+        await this._startSwapFlow(
+          from,
+          employeeId,
+          companyId,
+          session,
+          mergedEntities,
+          locale,
+        );
         return;
       }
 
@@ -428,10 +447,7 @@ export class MessageRouterService {
       this.logger.error(
         `[route] Error processing message from ${from}: ${(err as Error).message}`,
       );
-      this._reply(
-        from,
-        this.i18n.t('bot.general.error', { lang: locale }),
-      );
+      this._reply(from, this.i18n.t('bot.general.error', { lang: locale }));
     }
   }
 
@@ -455,7 +471,10 @@ export class MessageRouterService {
     if (step === 'SELECT_BRANCH') {
       const branchId = sessionEntities[`option${selection}_branchId`];
       if (!branchId) {
-        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        this._reply(
+          from,
+          this.i18n.t('bot.general.invalid_choice', { lang: locale }),
+        );
         return true;
       }
       // Avanzar a SELECT_DEPARTMENT (con smart-skip si solo hay 1).
@@ -496,7 +515,10 @@ export class MessageRouterService {
     if (step === 'SELECT_DEPARTMENT') {
       const departmentId = sessionEntities[`option${selection}_departmentId`];
       if (!departmentId) {
-        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        this._reply(
+          from,
+          this.i18n.t('bot.general.invalid_choice', { lang: locale }),
+        );
         return true;
       }
       await this._promptTemplateSelection(
@@ -514,7 +536,11 @@ export class MessageRouterService {
     if (step === 'SELECT_TEMPLATE') {
       const departmentId = sessionEntities.selectedDepartmentId ?? undefined;
       let cmd: GenerateHybridScheduleCommand;
-      if (selection === '1' || selection === 'todos' || selection === 'todos los turnos') {
+      if (
+        selection === '1' ||
+        selection === 'todos' ||
+        selection === 'todos los turnos'
+      ) {
         cmd = new GenerateHybridScheduleCommand(
           companyId,
           weekStart,
@@ -526,7 +552,10 @@ export class MessageRouterService {
       } else {
         const templateId = sessionEntities[`option${selection}_templateId`];
         if (!templateId) {
-          this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+          this._reply(
+            from,
+            this.i18n.t('bot.general.invalid_choice', { lang: locale }),
+          );
           return true;
         }
         cmd = new GenerateHybridScheduleCommand(
@@ -538,7 +567,12 @@ export class MessageRouterService {
           departmentId,
         );
       }
-      await this._executeScheduleGenAndReply(cmd, from, sessionEntities, locale);
+      await this._executeScheduleGenAndReply(
+        cmd,
+        from,
+        sessionEntities,
+        locale,
+      );
       return true;
     }
 
@@ -560,7 +594,8 @@ export class MessageRouterService {
     departmentId: string | null,
     locale: string,
   ): Promise<void> {
-    const allTemplates = await this.shiftTemplateRepo.findAllByCompany(companyId);
+    const allTemplates =
+      await this.shiftTemplateRepo.findAllByCompany(companyId);
     const templates = departmentId
       ? allTemplates.filter((t) => (t as any).departmentId === departmentId)
       : allTemplates;
@@ -574,7 +609,12 @@ export class MessageRouterService {
         locale,
         departmentId ?? undefined,
       );
-      await this._executeScheduleGenAndReply(cmd, from, sessionEntities, locale);
+      await this._executeScheduleGenAndReply(
+        cmd,
+        from,
+        sessionEntities,
+        locale,
+      );
       return;
     }
 
@@ -588,7 +628,12 @@ export class MessageRouterService {
         locale,
         departmentId ?? undefined,
       );
-      await this._executeScheduleGenAndReply(cmd, from, sessionEntities, locale);
+      await this._executeScheduleGenAndReply(
+        cmd,
+        from,
+        sessionEntities,
+        locale,
+      );
       return;
     }
 
@@ -623,7 +668,7 @@ export class MessageRouterService {
       this.logger.warn(`_loadBranches: ${error.message}`);
       return [];
     }
-    return (data ?? []) as { id: string; name: string }[];
+    return data ?? [];
   }
 
   private async _loadDepartments(
@@ -665,7 +710,9 @@ export class MessageRouterService {
     // limpia sesión. El worker dispara el outbound real cuando termina.
     if (useAsync) {
       try {
-        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(cmd.companyId);
+        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(
+          cmd.companyId,
+        );
         await this.scheduleDispatcher.enqueue({
           companyId: cmd.companyId,
           weekStart: cmd.weekStart,
@@ -703,7 +750,10 @@ export class MessageRouterService {
     // Path síncrono (Fase 0) — bloquea el handler hasta terminar.
     try {
       const result = await this.commandBus.execute(cmd);
-      this._reply(from, this._formatScheduleReply(result, locale, sessionEntities));
+      this._reply(
+        from,
+        this._formatScheduleReply(result, locale, sessionEntities),
+      );
       await this.sessionRepository.clearSession(from);
     } catch (err) {
       if (err instanceof ScheduleGenerationLockedException) {
@@ -756,9 +806,16 @@ export class MessageRouterService {
     if (result && typeof result === 'object' && result.explanation) {
       reply = result.explanation;
     }
-    if (result && Array.isArray(result.warnings) && result.warnings.length > 0) {
-      const header = this.i18n.t('bot.schedule.warnings_header', { lang: locale });
-      reply += `\n\n${header}\n` +
+    if (
+      result &&
+      Array.isArray(result.warnings) &&
+      result.warnings.length > 0
+    ) {
+      const header = this.i18n.t('bot.schedule.warnings_header', {
+        lang: locale,
+      });
+      reply +=
+        `\n\n${header}\n` +
         result.warnings.map((w: string) => `• ${w}`).join('\n');
     }
     // Phase 14 — incluir consumo de tokens del LLM en el reply al manager
@@ -800,11 +857,15 @@ export class MessageRouterService {
     >(new GetUpcomingShiftsQuery(employeeId, companyId, 5));
 
     if (rawShifts.length === 0) {
-      this._reply(from, this.i18n.t('bot.swap.no_upcoming_shifts', { lang: locale }));
+      this._reply(
+        from,
+        this.i18n.t('bot.swap.no_upcoming_shifts', { lang: locale }),
+      );
       return;
     }
 
-    let responseText = this.i18n.t('bot.swap.select_own_shift', { lang: locale }) + '\n\n';
+    let responseText =
+      this.i18n.t('bot.swap.select_own_shift', { lang: locale }) + '\n\n';
     const optionsEntities: Record<string, string> = {
       pendingAction: 'swap_shift',
       swapStep: 'SELECT_OWN',
@@ -896,7 +957,10 @@ export class MessageRouterService {
         : sessionEntities.selectedOwnShiftId;
 
     if (!shiftId) {
-      this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
+      this._reply(
+        from,
+        this.i18n.t('bot.swap.invalid_choice', { lang: locale }),
+      );
       return true;
     }
 
@@ -917,7 +981,10 @@ export class MessageRouterService {
 
       if (!hasOpen && !hasSwap) {
         await this.sessionRepository.clearSession(from);
-        this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
+        this._reply(
+          from,
+          this.i18n.t('bot.swap.no_target_shifts', { lang: locale }),
+        );
         return true;
       }
 
@@ -932,7 +999,10 @@ export class MessageRouterService {
       // step === 'SELECT_SWAP_TYPE'
       const parsed = this._parseSwapTypeSelection(selection);
       if (!parsed) {
-        this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
+        this._reply(
+          from,
+          this.i18n.t('bot.swap.invalid_choice', { lang: locale }),
+        );
         return true;
       }
       targetTypeFilter = parsed;
@@ -941,7 +1011,12 @@ export class MessageRouterService {
     const employees = await this.employeeRepo.findAllByCompany(companyId);
     const empMap = new Map(employees.map((e) => [e.id, e.name]));
 
-    const ownDateLabel = this._formatOwnShiftDate(allSlots, allAssignments, shiftId, locale);
+    const ownDateLabel = this._formatOwnShiftDate(
+      allSlots,
+      allAssignments,
+      shiftId,
+      locale,
+    );
     let responseText =
       this.i18n.t('bot.swap.select_target_shift', {
         lang: locale,
@@ -957,13 +1032,22 @@ export class MessageRouterService {
     const { text: optionsText, count } =
       targetTypeFilter === 'OPEN'
         ? this._buildOpenSlotOptions(openSlots, locale, optionsEntities)
-        : this._buildColleagueOptions(otherAssignments, allSlots, empMap, now, optionsEntities);
+        : this._buildColleagueOptions(
+            otherAssignments,
+            allSlots,
+            empMap,
+            now,
+            optionsEntities,
+          );
 
     responseText += optionsText;
 
     if (count === 0) {
       await this.sessionRepository.clearSession(from);
-      this._reply(from, this.i18n.t('bot.swap.no_target_shifts', { lang: locale }));
+      this._reply(
+        from,
+        this.i18n.t('bot.swap.no_target_shifts', { lang: locale }),
+      );
       return true;
     }
 
@@ -1013,7 +1097,16 @@ export class MessageRouterService {
 
   private _parseSwapTypeSelection(selection: string): 'OPEN' | 'SWAP' | null {
     if (
-      !['1', '2', 'uno', 'dos', 'libre', 'compañero', 'open', 'colleague'].includes(selection)
+      ![
+        '1',
+        '2',
+        'uno',
+        'dos',
+        'libre',
+        'compañero',
+        'open',
+        'colleague',
+      ].includes(selection)
     ) {
       return null;
     }
@@ -1130,7 +1223,10 @@ export class MessageRouterService {
     const targetEmployeeId = sessionEntities[`option${selection}_employeeId`];
 
     if (!targetShiftId || !targetType) {
-      this._reply(from, this.i18n.t('bot.swap.invalid_choice', { lang: locale }));
+      this._reply(
+        from,
+        this.i18n.t('bot.swap.invalid_choice', { lang: locale }),
+      );
       return true;
     }
 
@@ -1148,7 +1244,9 @@ export class MessageRouterService {
     if (targetType === 'OPEN') {
       targetSlot = allSlots.find((s) => s.slotKey === targetShiftId);
     } else {
-      const targetAssignment = allAssignments.find((a) => a.id === targetShiftId);
+      const targetAssignment = allAssignments.find(
+        (a) => a.id === targetShiftId,
+      );
       targetSlot = targetAssignment
         ? allSlots.find((s) => s.slotKey === targetAssignment.slotKey)
         : undefined;
@@ -1156,13 +1254,21 @@ export class MessageRouterService {
 
     const ownDesc = ownSlot
       ? this._formatShiftLine(
-          { shiftId: ownSlot.slotKey, startTime: ownSlot.startTime, endTime: ownSlot.endTime },
+          {
+            shiftId: ownSlot.slotKey,
+            startTime: ownSlot.startTime,
+            endTime: ownSlot.endTime,
+          },
           locale,
         )
       : ownShiftId;
     const targetDesc = targetSlot
       ? this._formatShiftLine(
-          { shiftId: targetSlot.slotKey, startTime: targetSlot.startTime, endTime: targetSlot.endTime },
+          {
+            shiftId: targetSlot.slotKey,
+            startTime: targetSlot.startTime,
+            endTime: targetSlot.endTime,
+          },
           locale,
         )
       : targetShiftId;
@@ -1216,7 +1322,12 @@ export class MessageRouterService {
 
       const command =
         targetType === 'OPEN'
-          ? new TakeOpenShiftCommand(employeeId, ownShiftId, targetShiftId, companyId)
+          ? new TakeOpenShiftCommand(
+              employeeId,
+              ownShiftId,
+              targetShiftId,
+              companyId,
+            )
           : new SwapShiftCommand(
               employeeId,
               ownShiftId,
@@ -1237,7 +1348,10 @@ export class MessageRouterService {
 
     if (['no', 'n', '2'].includes(selection)) {
       await this.sessionRepository.clearSession(from);
-      this._reply(from, this.i18n.t('bot.swap.swap_cancelled', { lang: locale }));
+      this._reply(
+        from,
+        this.i18n.t('bot.swap.swap_cancelled', { lang: locale }),
+      );
       return true;
     }
 
@@ -1258,7 +1372,12 @@ export class MessageRouterService {
 
     if (!isText && !isAudio) {
       this.logger.warn(`Unsupported media type: ${msg.mimeType}`);
-      this.lastClassifierUsage = { calls: 0, prompt: 0, completion: 0, total: 0 };
+      this.lastClassifierUsage = {
+        calls: 0,
+        prompt: 0,
+        completion: 0,
+        total: 0,
+      };
       return ConversationIntentVO.unknown('unsupported');
     }
 
@@ -1292,7 +1411,12 @@ export class MessageRouterService {
    * `_classifyMessage`, leído por `route()` para acumular en la sesión
    * cuando el flow es `generate_schedule`.
    */
-  private lastClassifierUsage: { calls: number; prompt: number; completion: number; total: number } = {
+  private lastClassifierUsage: {
+    calls: number;
+    prompt: number;
+    completion: number;
+    total: number;
+  } = {
     calls: 0,
     prompt: 0,
     completion: 0,
@@ -1303,7 +1427,7 @@ export class MessageRouterService {
     if (command instanceof GetMyScheduleQuery) {
       return this.queryBus.execute<GetMyScheduleQuery, string>(command);
     }
-    return this.commandBus.execute(command) as Promise<string | void>;
+    return this.commandBus.execute(command);
   }
 
   /**
@@ -1332,7 +1456,10 @@ export class MessageRouterService {
     if (!fullId) {
       this._reply(
         from,
-        this.i18n.t('bot.general.shift_not_found', { lang: locale, args: { shiftId } }),
+        this.i18n.t('bot.general.shift_not_found', {
+          lang: locale,
+          args: { shiftId },
+        }),
       );
       return null;
     }
@@ -1350,7 +1477,10 @@ export class MessageRouterService {
   }
 
   /** Format a shift as a human-readable line for WhatsApp. */
-  private _formatShiftLine(shift: { shiftId: string; startTime: Date; endTime: Date }, locale: string = 'es'): string {
+  private _formatShiftLine(
+    shift: { shiftId: string; startTime: Date; endTime: Date },
+    locale: string = 'es',
+  ): string {
     const start = new Date(shift.startTime);
     const end = new Date(shift.endTime);
     const code = locale === 'en' ? 'en-US' : 'es-ES';
@@ -1378,15 +1508,22 @@ export class MessageRouterService {
     companyId: string,
     reference: Date,
   ): Promise<{ slots: VirtualShiftSlot[]; assignments: ShiftAssignment[] }> {
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     const w1Start = weekStartOf(reference, weekStartsOn);
     const w2Start = new Date(w1Start);
     w2Start.setUTCDate(w2Start.getUTCDate() + 7);
 
     const templates = await this.shiftTemplateRepo.findAllByCompany(companyId);
     const activeTemplates = templates.filter((t) => t.isActive);
-    const slotsW1 = this.slotGenerator.generateSlotsForWeek(activeTemplates, w1Start);
-    const slotsW2 = this.slotGenerator.generateSlotsForWeek(activeTemplates, w2Start);
+    const slotsW1 = this.slotGenerator.generateSlotsForWeek(
+      activeTemplates,
+      w1Start,
+    );
+    const slotsW2 = this.slotGenerator.generateSlotsForWeek(
+      activeTemplates,
+      w2Start,
+    );
 
     const fromISO = w1Start.toISOString().split('T')[0];
     const endOfW2 = new Date(w2Start);
@@ -1447,7 +1584,10 @@ export class MessageRouterService {
     // Record<string, string>.
     let session = await this.sessionRepository.getSession(from);
     if (!session) {
-      session = ConversationSessionVO.create({ employeePhone: from, companyId });
+      session = ConversationSessionVO.create({
+        employeePhone: from,
+        companyId,
+      });
     }
     session = session.withIntent('create_rule_clarification', {
       pendingAction: 'create_rule_clarification',
@@ -1500,7 +1640,10 @@ export class MessageRouterService {
       // Marcamos la pending como resuelta para no dejar fantasmas y
       // dejamos que el flow normal procese el nuevo texto como una
       // creación fresh. Limpiamos la sesión para que no se mezcle.
-      await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+      await this.pendingClarificationRepo.markResolved(
+        pending.getId(),
+        companyId,
+      );
       await this.sessionRepository.clearSession(from);
       return false; // que el flow normal haga su trabajo
     }
@@ -1514,16 +1657,20 @@ export class MessageRouterService {
       return true; // sesión sigue
     }
 
-    await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+    await this.pendingClarificationRepo.markResolved(
+      pending.getId(),
+      companyId,
+    );
 
-    const priority = parseInt(sessionEntities.rulePriority ?? '3', 10) as 1 | 2 | 3;
+    const priority = parseInt(sessionEntities.rulePriority ?? '3', 10) as
+      | 1
+      | 2
+      | 3;
     const ruleType = (sessionEntities.ruleType ?? 'preference') as
       | 'restriction'
       | 'preference'
       | 'requirement';
-    const branchId = sessionEntities.branchId
-      ? sessionEntities.branchId
-      : null;
+    const branchId = sessionEntities.branchId ? sessionEntities.branchId : null;
 
     const cmd = new CreateSemanticRuleCommand(
       companyId,
@@ -1536,7 +1683,9 @@ export class MessageRouterService {
       branchId,
     );
 
-    const result = (await this._execute(cmd)) as unknown as CreateSemanticRuleResult;
+    const result = (await this._execute(
+      cmd,
+    )) as unknown as CreateSemanticRuleResult;
 
     // Si la sugerencia elegida ALSO sale complex (improbable pero
     // posible — el LLM puede fallar en verificar), repetimos el loop.
@@ -1557,10 +1706,7 @@ export class MessageRouterService {
     }
 
     await this.sessionRepository.clearSession(from);
-    this._reply(
-      from,
-      `✅ Regla creada: "${pick.suggestedText}"`,
-    );
+    this._reply(from, `✅ Regla creada: "${pick.suggestedText}"`);
     return true;
   }
 
@@ -1596,7 +1742,8 @@ export class MessageRouterService {
         from,
         this.i18n.t('bot.general.unauthorized', {
           lang: locale,
-          defaultValue: '⚠️ No tienes permisos para crear políticas de la empresa.',
+          defaultValue:
+            '⚠️ No tienes permisos para crear políticas de la empresa.',
         }),
       );
       await this.sessionRepository.clearSession(from);
@@ -1651,7 +1798,10 @@ export class MessageRouterService {
 
       let session = await this.sessionRepository.getSession(from);
       if (!session) {
-        session = ConversationSessionVO.create({ employeePhone: from, companyId });
+        session = ConversationSessionVO.create({
+          employeePhone: from,
+          companyId,
+        });
       }
       session = session.withIntent('create_policy_clarification', {
         pendingAction: 'create_policy_clarification',
@@ -1668,7 +1818,8 @@ export class MessageRouterService {
         msg += `${i + 1}. ${s.suggestedText}\n`;
       });
       msg += scopeLabel ? `\n_(Alcance detectado: ${scopeLabel})_\n` : '';
-      msg += '\n_Respondé con el número (1, 2, 3...) o escribí una nueva política._';
+      msg +=
+        '\n_Respondé con el número (1, 2, 3...) o escribí una nueva política._';
       this._reply(from, msg);
       return true;
     }
@@ -1696,7 +1847,10 @@ export class MessageRouterService {
    * Phase 14.2 — render legible del scope para el reply al manager.
    * Devuelve null para scope=company (no hace falta decoración).
    */
-  private _formatScopeLabel(scope: PolicyScope, targetName: string | null): string | null {
+  private _formatScopeLabel(
+    scope: PolicyScope,
+    targetName: string | null,
+  ): string | null {
     if (scope.type === 'company') return null;
     const label =
       scope.type === 'branch'
@@ -1739,7 +1893,10 @@ export class MessageRouterService {
     if (Number.isNaN(n)) {
       // Texto libre — el manager está reformulando manualmente.
       // Cleanup + dejar que el flow normal lo procese.
-      await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+      await this.pendingClarificationRepo.markResolved(
+        pending.getId(),
+        companyId,
+      );
       await this.sessionRepository.clearSession(from);
       return false;
     }
@@ -1753,9 +1910,14 @@ export class MessageRouterService {
       return true;
     }
 
-    await this.pendingClarificationRepo.markResolved(pending.getId(), companyId);
+    await this.pendingClarificationRepo.markResolved(
+      pending.getId(),
+      companyId,
+    );
 
-    const severity = (sessionEntities.policySeverity ?? 'hard') as 'hard' | 'soft';
+    const severity = (sessionEntities.policySeverity ?? 'hard') as
+      | 'hard'
+      | 'soft';
     // Phase 14.2 — recuperamos el scope decidido cuando se abrió el loop.
     const persistedScopeType = sessionEntities.policyScopeType as
       | PolicyScope['type']
@@ -1811,10 +1973,7 @@ export class MessageRouterService {
 
     await this.sessionRepository.clearSession(from);
     if (result.mode === 'matched') {
-      this._reply(
-        from,
-        `✅ Política creada: "${result.policy.getText()}"`,
-      );
+      this._reply(from, `✅ Política creada: "${result.policy.getText()}"`);
     } else {
       this._reply(
         from,
@@ -1868,7 +2027,10 @@ export class MessageRouterService {
     let targetEmployeeId = senderEmployeeId;
     let targetEmployeeName = '';
     if (targetName) {
-      const sender = await this.employeeRepo.findById(senderEmployeeId, companyId);
+      const sender = await this.employeeRepo.findById(
+        senderEmployeeId,
+        companyId,
+      );
       if (!sender || sender.role !== 'manager') {
         this._reply(
           from,
@@ -1904,7 +2066,10 @@ export class MessageRouterService {
       targetEmployeeId = matches[0].id;
       targetEmployeeName = matches[0].name;
     } else {
-      const self = await this.employeeRepo.findById(senderEmployeeId, companyId);
+      const self = await this.employeeRepo.findById(
+        senderEmployeeId,
+        companyId,
+      );
       targetEmployeeName = self?.name ?? '';
     }
 
@@ -1913,7 +2078,7 @@ export class MessageRouterService {
       const result = await this.absenceCreator.create({
         companyId,
         employeeId: targetEmployeeId,
-        reason: entities.reason!.trim(),
+        reason: entities.reason.trim(),
         startDate: startDate ?? undefined,
         endDate: endDate ?? undefined,
         // El audit del actor queda en metadata.source de la rule. La
@@ -1956,11 +2121,12 @@ export class MessageRouterService {
         // empleados en el rango, decimos explícito que el empleado no
         // tenía turno; si no hay nada, omitimos (la rule futura ya
         // explica que el scheduler la respetará).
-        const otherAssignments = await this.assignmentRepo.findByCompanyAndDateRange(
-          companyId,
-          startDate ?? '',
-          endDate ?? '',
-        );
+        const otherAssignments =
+          await this.assignmentRepo.findByCompanyAndDateRange(
+            companyId,
+            startDate ?? '',
+            endDate ?? '',
+          );
         if (otherAssignments.length > 0) {
           lines.push(
             this.i18n.t('bot.absence.no_shift_in_period', {
@@ -2013,9 +2179,15 @@ export class MessageRouterService {
   ): Promise<boolean> {
     const targetName = entities.targetEmployeeName!.trim();
 
-    const sender = await this.employeeRepo.findById(senderEmployeeId, companyId);
+    const sender = await this.employeeRepo.findById(
+      senderEmployeeId,
+      companyId,
+    );
     if (!sender || sender.role !== 'manager') {
-      this._reply(from, this.i18n.t('bot.absence.manager_only', { lang: locale }));
+      this._reply(
+        from,
+        this.i18n.t('bot.absence.manager_only', { lang: locale }),
+      );
       return true;
     }
 
@@ -2048,7 +2220,13 @@ export class MessageRouterService {
     const target = matches[0];
     const weekStart = entities.weekStart || entities.date;
     const reply = await this.queryBus.execute<GetMyScheduleQuery, string>(
-      new GetMyScheduleQuery(target.id, companyId, weekStart, locale, target.name),
+      new GetMyScheduleQuery(
+        target.id,
+        companyId,
+        weekStart,
+        locale,
+        target.name,
+      ),
     );
     this._reply(from, reply);
     return true;
@@ -2153,7 +2331,7 @@ export class MessageRouterService {
     let filtered = rawShifts;
     if (entities.date) {
       filtered = filtered.filter((s) =>
-        new Date(s.startTime).toISOString().startsWith(entities.date!),
+        new Date(s.startTime).toISOString().startsWith(entities.date),
       );
     }
     if (entities.timeOfDay && filtered.length > 1) {
@@ -2311,9 +2489,16 @@ export class MessageRouterService {
     // marcar la regla como complex y devolver suggestions sin persistir.
     // Persistimos una WhatsappPendingClarification y replicamos el
     // suggestion-loop de la web por mensaje.
-    if (command instanceof CreateSemanticRuleCommand && result && typeof result === 'object') {
+    if (
+      command instanceof CreateSemanticRuleCommand &&
+      result &&
+      typeof result === 'object'
+    ) {
       const ruleResult = result as CreateSemanticRuleResult;
-      if (Array.isArray(ruleResult.suggestions) && ruleResult.suggestions.length > 0) {
+      if (
+        Array.isArray(ruleResult.suggestions) &&
+        ruleResult.suggestions.length > 0
+      ) {
         await this._persistAndReplyRuleClarification(
           from,
           employeeId,
@@ -2336,7 +2521,11 @@ export class MessageRouterService {
         reply = resObj.explanation;
       }
       // Anexar warnings (reglas en supervisión manual, turnos sin cubrir).
-      if (resObj && Array.isArray(resObj.warnings) && resObj.warnings.length > 0) {
+      if (
+        resObj &&
+        Array.isArray(resObj.warnings) &&
+        resObj.warnings.length > 0
+      ) {
         reply +=
           `\n\n⚠️ *Requieren tu revisión:*\n` +
           resObj.warnings.map((w: string) => `• ${w}`).join('\n');
@@ -2371,7 +2560,10 @@ export class MessageRouterService {
     } else {
       targetBranchId = payload[`option${selection}_branchId`];
       if (!targetBranchId) {
-        this._reply(from, this.i18n.t('bot.general.invalid_choice', { lang: locale }));
+        this._reply(
+          from,
+          this.i18n.t('bot.general.invalid_choice', { lang: locale }),
+        );
         return;
       }
     }
@@ -2405,8 +2597,10 @@ export class MessageRouterService {
     mergedEntities: Record<string, any>,
     locale: string,
   ): Promise<void> {
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
-    const weekStart = mergedEntities.weekStart || nextWeekStartIso(weekStartsOn);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStart =
+      mergedEntities.weekStart || nextWeekStartIso(weekStartsOn);
     const branches = await this._loadBranches(companyId);
     const departments = await this._loadDepartments(companyId);
 
@@ -2424,7 +2618,13 @@ export class MessageRouterService {
     if (branches.length <= 1) {
       chosenBranchId = branches[0]?.id ?? null;
     } else {
-      await this._promptBranchSelection(from, session, mergedEntities, branches, weekStart);
+      await this._promptBranchSelection(
+        from,
+        session,
+        mergedEntities,
+        branches,
+        weekStart,
+      );
       return;
     }
 
@@ -2520,7 +2720,9 @@ export class MessageRouterService {
     shifts: UpcomingShiftDto[],
     locale: string,
   ): Promise<void> {
-    let responseText = this.i18n.t('bot.absence.select_shift', { lang: locale });
+    let responseText = this.i18n.t('bot.absence.select_shift', {
+      lang: locale,
+    });
     const optionsEntities: Record<string, string> = {
       pendingAction: 'report_absence',
     };

@@ -10,11 +10,7 @@ import {
   Param,
   Put,
 } from '@nestjs/common';
-import {
-  IsBoolean,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { PlatformAdmin } from '../../infrastructure/auth/decorators/platform-admin.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import {

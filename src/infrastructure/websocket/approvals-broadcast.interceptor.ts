@@ -24,10 +24,7 @@ import { NotificationsGateway } from './notifications.gateway';
 export class ApprovalsBroadcastInterceptor implements NestInterceptor {
   constructor(private readonly gateway: NotificationsGateway) {}
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<{
       method?: string;
       url?: string;
@@ -35,7 +32,8 @@ export class ApprovalsBroadcastInterceptor implements NestInterceptor {
       auth?: { companyId?: string };
     }>();
     const method = (req.method ?? '').toUpperCase();
-    const mutating = method === 'POST' || method === 'PATCH' || method === 'DELETE';
+    const mutating =
+      method === 'POST' || method === 'PATCH' || method === 'DELETE';
     if (!mutating) return next.handle();
 
     const path = req.path ?? req.url ?? '';

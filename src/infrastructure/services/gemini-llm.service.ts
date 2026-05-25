@@ -39,7 +39,7 @@ export class GeminiLLMService implements ILLMService {
     return withExponentialBackoff(
       () => this.callGemini(prompt),
       'GeminiLLMService',
-      { maxRetries: 3, initialDelayMs: 2000 }
+      { maxRetries: 3, initialDelayMs: 2000 },
     );
   }
 
@@ -72,7 +72,7 @@ export class GeminiLLMService implements ILLMService {
                     type: 'object',
                     properties: {
                       employeeId: { type: 'string' },
-                      shiftId:    { type: 'string' },
+                      shiftId: { type: 'string' },
                     },
                     required: ['employeeId', 'shiftId'],
                   },
@@ -83,7 +83,7 @@ export class GeminiLLMService implements ILLMService {
                     type: 'object',
                     properties: {
                       employeeId: { type: 'string' },
-                      day:        { type: 'string' },
+                      day: { type: 'string' },
                     },
                     required: ['employeeId', 'day'],
                   },
@@ -93,9 +93,9 @@ export class GeminiLLMService implements ILLMService {
                   items: {
                     type: 'object',
                     properties: {
-                      shiftId:    { type: 'string' },
+                      shiftId: { type: 'string' },
                       employeeId: { type: 'string' },
-                      reason:     { type: 'string' },
+                      reason: { type: 'string' },
                       confidence: { type: 'number' },
                     },
                     required: ['shiftId', 'employeeId'],
@@ -130,5 +130,4 @@ export class GeminiLLMService implements ILLMService {
     );
     return rawText;
   }
-
 }

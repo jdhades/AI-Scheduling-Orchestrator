@@ -95,7 +95,9 @@ export class AdminPromptHistoryController {
     return rows.map((r) => ({
       id: r.id,
       companyId: r.company_id,
-      companyName: r.company_id ? (namesByCompany.get(r.company_id) ?? null) : null,
+      companyName: r.company_id
+        ? (namesByCompany.get(r.company_id) ?? null)
+        : null,
       operation: r.operation,
       modelUsed: r.model_used,
       durationMs: r.duration_ms,
@@ -143,7 +145,9 @@ export class AdminPromptHistoryController {
     };
   }
 
-  private async _fetchCompanyNames(ids: string[]): Promise<Map<string, string>> {
+  private async _fetchCompanyNames(
+    ids: string[],
+  ): Promise<Map<string, string>> {
     if (ids.length === 0) return new Map();
     const { data, error } = await this.supabase
       .from('companies')

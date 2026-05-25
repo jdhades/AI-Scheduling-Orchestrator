@@ -114,8 +114,11 @@ export class PolicyEnforcementService {
         ...ctx,
         shifts: scopedShifts,
       };
-      const violations = await interpreter.apply(scopedCtx, policy.getParams() as never);
-      const tagged = violations.map((v) => ({ ...v, policyId: policy.getId() }));
+      const violations = await interpreter.apply(scopedCtx, policy.getParams());
+      const tagged = violations.map((v) => ({
+        ...v,
+        policyId: policy.getId(),
+      }));
       if (policy.getSeverity().isHard()) {
         result.hardViolations.push(...tagged);
       } else {
@@ -185,7 +188,8 @@ export class PolicyEnforcementService {
       const scopePrefix = this.renderScopePrefix(policy, scopeNames);
       const decorated = scopePrefix ? `${scopePrefix} ${line}` : line;
       const interpreterId = policy.getInterpreterId();
-      const isStructured = interpreterId !== null && this.registry.getById(interpreterId) !== null;
+      const isStructured =
+        interpreterId !== null && this.registry.getById(interpreterId) !== null;
       if (!isStructured) {
         llmOnlyLines.push(decorated);
       } else if (policy.getSeverity().isHard()) {
@@ -198,12 +202,18 @@ export class PolicyEnforcementService {
     const sections: string[] = [];
     if (hardLines.length > 0) {
       sections.push(
-        ['== Hard Policies (must respect) ==', ...hardLines.map((l) => `- ${l}`)].join('\n'),
+        [
+          '== Hard Policies (must respect) ==',
+          ...hardLines.map((l) => `- ${l}`),
+        ].join('\n'),
       );
     }
     if (softLines.length > 0) {
       sections.push(
-        ['== Soft Policies (preferences) ==', ...softLines.map((l) => `- ${l}`)].join('\n'),
+        [
+          '== Soft Policies (preferences) ==',
+          ...softLines.map((l) => `- ${l}`),
+        ].join('\n'),
       );
     }
     if (llmOnlyLines.length > 0) {
@@ -238,7 +248,7 @@ export class PolicyEnforcementService {
     if (interpreterId) {
       const interpreter = this.registry.getById(interpreterId);
       if (interpreter) {
-        return interpreter.format(policy.getParams() as never);
+        return interpreter.format(policy.getParams());
       }
     }
     // LLM-only o interpreter ausente: usar el texto del manager tal cual.

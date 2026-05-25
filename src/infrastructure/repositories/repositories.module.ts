@@ -93,14 +93,23 @@ import { TenantModule } from '../tenant/tenant.module';
     {
       provide: EMBEDDING_SERVICE_TOKEN,
       inject: [ConfigService, QwenEmbeddingService, GeminiEmbeddingService],
-      useFactory: (config: ConfigService, qwen: QwenEmbeddingService, gemini: GeminiEmbeddingService) => {
+      useFactory: (
+        config: ConfigService,
+        qwen: QwenEmbeddingService,
+        gemini: GeminiEmbeddingService,
+      ) => {
         return config.get('ai.activeProvider') === 'gemini' ? gemini : qwen;
       },
     },
     // Prompt Orchestrator — LLM Service
     {
       provide: LLM_SERVICE,
-      inject: [ConfigService, QwenLLMService, GeminiLLMService, LocalLLMService],
+      inject: [
+        ConfigService,
+        QwenLLMService,
+        GeminiLLMService,
+        LocalLLMService,
+      ],
       useFactory: (
         config: ConfigService,
         qwen: QwenLLMService,

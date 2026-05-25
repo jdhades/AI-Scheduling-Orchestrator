@@ -25,7 +25,13 @@ import {
   Query,
 } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { IsOptional, IsString, IsNotEmpty, Matches, IsISO8601 } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsNotEmpty,
+  Matches,
+  IsISO8601,
+} from 'class-validator';
 import {
   ShiftAssignmentMoverService,
   MoveAssignmentConflictError,
@@ -133,9 +139,8 @@ export class ShiftAssignmentsController {
     assignmentDateIso: string,
   ): Promise<void> {
     try {
-      const weekStartsOn = await this.companyPreferences.getWeekStartsOn(
-        companyId,
-      );
+      const weekStartsOn =
+        await this.companyPreferences.getWeekStartsOn(companyId);
       const weekStart =
         FairnessHistoryRecomputerService.weekStartFromAssignmentDate(
           assignmentDateIso,
@@ -148,7 +153,7 @@ export class ShiftAssignmentsController {
       );
     } catch (err) {
       // No relanzamos — el endpoint principal ya terminó con éxito.
-      // eslint-disable-next-line no-console
+
       console.warn(
         `[shift-assignments] fairness recompute failed for emp=${employeeId} date=${assignmentDateIso}:`,
         err,

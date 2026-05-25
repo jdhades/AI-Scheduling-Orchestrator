@@ -60,12 +60,8 @@ export class AdminDashboardController {
       promptCounts,
       recentAuthFailRes,
     ] = await Promise.all([
-      this.supabase
-        .from('companies')
-        .select('subscription_status'),
-      this.supabase
-        .from('schedule_generation_locks')
-        .select('acquired_at'),
+      this.supabase.from('companies').select('subscription_status'),
+      this.supabase.from('schedule_generation_locks').select('acquired_at'),
       this.supabase
         .from('schedule_generation_runs')
         .select('id', { count: 'exact', head: true })
@@ -82,20 +78,37 @@ export class AdminDashboardController {
     ]);
 
     // Tenants by status
-    const tenantStatusCounts = { trialing: 0, active: 0, pastDue: 0, canceled: 0 };
-    for (const row of (tenants.data ?? []) as Array<{ subscription_status: string }>) {
+    const tenantStatusCounts = {
+      trialing: 0,
+      active: 0,
+      pastDue: 0,
+      canceled: 0,
+    };
+    for (const row of (tenants.data ?? []) as Array<{
+      subscription_status: string;
+    }>) {
       switch (row.subscription_status) {
-        case 'trialing': tenantStatusCounts.trialing++; break;
-        case 'active': tenantStatusCounts.active++; break;
-        case 'past_due': tenantStatusCounts.pastDue++; break;
-        case 'canceled': tenantStatusCounts.canceled++; break;
+        case 'trialing':
+          tenantStatusCounts.trialing++;
+          break;
+        case 'active':
+          tenantStatusCounts.active++;
+          break;
+        case 'past_due':
+          tenantStatusCounts.pastDue++;
+          break;
+        case 'canceled':
+          tenantStatusCounts.canceled++;
+          break;
       }
     }
 
     // Locks: active = total, stale = aged > STALE_AFTER_MS
     const locks = (activeLocks.data ?? []) as Array<{ acquired_at: string }>;
     const staleCount = locks.filter(
-      (l) => now - new Date(l.acquired_at).getTime() >= ScheduleGenerationLockService.STALE_AFTER_MS,
+      (l) =>
+        now - new Date(l.acquired_at).getTime() >=
+        ScheduleGenerationLockService.STALE_AFTER_MS,
     ).length;
 
     // Recent auth failures — enrich with company/employee names
@@ -113,8 +126,12 @@ export class AdminDashboardController {
     ]);
     const recentAuthFailures = failRows.map((r) => ({
       event: r.event,
-      companyName: r.company_id ? (companyNames.get(r.company_id) ?? null) : null,
-      employeeName: r.employee_id ? (employeeNames.get(r.employee_id) ?? null) : null,
+      companyName: r.company_id
+        ? (companyNames.get(r.company_id) ?? null)
+        : null,
+      employeeName: r.employee_id
+        ? (employeeNames.get(r.employee_id) ?? null)
+        : null,
       createdAt: r.created_at,
     }));
 
@@ -145,7 +162,10 @@ export class AdminDashboardController {
       this.supabase
         .from('llm_prompt_history')
         .select('id', { count: 'exact', head: true })
-        .gte('created_at', new Date(Date.now() - 30 * 24 * 3600_000).toISOString()),
+        .gte(
+          'created_at',
+          new Date(Date.now() - 30 * 24 * 3600_000).toISOString(),
+        ),
       this.supabase
         .from('llm_prompt_history')
         .select('id', { count: 'exact', head: true })

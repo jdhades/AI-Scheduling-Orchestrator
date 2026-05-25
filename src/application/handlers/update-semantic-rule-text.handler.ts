@@ -25,9 +25,7 @@ import { RuleStructureExtractor } from '../../domain/services/rule-structure-ext
  * el fallo y el manager puede reintentar editando el mismo texto.
  */
 @CommandHandler(UpdateSemanticRuleTextCommand)
-export class UpdateSemanticRuleTextHandler
-  implements ICommandHandler<UpdateSemanticRuleTextCommand>
-{
+export class UpdateSemanticRuleTextHandler implements ICommandHandler<UpdateSemanticRuleTextCommand> {
   private readonly logger = new Logger(UpdateSemanticRuleTextHandler.name);
 
   constructor(

@@ -60,10 +60,10 @@ export interface CompanyScheduleAssignmentDTO {
  * siempre [] silenciosamente.
  */
 @QueryHandler(GetCompanyScheduleQuery)
-export class GetCompanyScheduleHandler
-  implements
-    IQueryHandler<GetCompanyScheduleQuery, CompanyScheduleAssignmentDTO[]>
-{
+export class GetCompanyScheduleHandler implements IQueryHandler<
+  GetCompanyScheduleQuery,
+  CompanyScheduleAssignmentDTO[]
+> {
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly assignmentRepo: IShiftAssignmentRepository,
@@ -118,7 +118,9 @@ export class GetCompanyScheduleHandler
       // aggregate (es metadata UX, no concepto de turno). Lo levantamos
       // directo de supabase y lo mergeamos en el DTO.
       assignmentIds.length === 0
-        ? Promise.resolve({ data: [] as Array<{ id: string; confirmed_at: string | null }> })
+        ? Promise.resolve({
+            data: [] as Array<{ id: string; confirmed_at: string | null }>,
+          })
         : this.supabase
             .from('shift_assignments')
             .select('id, confirmed_at')

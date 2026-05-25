@@ -4,13 +4,14 @@ import { GetIncidentByIdQuery } from '../queries/get-incident-by-id.query';
 import { IncidentRepository } from '../../infrastructure/database/incident.repository';
 
 @QueryHandler(GetIncidentByIdQuery)
-export class GetIncidentByIdHandler
-  implements IQueryHandler<GetIncidentByIdQuery>
-{
+export class GetIncidentByIdHandler implements IQueryHandler<GetIncidentByIdQuery> {
   constructor(private readonly incidentRepo: IncidentRepository) {}
 
   async execute(query: GetIncidentByIdQuery): Promise<unknown> {
-    const i = await this.incidentRepo.findById(query.incidentId, query.companyId);
+    const i = await this.incidentRepo.findById(
+      query.incidentId,
+      query.companyId,
+    );
     if (!i) {
       throw new NotFoundException(
         `Incident ${query.incidentId} not found in company ${query.companyId}`,

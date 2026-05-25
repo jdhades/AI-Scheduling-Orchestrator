@@ -22,7 +22,7 @@ export interface CoverageDay {
 
 export interface CoverageReport {
   weekStart: string; // ISO
-  hours: number[];   // ej [8, 9, ..., 21]
+  hours: number[]; // ej [8, 9, ..., 21]
   days: CoverageDay[];
 }
 
@@ -75,7 +75,11 @@ export class CoverageService {
 
     const [templates, assignments] = await Promise.all([
       this.templateRepo.findAllByCompany(companyId),
-      this.assignmentRepo.findByCompanyAndDateRange(companyId, anchorIso, endIso),
+      this.assignmentRepo.findByCompanyAndDateRange(
+        companyId,
+        anchorIso,
+        endIso,
+      ),
     ]);
     const activeTemplates = templates.filter((t) => t.isActive);
     const templateById = new Map(activeTemplates.map((t) => [t.id, t]));

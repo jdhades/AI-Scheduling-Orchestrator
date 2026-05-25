@@ -58,10 +58,16 @@ async function bootstrap() {
   // equivocado. Endpoints que SÍ quieran ser cacheables (estáticos,
   // assets) pueden override-ear con `res.setHeader('Cache-Control', ...)`
   // antes de responder.
-  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
-    res.setHeader('Cache-Control', 'no-store');
-    next();
-  });
+  app.use(
+    (
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      res.setHeader('Cache-Control', 'no-store');
+      next();
+    },
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({

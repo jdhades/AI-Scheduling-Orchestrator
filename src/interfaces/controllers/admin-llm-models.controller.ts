@@ -158,9 +158,7 @@ export class AdminLLMModelsController {
     }
   }
 
-  private toRow = (
-    r: Record<string, unknown>,
-  ): AvailableLLMModelRow => ({
+  private toRow = (r: Record<string, unknown>): AvailableLLMModelRow => ({
     id: r.id as string,
     provider: r.provider as AvailableLLMModelRow['provider'],
     model: r.model as string,

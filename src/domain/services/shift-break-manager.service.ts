@@ -188,10 +188,7 @@ export class ShiftBreakManager {
     });
 
     if (
-      !next.isWithinShift(
-        assignment.actualStartTime,
-        assignment.actualEndTime,
-      )
+      !next.isWithinShift(assignment.actualStartTime, assignment.actualEndTime)
     ) {
       throw new BreakConflictError(
         'out_of_bounds',

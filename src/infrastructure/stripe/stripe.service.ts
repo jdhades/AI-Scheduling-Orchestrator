@@ -1,4 +1,8 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 
@@ -22,7 +26,9 @@ import Stripe from 'stripe';
  * público de la API, no de paths internos.
  */
 type StripeClient = InstanceType<typeof Stripe>;
-export type StripeEvent = ReturnType<StripeClient['webhooks']['constructEvent']>;
+export type StripeEvent = ReturnType<
+  StripeClient['webhooks']['constructEvent']
+>;
 export type StripeCheckoutSession = Awaited<
   ReturnType<StripeClient['checkout']['sessions']['retrieve']>
 >;
@@ -43,7 +49,8 @@ export class StripeService {
 
   constructor(private readonly config: ConfigService) {
     const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
-    this.webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET') ?? null;
+    this.webhookSecret =
+      this.config.get<string>('STRIPE_WEBHOOK_SECRET') ?? null;
     this.priceStarter =
       this.config.get<string>('STRIPE_PRICE_ID_STARTER') ?? null;
     this.priceGrowth =
@@ -103,7 +110,10 @@ export class StripeService {
    * Snapshot del catálogo configurado. Cada entry tiene tier + priceId.
    * Si una variable de entorno falta, el entry queda con priceId=null.
    */
-  getConfiguredPlans(): Array<{ tier: 'starter' | 'growth'; priceId: string | null }> {
+  getConfiguredPlans(): Array<{
+    tier: 'starter' | 'growth';
+    priceId: string | null;
+  }> {
     return [
       { tier: 'starter', priceId: this.priceStarter },
       { tier: 'growth', priceId: this.priceGrowth },

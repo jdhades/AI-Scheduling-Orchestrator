@@ -145,7 +145,9 @@ export class OperationalKpisService {
     if (weekStarts.length === 0) return 0;
     const sorted = [...weekStarts].sort();
     const from = sorted[0];
-    const lastWeekStart = new Date(`${sorted[sorted.length - 1]}T00:00:00.000Z`);
+    const lastWeekStart = new Date(
+      `${sorted[sorted.length - 1]}T00:00:00.000Z`,
+    );
     const lastWeekEnd = new Date(lastWeekStart);
     lastWeekEnd.setUTCDate(lastWeekEnd.getUTCDate() + 6);
     const to = lastWeekEnd.toISOString().slice(0, 10);
@@ -185,10 +187,7 @@ export class OperationalKpisService {
   ): string[] {
     const out: string[] = [];
     for (const ws of weekStarts) {
-      const anchor = weekStartOf(
-        new Date(`${ws}T00:00:00.000Z`),
-        weekStartsOn,
-      );
+      const anchor = weekStartOf(new Date(`${ws}T00:00:00.000Z`), weekStartsOn);
       // Si dayOfWeek es null (template tenant-wide diario), se instancia
       // los 7 días de la semana. Si está fijado a un dow, una vez.
       if (tpl.dayOfWeek === null) {
@@ -215,7 +214,12 @@ export class OperationalKpisService {
   ): Promise<OperationalKpis['approvals']> {
     if (weekStarts.length === 0) {
       const empty: ApprovalBreakdown = { pending: 0, approved: 0, rejected: 0 };
-      return { swap: empty, dayOff: empty, approvalRate: null, absenceReportsCount: 0 };
+      return {
+        swap: empty,
+        dayOff: empty,
+        approvalRate: null,
+        absenceReportsCount: 0,
+      };
     }
     const { from, to } = this._dateRange(weekStarts);
 
@@ -280,7 +284,11 @@ export class OperationalKpisService {
         `OperationalKpisService._countByStatus(${table}) failed: ${error.message}`,
       );
     }
-    const breakdown: ApprovalBreakdown = { pending: 0, approved: 0, rejected: 0 };
+    const breakdown: ApprovalBreakdown = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
     for (const row of data ?? []) {
       const status = row.status as string;
       if (status === 'pending') breakdown.pending++;
@@ -297,7 +305,10 @@ export class OperationalKpisService {
   ): Promise<OperationalKpis['fairness']> {
     const reports = await Promise.all(
       weekStarts.map((ws) =>
-        this.fairnessRepo.findByWeek(companyId, new Date(`${ws}T00:00:00.000Z`)),
+        this.fairnessRepo.findByWeek(
+          companyId,
+          new Date(`${ws}T00:00:00.000Z`),
+        ),
       ),
     );
     const cvsByWeek: number[] = [];

@@ -26,7 +26,8 @@ export class RequestDayOffHandler implements ICommandHandler<RequestDayOffComman
     if (!employee) throw new Error('Employee not found');
 
     // 2. Check no shift already assigned on that date
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
     const requestedDate = new Date(date);
     const weekStart = weekStartOf(requestedDate, weekStartsOn);
     const assignments = await this.shiftRepo.findAssignmentsByEmployee(

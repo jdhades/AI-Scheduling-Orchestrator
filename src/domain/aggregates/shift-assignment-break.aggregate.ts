@@ -32,9 +32,7 @@ export class ShiftAssignmentBreak {
     public readonly createdAt: Date,
   ) {
     if (endTime.getTime() <= startTime.getTime()) {
-      throw new Error(
-        'ShiftAssignmentBreak.endTime must be after startTime',
-      );
+      throw new Error('ShiftAssignmentBreak.endTime must be after startTime');
     }
   }
 

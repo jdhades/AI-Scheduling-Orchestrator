@@ -16,7 +16,8 @@ export class QwenEmbeddingService implements IEmbeddingService {
   private readonly model = 'text-embedding-v3';
   private readonly apiKey: string;
   // OpenAI compatible mode base URL targeting International
-  private readonly baseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/embeddings';
+  private readonly baseUrl =
+    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/embeddings';
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('qwen.apiKey', '');
@@ -39,7 +40,7 @@ export class QwenEmbeddingService implements IEmbeddingService {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${this.apiKey}`,
+              Authorization: `Bearer ${this.apiKey}`,
             },
             body: JSON.stringify({
               model: this.model,
@@ -48,7 +49,10 @@ export class QwenEmbeddingService implements IEmbeddingService {
             }),
           });
         } catch (networkError) {
-          this.logger.error(`QwenEmbeddingService: network error`, networkError);
+          this.logger.error(
+            `QwenEmbeddingService: network error`,
+            networkError,
+          );
           throw new Error(
             `EmbeddingService: network error — ${(networkError as Error).message}`,
           );
@@ -64,7 +68,7 @@ export class QwenEmbeddingService implements IEmbeddingService {
           );
         }
 
-        const json = (await response.json()) as any;
+        const json = await response.json();
         const values: number[] = json?.data?.[0]?.embedding;
 
         if (!Array.isArray(values) || values.length === 0) {
@@ -76,7 +80,7 @@ export class QwenEmbeddingService implements IEmbeddingService {
         return values;
       },
       'QwenEmbeddingService',
-      { maxRetries: 3, initialDelayMs: 2000 }
+      { maxRetries: 3, initialDelayMs: 2000 },
     );
   }
 

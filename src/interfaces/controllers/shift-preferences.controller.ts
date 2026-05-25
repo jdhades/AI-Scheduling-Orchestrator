@@ -232,9 +232,7 @@ export class ShiftPreferencesController {
     // Solo el dueño borra. Manager NO borra preferencias ajenas
     // (son hints suaves; si quiere ignorarlas el solver lo hace).
     if (existing.employee_id !== user.employeeId) {
-      throw new ForbiddenException(
-        'Cannot delete another employee preference',
-      );
+      throw new ForbiddenException('Cannot delete another employee preference');
     }
     const { error: delErr } = await this.supabase
       .from('shift_preferences')
@@ -283,7 +281,13 @@ export class ShiftPreferencesController {
  */
 function buildPrefMessage(
   employeeName: string,
-  dto: { kind: ShiftPreferenceKind; date?: string; startTime?: string; endTime?: string; note?: string },
+  dto: {
+    kind: ShiftPreferenceKind;
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    note?: string;
+  },
 ): string {
   const date = dto.date ?? '—';
   switch (dto.kind) {
@@ -295,4 +299,3 @@ function buildPrefMessage(
       return `${employeeName} prefiere un turno específico el ${date}.${dto.note ? '\nNota: ' + dto.note : ''}`;
   }
 }
-

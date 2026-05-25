@@ -55,7 +55,12 @@ export interface BuilderResult {
    * — son señales para el manager de que el schedule puede mejorarse.
    * Vacío si no hay PolicyEnforcementService inyectado.
    */
-  softPolicyViolations?: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
+  softPolicyViolations?: Array<{
+    policyId: string;
+    employeeId?: string;
+    scope?: string;
+    message: string;
+  }>;
   /**
    * Warnings textuales sobre el resultado del verify-loop best-of-three:
    * cuando el LLM no convergió a 0 violaciones y el sistema eligió la
@@ -218,11 +223,24 @@ export class WeekScheduleBuilder {
         );
       }
       const result = this.build(params);
-      const evalResult = await this.evaluatePolicies(result.assignments, params.slots, policies, params.employees, params.weekStartsOn);
-      const policyWarnings = evalResult.hardViolations.length > 0
-        ? [warn.detFallbackNoLLM(evalResult.hardViolations.length)]
-        : [];
-      return { ...result, softPolicyViolations: evalResult.softViolations, policyWarnings, attempts: 1, fellBackToDeterministic: true };
+      const evalResult = await this.evaluatePolicies(
+        result.assignments,
+        params.slots,
+        policies,
+        params.employees,
+        params.weekStartsOn,
+      );
+      const policyWarnings =
+        evalResult.hardViolations.length > 0
+          ? [warn.detFallbackNoLLM(evalResult.hardViolations.length)]
+          : [];
+      return {
+        ...result,
+        softPolicyViolations: evalResult.softViolations,
+        policyWarnings,
+        attempts: 1,
+        fellBackToDeterministic: true,
+      };
     }
 
     // Phase 14 — best-of-three con tracking de violaciones:
@@ -232,14 +250,25 @@ export class WeekScheduleBuilder {
     //   - Determinístico: si V_det≤V₁ → aceptar det. Si V_det>V₁ → tomar best1.
     type Snapshot = {
       candidate: BuilderResult;
-      softPolicyViolations: typeof policies extends [] ? never : Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
+      softPolicyViolations: typeof policies extends []
+        ? never
+        : Array<{
+            policyId: string;
+            employeeId?: string;
+            scope?: string;
+            message: string;
+          }>;
       hardCount: number;
       hardViolations: VerifyViolation[];
     };
     let best1: Snapshot | null = null;
     let feedback: string | undefined;
 
-    for (let attempt = 1; attempt <= WeekScheduleBuilder.MAX_LLM_ATTEMPTS; attempt++) {
+    for (
+      let attempt = 1;
+      attempt <= WeekScheduleBuilder.MAX_LLM_ATTEMPTS;
+      attempt++
+    ) {
       // Cancel-check entre intentos: si llegó cancel mientras cooríamos
       // verify(), evitamos disparar el siguiente fetch del LLM.
       if (params.signal?.aborted) {
@@ -273,14 +302,21 @@ export class WeekScheduleBuilder {
         params.employees,
         params.multiShiftPermits,
       );
-      const policyEval = await this.evaluatePolicies(candidate.assignments, params.slots, policies, params.employees, params.weekStartsOn);
-      const policyHardAsVerify: VerifyViolation[] = policyEval.hardViolations.map((v) => ({
-        kind: 'policy-hard-violation' as const,
-        employeeId: v.employeeId,
-        date: v.scope,
-        policyId: v.policyId,
-        message: v.message,
-      }));
+      const policyEval = await this.evaluatePolicies(
+        candidate.assignments,
+        params.slots,
+        policies,
+        params.employees,
+        params.weekStartsOn,
+      );
+      const policyHardAsVerify: VerifyViolation[] =
+        policyEval.hardViolations.map((v) => ({
+          kind: 'policy-hard-violation' as const,
+          employeeId: v.employeeId,
+          date: v.scope,
+          policyId: v.policyId,
+          message: v.message,
+        }));
       const allHardViolations = [...baseViolations, ...policyHardAsVerify];
       const hardCount = allHardViolations.length;
 
@@ -299,7 +335,9 @@ export class WeekScheduleBuilder {
 
       this.logger.warn(
         `LLM intento ${attempt} inválido: ${hardCount} violación(es)${
-          policyHardAsVerify.length > 0 ? ` (incl. ${policyHardAsVerify.length} de policy)` : ''
+          policyHardAsVerify.length > 0
+            ? ` (incl. ${policyHardAsVerify.length} de policy)`
+            : ''
         }.`,
       );
       for (const v of allHardViolations.slice(0, 10)) {
@@ -310,7 +348,7 @@ export class WeekScheduleBuilder {
         // Guardar snapshot del intento 1 para comparar después.
         best1 = {
           candidate,
-          softPolicyViolations: policyEval.softViolations as never,
+          softPolicyViolations: policyEval.softViolations,
           hardCount,
           hardViolations: allHardViolations,
         };
@@ -324,7 +362,9 @@ export class WeekScheduleBuilder {
       if (v2 < v1) {
         // Mejoró → aceptar intento 2 con warning.
         const warning = warn.bestOfTwo(v2, v1);
-        this.logger.warn(`Aceptando intento 2 (mejoró de ${v1} → ${v2}). ${warning}`);
+        this.logger.warn(
+          `Aceptando intento 2 (mejoró de ${v1} → ${v2}). ${warning}`,
+        );
         return {
           ...candidate,
           softPolicyViolations: policyEval.softViolations,
@@ -342,7 +382,13 @@ export class WeekScheduleBuilder {
 
     // Determinístico — comparado contra best1 si existe.
     const deterministic = this.build({ ...params, llmLines: undefined });
-    const detEval = await this.evaluatePolicies(deterministic.assignments, params.slots, policies, params.employees, params.weekStartsOn);
+    const detEval = await this.evaluatePolicies(
+      deterministic.assignments,
+      params.slots,
+      policies,
+      params.employees,
+      params.weekStartsOn,
+    );
     const detCount = detEval.hardViolations.length;
 
     if (best1 && detCount > best1.hardCount) {
@@ -390,9 +436,7 @@ export class WeekScheduleBuilder {
       const scope = p.getScope();
       if (scope.type === 'company') return true;
       if (scope.type === 'department') {
-        return runDepartmentId
-          ? scope.id === runDepartmentId
-          : true;
+        return runDepartmentId ? scope.id === runDepartmentId : true;
       }
       if (scope.type === 'employee') {
         return scope.id !== null && empIds.has(scope.id);
@@ -423,8 +467,18 @@ export class WeekScheduleBuilder {
     employees: Employee[],
     weekStartsOn?: 'sunday' | 'monday',
   ): Promise<{
-    hardViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
-    softViolations: Array<{ policyId: string; employeeId?: string; scope?: string; message: string }>;
+    hardViolations: Array<{
+      policyId: string;
+      employeeId?: string;
+      scope?: string;
+      message: string;
+    }>;
+    softViolations: Array<{
+      policyId: string;
+      employeeId?: string;
+      scope?: string;
+      message: string;
+    }>;
   }> {
     if (!this.policyEnforcement || policies.length === 0) {
       return { hardViolations: [], softViolations: [] };
@@ -440,9 +494,15 @@ export class WeekScheduleBuilder {
           endTime: slot.endTime,
         };
       })
-      .filter((s): s is { employeeId: string; startTime: Date; endTime: Date } => s !== null);
+      .filter(
+        (s): s is { employeeId: string; startTime: Date; endTime: Date } =>
+          s !== null,
+      );
 
-    const employeeMeta = new Map<string, { branchId: string | null; departmentId: string | null }>();
+    const employeeMeta = new Map<
+      string,
+      { branchId: string | null; departmentId: string | null }
+    >();
     for (const e of employees) {
       employeeMeta.set(e.id, {
         branchId: null, // TODO: enriquecer con dept→branch lookup en 14.3
@@ -456,18 +516,22 @@ export class WeekScheduleBuilder {
       weekStartsOn,
     });
     return {
-      hardViolations: result.hardViolations.map(({ policyId, employeeId, scope, message }) => ({
-        policyId,
-        employeeId,
-        scope,
-        message,
-      })),
-      softViolations: result.softViolations.map(({ policyId, employeeId, scope, message }) => ({
-        policyId,
-        employeeId,
-        scope,
-        message,
-      })),
+      hardViolations: result.hardViolations.map(
+        ({ policyId, employeeId, scope, message }) => ({
+          policyId,
+          employeeId,
+          scope,
+          message,
+        }),
+      ),
+      softViolations: result.softViolations.map(
+        ({ policyId, employeeId, scope, message }) => ({
+          policyId,
+          employeeId,
+          scope,
+          message,
+        }),
+      ),
     };
   }
 
@@ -530,7 +594,8 @@ export class WeekScheduleBuilder {
     // Pre-índice de memberships por empleado+template para lookup rápido
     const membershipsByEmp = new Map<string, ShiftMembership[]>();
     for (const m of memberships) {
-      if (!membershipsByEmp.has(m.employeeId)) membershipsByEmp.set(m.employeeId, []);
+      if (!membershipsByEmp.has(m.employeeId))
+        membershipsByEmp.set(m.employeeId, []);
       membershipsByEmp.get(m.employeeId)!.push(m);
     }
 
@@ -633,7 +698,11 @@ export class WeekScheduleBuilder {
     llmLines?: Map<string, Record<string, string | 'rest'>>;
   }):
     | { type: 'rest'; reason: string }
-    | { type: 'assign'; slot: VirtualShiftSlot; origin: 'membership' | 'override' | 'exception' } {
+    | {
+        type: 'assign';
+        slot: VirtualShiftSlot;
+        origin: 'membership' | 'override' | 'exception';
+      } {
     const {
       emp,
       date,
@@ -672,9 +741,11 @@ export class WeekScheduleBuilder {
       // Slot totalmente bloqueado
       if (
         hardRules.some(
-          (c) => c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === slot.slotKey,
+          (c) =>
+            c.employeeId === SEMANTIC_BLOCKED_ALL && c.shiftId === slot.slotKey,
         )
-      ) return false;
+      )
+        return false;
       // Empleado bloqueado puntualmente
       if (
         hardRules.some(
@@ -683,7 +754,8 @@ export class WeekScheduleBuilder {
             c.employeeId !== SEMANTIC_BLOCKED_ALL &&
             (!c.shiftId || c.shiftId === slot.slotKey),
         )
-      ) return false;
+      )
+        return false;
       // Skill requerida
       if (slot.requiredSkillId) {
         const has = emp.getSkills().some((s) => s.id === slot.requiredSkillId);
@@ -766,7 +838,9 @@ export class WeekScheduleBuilder {
     return { type: 'assign', slot: chosen, origin: 'membership' };
   }
 
-  private snapshotOf(live: Map<string, FairnessHistoryVO>): Record<string, number> {
+  private snapshotOf(
+    live: Map<string, FairnessHistoryVO>,
+  ): Record<string, number> {
     const snap: Record<string, number> = {};
     for (const [id, h] of live) snap[id] = h.computeRawScore();
     return snap;
@@ -833,7 +907,11 @@ export class WeekScheduleBuilder {
         const slot = slotByKey.get(key);
         if (!slot) {
           // El LLM apuntó a un (template, día) que no existe → celda rest.
-          restDays.push({ employeeId: emp.id, date, reason: 'llm-unknown-slot' });
+          restDays.push({
+            employeeId: emp.id,
+            date,
+            reason: 'llm-unknown-slot',
+          });
           continue;
         }
         const snapshot = this.snapshotOf(liveHistory);
@@ -996,5 +1074,4 @@ export class WeekScheduleBuilder {
     );
     return lines.join('\n');
   }
-
 }

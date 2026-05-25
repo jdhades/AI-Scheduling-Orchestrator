@@ -47,16 +47,14 @@ export class IncidentRepository {
       updated_at: incident.updatedAt.toISOString(),
     };
     const { error } = await this.supabase.from('incidents').upsert(row);
-    if (error)
-      throw new Error(`IncidentRepository.save: ${error.message}`);
+    if (error) throw new Error(`IncidentRepository.save: ${error.message}`);
   }
 
   async findById(id: string, companyId?: string): Promise<Incident | null> {
     let q = this.supabase.from('incidents').select('*').eq('id', id);
     if (companyId) q = q.eq('company_id', companyId);
     const { data, error } = await q.maybeSingle();
-    if (error)
-      throw new Error(`IncidentRepository.findById: ${error.message}`);
+    if (error) throw new Error(`IncidentRepository.findById: ${error.message}`);
     return data ? this.toDomain(data) : null;
   }
 

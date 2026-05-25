@@ -135,12 +135,13 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
 
         if (
           nearDuplicates.length > 0 &&
-          nearDuplicates[0].distance < CreateSemanticRuleHandler.DEDUP_DISTANCE_THRESHOLD
+          nearDuplicates[0].distance <
+            CreateSemanticRuleHandler.DEDUP_DISTANCE_THRESHOLD
         ) {
           const existing = nearDuplicates[0].rule;
           this.logger.warn(
             `CreateSemanticRuleHandler: duplicate detected — new rule is too similar to existing ` +
-            `rule ${existing.getId()} (distance=${nearDuplicates[0].distance.toFixed(4)}). Rule NOT persisted.`,
+              `rule ${existing.getId()} (distance=${nearDuplicates[0].distance.toFixed(4)}). Rule NOT persisted.`,
           );
           return {
             id: existing.getId(),

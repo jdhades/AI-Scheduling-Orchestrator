@@ -15,9 +15,7 @@ interface BreakRow {
 }
 
 @Injectable()
-export class SupabaseShiftAssignmentBreakRepository
-  implements IShiftAssignmentBreakRepository
-{
+export class SupabaseShiftAssignmentBreakRepository implements IShiftAssignmentBreakRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
@@ -35,9 +33,7 @@ export class SupabaseShiftAssignmentBreakRepository
         reason: brk.reason,
       });
     if (error) {
-      throw new Error(
-        `ShiftAssignmentBreakRepository.save: ${error.message}`,
-      );
+      throw new Error(`ShiftAssignmentBreakRepository.save: ${error.message}`);
     }
   }
 
@@ -87,7 +83,7 @@ export class SupabaseShiftAssignmentBreakRepository
         `ShiftAssignmentBreakRepository.findByAssignmentId: ${error.message}`,
       );
     }
-    return (data ?? []).map((r) => this.rowToAggregate(r as BreakRow));
+    return (data ?? []).map((r) => this.rowToAggregate(r));
   }
 
   async findByAssignmentIds(
@@ -108,7 +104,7 @@ export class SupabaseShiftAssignmentBreakRepository
         `ShiftAssignmentBreakRepository.findByAssignmentIds: ${error.message}`,
       );
     }
-    return (data ?? []).map((r) => this.rowToAggregate(r as BreakRow));
+    return (data ?? []).map((r) => this.rowToAggregate(r));
   }
 
   async findById(
@@ -128,7 +124,7 @@ export class SupabaseShiftAssignmentBreakRepository
         `ShiftAssignmentBreakRepository.findById: ${error.message}`,
       );
     }
-    return data ? this.rowToAggregate(data as BreakRow) : null;
+    return data ? this.rowToAggregate(data) : null;
   }
 
   private rowToAggregate(r: BreakRow): ShiftAssignmentBreak {

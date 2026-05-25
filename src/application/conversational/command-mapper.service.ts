@@ -20,7 +20,11 @@ export interface CommandMapperResult {
     | null;
   missingFields: string[];
   clarificationMessage: string | null;
-  actionRequired?: 'FETCH_SHIFTS' | 'SWAP_SELECT_SHIFT' | 'GENERATE_SELECT_TEMPLATE' | null;
+  actionRequired?:
+    | 'FETCH_SHIFTS'
+    | 'SWAP_SELECT_SHIFT'
+    | 'GENERATE_SELECT_TEMPLATE'
+    | null;
 }
 
 /**
@@ -72,17 +76,37 @@ export class CommandMapperService {
     const type = intent.getIntent();
     switch (type) {
       case 'check_schedule':
-        return this._mapCheckSchedule(employeeId, companyId, mergedEntities, locale);
+        return this._mapCheckSchedule(
+          employeeId,
+          companyId,
+          mergedEntities,
+          locale,
+        );
       case 'swap_shift':
         return this._mapSwapShift();
       case 'report_absence':
-        return this._mapReportAbsence(employeeId, companyId, mergedEntities, locale);
+        return this._mapReportAbsence(
+          employeeId,
+          companyId,
+          mergedEntities,
+          locale,
+        );
       case 'request_day_off':
-        return this._mapRequestDayOff(employeeId, companyId, mergedEntities, locale);
+        return this._mapRequestDayOff(
+          employeeId,
+          companyId,
+          mergedEntities,
+          locale,
+        );
       case 'generate_schedule':
         return this._mapGenerateSchedule();
       case 'create_rule':
-        return this._mapCreateRule(employeeId, companyId, mergedEntities, locale);
+        return this._mapCreateRule(
+          employeeId,
+          companyId,
+          mergedEntities,
+          locale,
+        );
       default:
         this.logger.warn(`Unhandled intent type: ${type}`);
         return { command: null, missingFields: [], clarificationMessage: null };
@@ -205,7 +229,9 @@ export class CommandMapperService {
       return {
         command: null,
         missingFields: ['ruleText'],
-        clarificationMessage: this.i18n.t('bot.rules.missing_text', { lang: locale }),
+        clarificationMessage: this.i18n.t('bot.rules.missing_text', {
+          lang: locale,
+        }),
       };
     }
 
@@ -230,7 +256,10 @@ export class CommandMapperService {
     };
   }
 
-  private _askForAbsenceFields(entities: IntentEntities, locale: string): string {
+  private _askForAbsenceFields(
+    entities: IntentEntities,
+    locale: string,
+  ): string {
     if (!entities.shiftId && !entities.reason) {
       return this.i18n.t('bot.absence.missing_both', { lang: locale });
     }

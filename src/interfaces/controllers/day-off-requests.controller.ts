@@ -79,10 +79,7 @@ export class DayOffRequestsController {
     // Manager/owner pueden crear pedidos para otros (caso legítimo:
     // gestión de equipo). Aprobar/rechazar va por endpoints separados
     // con @Requires('dayoffs:approve').
-    if (
-      user?.role === 'employee' &&
-      dto.employeeId !== user.employeeId
-    ) {
+    if (user?.role === 'employee' && dto.employeeId !== user.employeeId) {
       throw new ForbiddenException(
         'Cannot file day-off requests on behalf of another employee',
       );
@@ -112,7 +109,8 @@ export class DayOffRequestsController {
       : undefined;
     const rows = await this.repo.findAllByCompany(companyId, {
       employeeId,
-      status: statusList && statusList.length === 1 ? statusList[0] : statusList,
+      status:
+        statusList && statusList.length === 1 ? statusList[0] : statusList,
       fromDate,
       toDate,
     });
@@ -157,7 +155,11 @@ export class DayOffRequestsController {
     @CurrentCompany() companyId: string,
   ): Promise<{
     deletedAssignmentIds: string[];
-    rulesCreated: Array<{ startDate: string; endDate: string; ruleText: string }>;
+    rulesCreated: Array<{
+      startDate: string;
+      endDate: string;
+      ruleText: string;
+    }>;
   }> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);

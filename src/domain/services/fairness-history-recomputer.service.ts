@@ -39,9 +39,7 @@ import { weekStartOf, type WeekStartsOn } from '../shared/week';
  */
 @Injectable()
 export class FairnessHistoryRecomputerService {
-  private readonly logger = new Logger(
-    FairnessHistoryRecomputerService.name,
-  );
+  private readonly logger = new Logger(FairnessHistoryRecomputerService.name);
 
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
@@ -165,10 +163,7 @@ export class FairnessHistoryRecomputerService {
     dateIso: string,
     weekStartsOn: WeekStartsOn,
   ): Date {
-    return weekStartOf(
-      new Date(`${dateIso}T00:00:00.000Z`),
-      weekStartsOn,
-    );
+    return weekStartOf(new Date(`${dateIso}T00:00:00.000Z`), weekStartsOn);
   }
 }
 

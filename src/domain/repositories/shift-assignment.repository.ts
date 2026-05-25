@@ -1,6 +1,8 @@
 import type { ShiftAssignment } from '../aggregates/shift-assignment.aggregate';
 
-export const SHIFT_ASSIGNMENT_REPOSITORY = Symbol('SHIFT_ASSIGNMENT_REPOSITORY');
+export const SHIFT_ASSIGNMENT_REPOSITORY = Symbol(
+  'SHIFT_ASSIGNMENT_REPOSITORY',
+);
 
 /**
  * IShiftAssignmentRepository — Port (Domain Layer)

@@ -1,4 +1,10 @@
-import { Controller, Get, Inject, Param, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Inject,
+  Param,
+  BadRequestException,
+} from '@nestjs/common';
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import {
   ENTITY_AUDIT_SERVICE,

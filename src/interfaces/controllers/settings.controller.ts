@@ -334,8 +334,12 @@ export class SettingsController {
 
     // Validar que cada scope_id pertenece a esta company (cross-tenant guard).
     if (body.scopes.length > 0) {
-      const branchIds = body.scopes.filter((s) => s.type === 'branch').map((s) => s.id);
-      const deptIds = body.scopes.filter((s) => s.type === 'department').map((s) => s.id);
+      const branchIds = body.scopes
+        .filter((s) => s.type === 'branch')
+        .map((s) => s.id);
+      const deptIds = body.scopes
+        .filter((s) => s.type === 'department')
+        .map((s) => s.id);
 
       if (branchIds.length > 0) {
         const { count } = await this.supabase

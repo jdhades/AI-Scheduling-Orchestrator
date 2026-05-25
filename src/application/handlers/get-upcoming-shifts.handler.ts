@@ -16,9 +16,10 @@ export interface UpcomingShiftDto {
 }
 
 @QueryHandler(GetUpcomingShiftsQuery)
-export class GetUpcomingShiftsHandler
-  implements IQueryHandler<GetUpcomingShiftsQuery, UpcomingShiftDto[]>
-{
+export class GetUpcomingShiftsHandler implements IQueryHandler<
+  GetUpcomingShiftsQuery,
+  UpcomingShiftDto[]
+> {
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly assignmentRepo: IShiftAssignmentRepository,
@@ -44,7 +45,9 @@ export class GetUpcomingShiftsHandler
     );
     if (assignments.length === 0) return [];
 
-    const templateIds = Array.from(new Set(assignments.map((a) => a.templateId)));
+    const templateIds = Array.from(
+      new Set(assignments.map((a) => a.templateId)),
+    );
     const templates = new Map<string, ShiftTemplate>();
     await Promise.all(
       templateIds.map(async (id) => {
@@ -61,7 +64,12 @@ export class GetUpcomingShiftsHandler
       let end = this._combine(a.date, tpl.endTime);
       if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
       if (end <= now) continue;
-      upcoming.push({ assignmentId: a.id, shiftId: a.id, startTime: start, endTime: end });
+      upcoming.push({
+        assignmentId: a.id,
+        shiftId: a.id,
+        startTime: start,
+        endTime: end,
+      });
     }
 
     upcoming.sort((x, y) => x.startTime.getTime() - y.startTime.getTime());

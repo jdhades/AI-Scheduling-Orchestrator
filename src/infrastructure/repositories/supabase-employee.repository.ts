@@ -73,7 +73,10 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     return this.toDomain(data);
   }
 
-  async findAllByCompany(companyId: string, options?: { departmentId?: string; branchId?: string }): Promise<Employee[]> {
+  async findAllByCompany(
+    companyId: string,
+    options?: { departmentId?: string; branchId?: string },
+  ): Promise<Employee[]> {
     let query = this.supabase
       .from('employees')
       .select(
@@ -137,9 +140,11 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     if (patch.phoneNumber !== undefined) row.phone_number = patch.phoneNumber;
     if (patch.experienceMonths !== undefined)
       row.experience_months = patch.experienceMonths;
-    if (patch.departmentId !== undefined) row.department_id = patch.departmentId;
+    if (patch.departmentId !== undefined)
+      row.department_id = patch.departmentId;
     if (patch.locale !== undefined) row.locale = patch.locale;
-    if (patch.contractType !== undefined) row.contract_type = patch.contractType;
+    if (patch.contractType !== undefined)
+      row.contract_type = patch.contractType;
     if (patch.maxHoursPerDay !== undefined)
       row.max_hours_per_day = patch.maxHoursPerDay;
     if (patch.maxHoursPerWeek !== undefined)
@@ -157,7 +162,9 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       .is('deleted_at', null);
 
     if (error)
-      throw new Error(`EmployeeRepository.updatePartial failed: ${error.message}`);
+      throw new Error(
+        `EmployeeRepository.updatePartial failed: ${error.message}`,
+      );
   }
 
   async softDelete(id: string, companyId: string): Promise<void> {
@@ -212,8 +219,12 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
       departmentId: row.department_id,
       contractType: row.contract_type ?? undefined,
       workingTimeOverrides: {
-        maxHoursPerDay: row.max_hours_per_day != null ? Number(row.max_hours_per_day) : null,
-        maxHoursPerWeek: row.max_hours_per_week != null ? Number(row.max_hours_per_week) : null,
+        maxHoursPerDay:
+          row.max_hours_per_day != null ? Number(row.max_hours_per_day) : null,
+        maxHoursPerWeek:
+          row.max_hours_per_week != null
+            ? Number(row.max_hours_per_week)
+            : null,
       },
       externalId: row.external_id ?? undefined,
     });

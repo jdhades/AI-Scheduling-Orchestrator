@@ -54,7 +54,10 @@ export class GeminiEmbeddingService implements IEmbeddingService {
             }),
           });
         } catch (networkError) {
-          this.logger.error(`GeminiEmbeddingService: network error`, networkError);
+          this.logger.error(
+            `GeminiEmbeddingService: network error`,
+            networkError,
+          );
           throw new Error(
             `EmbeddingService: network error — ${(networkError as Error).message}`,
           );
@@ -82,7 +85,7 @@ export class GeminiEmbeddingService implements IEmbeddingService {
         return values;
       },
       'GeminiEmbeddingService',
-      { maxRetries: 3, initialDelayMs: 2000 }
+      { maxRetries: 3, initialDelayMs: 2000 },
     );
   }
 

@@ -54,7 +54,10 @@ export class CompanyPreferencesService {
 
   private async _fetchAndCache(companyId: string): Promise<CachedPrefs> {
     const cached = this.cache.get(companyId);
-    if (cached && Date.now() - cached.cachedAt < CompanyPreferencesService.TTL_MS) {
+    if (
+      cached &&
+      Date.now() - cached.cachedAt < CompanyPreferencesService.TTL_MS
+    ) {
       return cached;
     }
     const { data, error } = await this.supabase
@@ -73,7 +76,8 @@ export class CompanyPreferencesService {
       };
     }
     const value: CachedPrefs = {
-      weekStartsOn: (data?.week_starts_on as WeekStartsOn | undefined) ?? 'monday',
+      weekStartsOn:
+        (data?.week_starts_on as WeekStartsOn | undefined) ?? 'monday',
       llmConfig: {
         provider: (data?.llm_provider as LlmProvider | null) ?? null,
         model: (data?.llm_model as string | null) ?? null,

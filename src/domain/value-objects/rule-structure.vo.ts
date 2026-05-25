@@ -7,9 +7,7 @@
  * generación de schedule.
  */
 
-export type EmployeeMatcher =
-  | { type: 'name'; value: string }
-  | { type: 'all' };
+export type EmployeeMatcher = { type: 'name'; value: string } | { type: 'all' };
 
 /** Canonical English day-of-week values — kept in a single representation in DB. */
 export type DayOfWeek =
@@ -75,8 +73,16 @@ export function isValidRuleStructure(value: unknown): value is RuleStructure {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
 
-  const intents: RuleIntent[] = ['block', 'permit-multi-shift', 'preference', 'complex'];
-  if (typeof v.intent !== 'string' || !intents.includes(v.intent as RuleIntent)) {
+  const intents: RuleIntent[] = [
+    'block',
+    'permit-multi-shift',
+    'preference',
+    'complex',
+  ];
+  if (
+    typeof v.intent !== 'string' ||
+    !intents.includes(v.intent as RuleIntent)
+  ) {
     return false;
   }
 

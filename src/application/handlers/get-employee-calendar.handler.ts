@@ -30,10 +30,10 @@ export interface EmployeeCalendarAssignmentDTO {
  * con templateName hidratado.
  */
 @QueryHandler(GetEmployeeCalendarQuery)
-export class GetEmployeeCalendarHandler
-  implements
-    IQueryHandler<GetEmployeeCalendarQuery, EmployeeCalendarAssignmentDTO[]>
-{
+export class GetEmployeeCalendarHandler implements IQueryHandler<
+  GetEmployeeCalendarQuery,
+  EmployeeCalendarAssignmentDTO[]
+> {
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly assignmentRepo: IShiftAssignmentRepository,
@@ -44,9 +44,7 @@ export class GetEmployeeCalendarHandler
   async execute(
     query: GetEmployeeCalendarQuery,
   ): Promise<EmployeeCalendarAssignmentDTO[]> {
-    const from = query.from
-      ? query.from.toISOString().split('T')[0]
-      : FAR_PAST;
+    const from = query.from ? query.from.toISOString().split('T')[0] : FAR_PAST;
     const to = query.to ? query.to.toISOString().split('T')[0] : FAR_FUTURE;
     const [assignments, templates] = await Promise.all([
       this.assignmentRepo.findByEmployeeAndDateRange(

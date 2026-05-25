@@ -11,7 +11,7 @@ import {
 /**
  * QwenConversationalService — Adapter for IConversationalService
  *
- * Encargado de leer textos y audios a través de DashScope usando 
+ * Encargado de leer textos y audios a través de DashScope usando
  * qwen-plus para texto, y qwen-audio-turbo (si está disponible) para audio.
  */
 @Injectable()
@@ -48,7 +48,7 @@ export class QwenConversationalService implements IConversationalService {
       const errMsg = (err as Error).message;
       this.logger.error(`[processText] Qwen call failed: ${errMsg}`);
       if (errMsg.includes('429')) {
-         return ConversationIntentVO.systemUnavailable(text);
+        return ConversationIntentVO.systemUnavailable(text);
       }
       return ConversationIntentVO.unknown(text);
     }
@@ -93,7 +93,7 @@ export class QwenConversationalService implements IConversationalService {
           ],
         },
       ];
-      
+
       const raw = await this._callQwen(
         QwenConversationalService.AUDIO_MODEL,
         messages as any,
@@ -105,7 +105,7 @@ export class QwenConversationalService implements IConversationalService {
       this.logger.error(`[processAudio] Qwen call failed: ${errMsg}`);
       // Fallback intent si la API falla de audio
       if (errMsg.includes('429')) {
-         return ConversationIntentVO.systemUnavailable('(audio no transcrito)');
+        return ConversationIntentVO.systemUnavailable('(audio no transcrito)');
       }
       return ConversationIntentVO.unknown('(error procesando audio)');
     }
@@ -250,7 +250,7 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
       messages: messages,
       temperature: 0.1,
       max_tokens: 4096,
-      response_format: { type: "json_object" }, // Qwen2.5+ soporta json_object en dashscope
+      response_format: { type: 'json_object' }, // Qwen2.5+ soporta json_object en dashscope
       // qwen3+ trae reasoning interno; para clasificación de intent
       // no aporta y duplica latencia/tokens. Desactivado vía flag.
       enable_thinking: false,
@@ -266,14 +266,15 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${this.apiKey}`,
           },
           body: bodyStr,
           signal: controller.signal,
         });
       } catch (err: any) {
         clearTimeout(timer);
-        if (attempt === maxRetries) throw new Error(`Qwen fetch error: ${err.message}`);
+        if (attempt === maxRetries)
+          throw new Error(`Qwen fetch error: ${err.message}`);
         await this._delay(baseDelayMs * Math.pow(2, attempt - 1));
         continue;
       }
@@ -283,7 +284,9 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
         const errorText = await response.text();
         if (response.status === 429) {
           if (attempt === maxRetries) {
-            throw new Error(`(429) Qwen Timeout Exhausted: Rate Limit Exceeded`);
+            throw new Error(
+              `(429) Qwen Timeout Exhausted: Rate Limit Exceeded`,
+            );
           }
           this.logger.warn(`Qwen 429 on attempt ${attempt}. Retrying...`);
           await this._delay(baseDelayMs * Math.pow(2, attempt - 1));
@@ -292,9 +295,9 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
         throw new Error(`Qwen API error ${response.status}: ${errorText}`);
       }
 
-      const json = (await response.json()) as any;
+      const json = await response.json();
       const text = json?.choices?.[0]?.message?.content;
-      
+
       const usage = json?.usage;
       if (usage) {
         this.logger.log(
@@ -363,9 +366,7 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
       try {
         data = JSON.parse(jsonStr);
       } catch (e) {
-        this.logger.warn(
-          `Could not parse Qwen JSON: ${(e as Error).message}`,
-        );
+        this.logger.warn(`Could not parse Qwen JSON: ${(e as Error).message}`);
         this.logger.warn(`RAW ORIGINAL STRING: >>>${raw}<<<`);
 
         if (!jsonStr.endsWith('}')) {
@@ -387,10 +388,16 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
 
       // Validamos intención aceptada
       const validIntents: string[] = [
-        'swap_shift', 'report_absence', 'check_schedule',
-        'request_day_off', 'generate_schedule', 'select_option',
-        'create_rule', 'create_policy',
-        'system_unavailable', 'unknown',
+        'swap_shift',
+        'report_absence',
+        'check_schedule',
+        'request_day_off',
+        'generate_schedule',
+        'select_option',
+        'create_rule',
+        'create_policy',
+        'system_unavailable',
+        'unknown',
       ];
       if (!validIntents.includes(intent)) {
         return ConversationIntentVO.unknown(rawText);
@@ -413,9 +420,7 @@ Responde ÚNICAMENTE con JSON válido puro, sin texto adicional (nada de marcas 
         rawText,
       });
     } catch (err) {
-      this.logger.warn(
-        `[_parseResponse] Error: ${(err as Error).message}`,
-      );
+      this.logger.warn(`[_parseResponse] Error: ${(err as Error).message}`);
       return ConversationIntentVO.unknown(fallbackRawText);
     }
   }

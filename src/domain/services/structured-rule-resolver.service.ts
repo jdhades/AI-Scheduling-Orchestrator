@@ -152,7 +152,10 @@ export class StructuredRuleResolver {
       }
 
       if (struct.intent === 'permit-multi-shift') {
-        const daysAffected = this.expandDateMatchers(struct.dateMatchers, slots);
+        const daysAffected = this.expandDateMatchers(
+          struct.dateMatchers,
+          slots,
+        );
         for (const empId of matchingEmployees.employeeIds) {
           for (const day of daysAffected) {
             multiShiftPermits.add(`${empId}|${day}`);
@@ -207,7 +210,8 @@ export class StructuredRuleResolver {
     if (!hasDate && !hasName && !hasHourRange) return [];
 
     return slots.filter((slot) => {
-      const dateOk = !hasDate || this.slotMatchesDate(slot, struct.dateMatchers);
+      const dateOk =
+        !hasDate || this.slotMatchesDate(slot, struct.dateMatchers);
       const nameOk =
         !hasName || this.slotMatchesName(slot, struct.shiftNameMatchers!);
       const hourOk =
@@ -246,7 +250,8 @@ export class StructuredRuleResolver {
     slot: VirtualShiftSlot,
     ranges: HourRange[],
   ): boolean {
-    const m = slot.startTime.getUTCHours() * 60 + slot.startTime.getUTCMinutes();
+    const m =
+      slot.startTime.getUTCHours() * 60 + slot.startTime.getUTCMinutes();
     return ranges.some((r) => {
       const [sh, sm] = r.start.split(':').map(Number);
       const [eh, em] = r.end.split(':').map(Number);

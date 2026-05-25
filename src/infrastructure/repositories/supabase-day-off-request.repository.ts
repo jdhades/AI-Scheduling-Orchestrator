@@ -7,9 +7,7 @@ import type {
 } from '../../domain/repositories/day-off-request.repository';
 
 @Injectable()
-export class SupabaseDayOffRequestRepository
-  implements IDayOffRequestRepository
-{
+export class SupabaseDayOffRequestRepository implements IDayOffRequestRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}

@@ -14,7 +14,8 @@ export class RegisterEmployeeHandler implements ICommandHandler<RegisterEmployee
   ) {}
 
   async execute(command: RegisterEmployeeCommand): Promise<void> {
-    const { employeeId, companyId, name, phone, experience, externalId } = command;
+    const { employeeId, companyId, name, phone, experience, externalId } =
+      command;
 
     const employee = this.publisher.mergeObjectContext(
       Employee.create(

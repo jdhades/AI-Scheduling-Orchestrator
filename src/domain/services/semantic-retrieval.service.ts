@@ -138,21 +138,27 @@ export class SemanticRetrievalService {
    * Utilizado por el orquestador LLM central que maneja toda la semana y se beneficia
    * de conocer todas las reglas sin filtrado de distancia para aplicar razonamiento global complejo.
    */
-  async retrieveAllForCompany(companyId: string): Promise<SemanticConstraint[]> {
+  async retrieveAllForCompany(
+    companyId: string,
+  ): Promise<SemanticConstraint[]> {
     if (!companyId) return [];
 
     try {
       const allRules = await this.ruleRepository.findAllByCompany(companyId);
 
       if (allRules.length === 0) {
-        this.logger.log(`SemanticRetrievalService: no active global rules found for company ${companyId}`);
+        this.logger.log(
+          `SemanticRetrievalService: no active global rules found for company ${companyId}`,
+        );
         return [];
       }
 
       // Resolver posibles conflictos directos dentro del catálogo global
       const resolved = this.conflictEngine.resolveRules(allRules);
 
-      this.logger.log(`SemanticRetrievalService: retrieved ${allRules.length} global rules → ${resolved.length} after conflict resolution`);
+      this.logger.log(
+        `SemanticRetrievalService: retrieved ${allRules.length} global rules → ${resolved.length} after conflict resolution`,
+      );
 
       return resolved.map((rule) => ({
         rule: rule.getRuleText(),

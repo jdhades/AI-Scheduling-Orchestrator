@@ -12,13 +12,7 @@ import {
   Post,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import {
-  IsIn,
-  IsObject,
-  IsOptional,
-  IsString,
-  Length,
-} from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString, Length } from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
@@ -70,7 +64,15 @@ class CreateTicketDto {
   severity?: Severity;
 
   @IsOptional()
-  @IsIn(['schedule', 'rules', 'policies', 'whatsapp', 'billing', 'auth', 'other'])
+  @IsIn([
+    'schedule',
+    'rules',
+    'policies',
+    'whatsapp',
+    'billing',
+    'auth',
+    'other',
+  ])
   area?: Area;
 
   @IsOptional()
@@ -131,9 +133,7 @@ export class SupportTicketsController {
 
   @Get()
   @Roles('owner', 'manager')
-  async list(
-    @CurrentCompany() companyId: string,
-  ): Promise<SupportTicketRow[]> {
+  async list(@CurrentCompany() companyId: string): Promise<SupportTicketRow[]> {
     const { data, error } = await this.supabase
       .from('support_tickets')
       .select('*, support_ticket_attachments(count)')
@@ -213,8 +213,7 @@ export class SupportTicketsController {
     let uploadUrl: string | null = null;
     let token: string | null = null;
     try {
-      const { data: signed, error: signedErr } = await this.supabase
-        .storage
+      const { data: signed, error: signedErr } = await this.supabase.storage
         .from(bucket)
         .createSignedUploadUrl(storagePath);
       if (signedErr) throw signedErr;
@@ -315,7 +314,7 @@ function cryptoRandomId(): string {
   // 12 hex chars, suficiente para filenames únicos por ticket (escala
   // billions of attachments per ticket sin colisiones prácticas).
   const buf = new Uint8Array(6);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   (globalThis as any).crypto.getRandomValues(buf);
   return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
 }

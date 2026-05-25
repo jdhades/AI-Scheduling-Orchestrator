@@ -20,10 +20,7 @@ export interface IShiftAssignmentBreakRepository {
   /** Borra todos los breaks de un assignment. Usado por el cascade
    * lógico cuando el assignment se borra fuera del DB CASCADE (ej.
    * desde el service que orquesta side-effects). */
-  deleteByAssignmentId(
-    assignmentId: string,
-    companyId: string,
-  ): Promise<void>;
+  deleteByAssignmentId(assignmentId: string, companyId: string): Promise<void>;
 
   /** Lista los breaks de un assignment, ordenados por startTime ASC. */
   findByAssignmentId(
@@ -39,8 +36,5 @@ export interface IShiftAssignmentBreakRepository {
   ): Promise<ShiftAssignmentBreak[]>;
 
   /** Encuentra un break por id (para PATCH/DELETE con auth check). */
-  findById(
-    id: string,
-    companyId: string,
-  ): Promise<ShiftAssignmentBreak | null>;
+  findById(id: string, companyId: string): Promise<ShiftAssignmentBreak | null>;
 }

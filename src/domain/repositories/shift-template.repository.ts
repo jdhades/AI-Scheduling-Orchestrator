@@ -29,7 +29,11 @@ export interface IShiftTemplateRepository {
   save(template: ShiftTemplate): Promise<void>;
 
   /** Partial update on a subset of fields. */
-  updatePartial(id: string, companyId: string, patch: ShiftTemplatePatch): Promise<void>;
+  updatePartial(
+    id: string,
+    companyId: string,
+    patch: ShiftTemplatePatch,
+  ): Promise<void>;
 
   /** Soft delete: is_active=false + deleted_at=NOW(). Instances ya generadas quedan intactas. */
   delete(id: string, companyId: string): Promise<void>;

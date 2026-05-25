@@ -21,8 +21,16 @@ import { ConfigModule } from '@nestjs/config';
     GeminiConversationalService,
     {
       provide: CONVERSATIONAL_SERVICE,
-      inject: [ConfigService, QwenConversationalService, GeminiConversationalService],
-      useFactory: (config: ConfigService, qwen: QwenConversationalService, gemini: GeminiConversationalService) => {
+      inject: [
+        ConfigService,
+        QwenConversationalService,
+        GeminiConversationalService,
+      ],
+      useFactory: (
+        config: ConfigService,
+        qwen: QwenConversationalService,
+        gemini: GeminiConversationalService,
+      ) => {
         return config.get('ai.activeProvider') === 'gemini' ? gemini : qwen;
       },
     },

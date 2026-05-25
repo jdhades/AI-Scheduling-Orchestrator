@@ -1,8 +1,4 @@
-import {
-  Controller,
-  Get,
-  Inject,
-} from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { PlatformAdmin } from '../../infrastructure/auth/decorators/platform-admin.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';

@@ -46,14 +46,10 @@ class UpsertBudgetDto {
  */
 @Controller('llm-model-budgets')
 export class LLMModelBudgetsController {
-  constructor(
-    private readonly budgetService: LLMModelBudgetService,
-  ) {}
+  constructor(private readonly budgetService: LLMModelBudgetService) {}
 
   @Get()
-  async list(
-    @CurrentCompany() companyId: string,
-  ): Promise<LLMModelBudget[]> {
+  async list(@CurrentCompany() companyId: string): Promise<LLMModelBudget[]> {
     return this.budgetService.listForCompany(companyId);
   }
 

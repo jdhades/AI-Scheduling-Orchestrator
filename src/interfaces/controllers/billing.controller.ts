@@ -69,10 +69,7 @@ export class BillingController {
     @CurrentUser() user: AuthContext,
     @Body() body: CreateCheckoutDto,
   ): Promise<{ url: string }> {
-    const url = await this.createCheckoutForCompany(
-      user.companyId,
-      body.tier,
-    );
+    const url = await this.createCheckoutForCompany(user.companyId, body.tier);
     return { url };
   }
 
@@ -119,11 +116,10 @@ export class BillingController {
   async adminCreateCheckout(
     @Body() body: AdminCheckoutDto,
   ): Promise<{ url: string }> {
-    const url = await this.createCheckoutForCompany(
-      body.companyId,
-      body.tier,
-      { successUrl: body.successUrl, cancelUrl: body.cancelUrl },
-    );
+    const url = await this.createCheckoutForCompany(body.companyId, body.tier, {
+      successUrl: body.successUrl,
+      cancelUrl: body.cancelUrl,
+    });
     return { url };
   }
 
@@ -186,8 +182,7 @@ export class BillingController {
       line_items: [{ price: priceId, quantity: 1 }],
       // client_reference_id linkea la session con la company en el webhook.
       client_reference_id: companyId,
-      success_url:
-        overrides.successUrl ?? this.buildAppUrl('/billing/success'),
+      success_url: overrides.successUrl ?? this.buildAppUrl('/billing/success'),
       cancel_url: overrides.cancelUrl ?? this.buildAppUrl('/billing/cancel'),
       // Allow promotion codes en checkout — útil para descuentos del
       // tipo "comp 30 days free" sin tener que tocar nada del backend.

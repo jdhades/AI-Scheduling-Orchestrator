@@ -15,29 +15,23 @@ interface TplBreakRow {
 }
 
 @Injectable()
-export class SupabaseShiftTemplateBreakRepository
-  implements IShiftTemplateBreakRepository
-{
+export class SupabaseShiftTemplateBreakRepository implements IShiftTemplateBreakRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
 
   async save(brk: ShiftTemplateBreak): Promise<void> {
-    const { error } = await this.supabase
-      .from('shift_template_breaks')
-      .upsert({
-        id: brk.id,
-        template_id: brk.templateId,
-        company_id: brk.companyId,
-        start_offset_minutes: brk.startOffsetMinutes,
-        duration_minutes: brk.durationMinutes,
-        is_paid: brk.isPaid,
-        reason: brk.reason,
-      });
+    const { error } = await this.supabase.from('shift_template_breaks').upsert({
+      id: brk.id,
+      template_id: brk.templateId,
+      company_id: brk.companyId,
+      start_offset_minutes: brk.startOffsetMinutes,
+      duration_minutes: brk.durationMinutes,
+      is_paid: brk.isPaid,
+      reason: brk.reason,
+    });
     if (error) {
-      throw new Error(
-        `ShiftTemplateBreakRepository.save: ${error.message}`,
-      );
+      throw new Error(`ShiftTemplateBreakRepository.save: ${error.message}`);
     }
   }
 
@@ -71,7 +65,7 @@ export class SupabaseShiftTemplateBreakRepository
         `ShiftTemplateBreakRepository.findByTemplateId: ${error.message}`,
       );
     }
-    return (data ?? []).map((r) => this.rowToAggregate(r as TplBreakRow));
+    return (data ?? []).map((r) => this.rowToAggregate(r));
   }
 
   async findById(
@@ -91,7 +85,7 @@ export class SupabaseShiftTemplateBreakRepository
         `ShiftTemplateBreakRepository.findById: ${error.message}`,
       );
     }
-    return data ? this.rowToAggregate(data as TplBreakRow) : null;
+    return data ? this.rowToAggregate(data) : null;
   }
 
   private rowToAggregate(r: TplBreakRow): ShiftTemplateBreak {

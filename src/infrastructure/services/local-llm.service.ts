@@ -72,7 +72,7 @@ export class LocalLLMService implements ILLMService {
       );
     }
 
-    const json = (await response.json()) as any;
+    const json = await response.json();
     const rawText: string = json?.choices?.[0]?.message?.content ?? '';
 
     const usage = json?.usage;

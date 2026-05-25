@@ -1,6 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { LLM_SERVICE, type ILLMService } from '../../domain/services/llm.service.interface';
+import {
+  LLM_SERVICE,
+  type ILLMService,
+} from '../../domain/services/llm.service.interface';
 import { QwenLLMService } from '../../infrastructure/services/qwen-llm.service';
 import { GeminiLLMService } from '../../infrastructure/services/gemini-llm.service';
 import { LocalLLMService } from '../../infrastructure/services/local-llm.service';

@@ -110,7 +110,12 @@ export class QueueBootstrapService implements OnModuleInit {
   ): Promise<void> {
     try {
       const boss = this.pgBoss.getInstance() as unknown as {
-        db: { executeSql: (sql: string, params: unknown[]) => Promise<{ rowCount: number }> };
+        db: {
+          executeSql: (
+            sql: string,
+            params: unknown[],
+          ) => Promise<{ rowCount: number }>;
+        };
       };
       await boss.db.executeSql(
         `UPDATE pgboss.queue SET retry_limit = $1, expire_seconds = $2 WHERE name = $3`,

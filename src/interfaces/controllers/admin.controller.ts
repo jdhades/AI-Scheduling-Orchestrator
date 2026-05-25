@@ -134,7 +134,7 @@ export class AdminController {
       createdAt: c.created_at as string,
       employeeCount:
         Array.isArray(c.employees) && c.employees[0]
-          ? ((c.employees[0] as { count: number }).count ?? 0)
+          ? (c.employees[0].count ?? 0)
           : 0,
     }));
   }
@@ -161,9 +161,10 @@ export class AdminController {
       createdAt: data.created_at as string,
       employeeCount:
         Array.isArray(data.employees) && data.employees[0]
-          ? ((data.employees[0] as { count: number }).count ?? 0)
+          ? (data.employees[0].count ?? 0)
           : 0,
-      llmProvider: (data.llm_provider as AdminCompanyDetail['llmProvider']) ?? null,
+      llmProvider:
+        (data.llm_provider as AdminCompanyDetail['llmProvider']) ?? null,
       llmModel: (data.llm_model as string | null) ?? null,
       defaultMaxHoursPerDay: numOrNull(data.default_max_hours_per_day),
       defaultMaxHoursPerWeek: numOrNull(data.default_max_hours_per_week),
@@ -214,7 +215,11 @@ export class AdminController {
   async updateSubscription(
     @Param('id') id: string,
     @Body() body: UpdateSubscriptionDto,
-  ): Promise<{ id: string; subscriptionStatus: string; trialEndsAt: string | null }> {
+  ): Promise<{
+    id: string;
+    subscriptionStatus: string;
+    trialEndsAt: string | null;
+  }> {
     const update: Record<string, unknown> = {
       subscription_status: body.subscriptionStatus,
     };
@@ -248,7 +253,11 @@ export class AdminController {
   async updateLlmConfig(
     @Param('id') id: string,
     @Body() body: UpdateLlmConfigDto,
-  ): Promise<{ id: string; llmProvider: string | null; llmModel: string | null }> {
+  ): Promise<{
+    id: string;
+    llmProvider: string | null;
+    llmModel: string | null;
+  }> {
     // Si provider es null, model también debe ser null (coherencia).
     const provider = body.provider ?? null;
     const model = provider ? (body.model ?? null) : null;

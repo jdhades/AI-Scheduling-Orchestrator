@@ -7,9 +7,7 @@ import type {
 } from '../../domain/repositories/absence-report.repository';
 
 @Injectable()
-export class SupabaseAbsenceReportRepository
-  implements IAbsenceReportRepository
-{
+export class SupabaseAbsenceReportRepository implements IAbsenceReportRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}

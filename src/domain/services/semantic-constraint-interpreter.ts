@@ -57,7 +57,7 @@ export class SemanticConstraintInterpreter {
     domingo: 0,
     lunes: 1,
     martes: 2,
-    'miércoles': 3,
+    miércoles: 3,
     miercoles: 3,
     jueves: 4,
     viernes: 5,
@@ -118,14 +118,20 @@ export class SemanticConstraintInterpreter {
     employees: Employee[],
     slots: VirtualShiftSlot[],
   ): SemanticConstraint[] {
-    const ruleLower = constraint.rule.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const ruleLower = constraint.rule
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
 
     const isAllBlocked = this.ALL_BLOCKED_PATTERNS.some((p) =>
       ruleLower.includes(p.normalize('NFD').replace(/[\u0300-\u036f]/g, '')),
     );
 
     const matchingSlots = this.extractMatchingSlots(ruleLower, slots);
-    const matchingEmployees = this.extractMatchingEmployees(ruleLower, employees);
+    const matchingEmployees = this.extractMatchingEmployees(
+      ruleLower,
+      employees,
+    );
 
     if (isAllBlocked && matchingSlots.length > 0) {
       return matchingSlots.map((slot) => ({
@@ -139,7 +145,11 @@ export class SemanticConstraintInterpreter {
       const expanded: SemanticConstraint[] = [];
       for (const emp of matchingEmployees) {
         for (const slot of matchingSlots) {
-          expanded.push({ ...constraint, employeeId: emp.id, shiftId: slot.slotKey });
+          expanded.push({
+            ...constraint,
+            employeeId: emp.id,
+            shiftId: slot.slotKey,
+          });
         }
       }
       return expanded;
@@ -176,7 +186,9 @@ export class SemanticConstraintInterpreter {
     let match: RegExpExecArray | null;
     while ((match = dayMonthPattern.exec(ruleLower)) !== null) {
       const day = parseInt(match[1], 10);
-      const monthName = match[2].normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const monthName = match[2]
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
       const monthIndex = this.MONTH_NAMES[monthName];
       if (monthIndex !== undefined) {
         slots
@@ -196,7 +208,9 @@ export class SemanticConstraintInterpreter {
     }
 
     for (const [dayName, dayIndex] of Object.entries(this.DAY_NAMES)) {
-      const normalizedDay = dayName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const normalizedDay = dayName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
       if (ruleLower.includes(normalizedDay)) {
         slots
           .filter((s) => s.startTime.getUTCDay() === dayIndex)

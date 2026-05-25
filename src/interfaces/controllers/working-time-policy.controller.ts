@@ -70,8 +70,7 @@ export class WorkingTimePolicyController {
         : Promise.resolve({ data: null }),
     ]);
 
-    const toNum = (v: unknown): number | null =>
-      v == null ? null : Number(v);
+    const toNum = (v: unknown): number | null => (v == null ? null : Number(v));
 
     const companyOverrides: WorkingTimePolicyOverrides = {
       maxHoursPerDay: toNum(companyRes.data?.default_max_hours_per_day),
@@ -94,7 +93,9 @@ export class WorkingTimePolicyController {
       company: companyOverrides,
     });
 
-    const source = (key: 'maxHoursPerDay' | 'maxHoursPerWeek'): PolicySource => {
+    const source = (
+      key: 'maxHoursPerDay' | 'maxHoursPerWeek',
+    ): PolicySource => {
       if (employeeOverrides[key] != null) return 'employee';
       if (departmentOverrides?.[key] != null) return 'department';
       if (companyOverrides[key] != null) return 'company';

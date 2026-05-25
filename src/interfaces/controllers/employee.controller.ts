@@ -133,9 +133,7 @@ export class EmployeeController {
    * Devuelve todos los empleados de la empresa.
    */
   @Get()
-  async getEmployees(
-    @CurrentCompany() companyId: string,
-  ): Promise<unknown> {
+  async getEmployees(@CurrentCompany() companyId: string): Promise<unknown> {
     return this.queryBus.execute(new GetCompanyEmployeesQuery(companyId));
   }
 
@@ -148,7 +146,9 @@ export class EmployeeController {
     @Param('id') employeeId: string,
     @Headers('x-company-id') companyId: string,
   ): Promise<unknown> {
-    return this.queryBus.execute(new GetEmployeeByIdQuery(employeeId, companyId));
+    return this.queryBus.execute(
+      new GetEmployeeByIdQuery(employeeId, companyId),
+    );
   }
 
   /**

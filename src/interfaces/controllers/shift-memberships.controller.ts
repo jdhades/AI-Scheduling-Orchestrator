@@ -111,7 +111,8 @@ export class ShiftMembershipsController {
     @CurrentCompany() companyId: string,
   ): Promise<void> {
     const existing = await this.membershipRepo.findById(id, companyId);
-    if (!existing) throw new NotFoundException(`ShiftMembership ${id} not found`);
+    if (!existing)
+      throw new NotFoundException(`ShiftMembership ${id} not found`);
     await this.membershipRepo.delete(id, companyId);
   }
 

@@ -265,11 +265,9 @@ export class TasksController {
     @Query('isDone') isDoneRaw?: string,
   ): Promise<TaskResponse[]> {
     const isDone = parseIsDone(isDoneRaw);
-    const rows = await this.tasks.findByTemplateId(
-      templateId,
-      companyId,
-      { isDone },
-    );
+    const rows = await this.tasks.findByTemplateId(templateId, companyId, {
+      isDone,
+    });
     return rows.map(toDto);
   }
 
@@ -283,16 +281,12 @@ export class TasksController {
     // Un empleado solo puede leer sus propias tareas. Owners/managers
     // ven cualquiera del tenant.
     if (user?.role === 'employee' && user.employeeId !== employeeId) {
-      throw new ForbiddenException(
-        'Employees can only read their own tasks',
-      );
+      throw new ForbiddenException('Employees can only read their own tasks');
     }
     const isDone = parseIsDone(isDoneRaw);
-    const rows = await this.tasks.findByEmployeeId(
-      employeeId,
-      companyId,
-      { isDone },
-    );
+    const rows = await this.tasks.findByEmployeeId(employeeId, companyId, {
+      isDone,
+    });
     return rows.map(toDto);
   }
 }

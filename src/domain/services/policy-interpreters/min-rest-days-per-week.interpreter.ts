@@ -38,9 +38,7 @@ const SPANISH_NUMBERS: Record<string, number> = {
  * suggestion-loop filtra los casos ambiguos antes de llegar acá.
  */
 @Injectable()
-export class MinRestDaysPerWeekInterpreter
-  implements PolicyInterpreter<MinRestDaysParams>
-{
+export class MinRestDaysPerWeekInterpreter implements PolicyInterpreter<MinRestDaysParams> {
   readonly id = 'min_rest_days_per_week';
   readonly description =
     'Cada empleado debe tener al menos N días libres por semana (respeta el inicio-de-semana del tenant). Opcional: excluir feriados del cómputo.';
@@ -50,7 +48,8 @@ export class MinRestDaysPerWeekInterpreter
   // Acepta hasta una palabra-adjetivo entre el número y el day-noun:
   //   "2 días" / "dos días" (ES, número adyacente)
   //   "2 rest days" / "two rest days" (EN, idiom con rest entre medio)
-  private static readonly NUM_DAY = '(?:\\s+\\w+)?\\s+' + MinRestDaysPerWeekInterpreter.DAY_NOUN;
+  private static readonly NUM_DAY =
+    '(?:\\s+\\w+)?\\s+' + MinRestDaysPerWeekInterpreter.DAY_NOUN;
 
   matches(text: string): boolean {
     const t = text.toLowerCase();
@@ -158,9 +157,7 @@ export class MinRestDaysPerWeekInterpreter
   format(params: MinRestDaysParams): string {
     return (
       `Each employee must have at least ${params.days} rest day${params.days === 1 ? '' : 's'} per week` +
-      (params.holidayCounts
-        ? '.'
-        : ' (holidays do not count as rest days).')
+      (params.holidayCounts ? '.' : ' (holidays do not count as rest days).')
     );
   }
 }

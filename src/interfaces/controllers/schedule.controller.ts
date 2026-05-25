@@ -86,7 +86,8 @@ export class ScheduleController {
       // Path async (Fase 1): encola y devuelve 202 + jobId. El cliente
       // hace polling a /jobs/:id para ver el resultado.
       try {
-        const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+        const weekStartsOn =
+          await this.companyPreferences.getWeekStartsOn(companyId);
         const jobId = await this.scheduleDispatcher.enqueue({
           companyId,
           weekStart: dto.weekStart,

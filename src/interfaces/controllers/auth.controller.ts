@@ -229,9 +229,7 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('signup')
-  async signup(
-    @Body() body: SignupDto,
-  ): Promise<{
+  async signup(@Body() body: SignupDto): Promise<{
     userId: string | null;
     requiresEmailConfirm: boolean;
   }> {
@@ -338,16 +336,15 @@ export class AuthController {
     const employee = employeeRes.data;
     const isPlatformAdmin = !!platformAdminRes.data;
     const platformRole =
-      (platformAdminRes.data?.role as 'super' | 'support' | undefined) ??
-      null;
+      (platformAdminRes.data?.role as 'super' | 'support' | undefined) ?? null;
     const capabilities = Array.from(
       new Set([
-        ...((roleCapsRes.data ?? []).map(
+        ...(roleCapsRes.data ?? []).map(
           (r: { capability: string }) => r.capability,
-        ) as string[]),
-        ...((overridesRes.data ?? []).map(
+        ),
+        ...(overridesRes.data ?? []).map(
           (r: { capability: string }) => r.capability,
-        ) as string[]),
+        ),
       ]),
     );
 
@@ -391,9 +388,7 @@ export class AuthController {
       isPlatformAdmin,
       platformRole,
       capabilities,
-      tenantFeatures: featuresList
-        .filter((f) => f.enabled)
-        .map((f) => f.key),
+      tenantFeatures: featuresList.filter((f) => f.enabled).map((f) => f.key),
     };
   }
 
@@ -535,9 +530,7 @@ export class AuthController {
   // (random 32 bytes = ~10^77 combos, igual queremos rate-limit
   // estricto en el path público que no requiere auth).
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  async previewInvitation(
-    @Param('token') token: string,
-  ): Promise<{
+  async previewInvitation(@Param('token') token: string): Promise<{
     email: string | null;
     phoneNumber: string | null;
     role: 'owner' | 'manager' | 'employee';
@@ -546,9 +539,7 @@ export class AuthController {
   }> {
     const { data, error } = await this.supabase
       .from('auth_invitations')
-      .select(
-        'email, phone_number, role, expires_at, consumed_at, company_id',
-      )
+      .select('email, phone_number, role, expires_at, consumed_at, company_id')
       .eq('token', token)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -613,9 +604,7 @@ export class AuthController {
     }
   }
 
-  private toInvitationRow = (
-    r: Record<string, unknown>,
-  ): InvitationRow => ({
+  private toInvitationRow = (r: Record<string, unknown>): InvitationRow => ({
     id: r.id as string,
     email: (r.email as string | null) ?? null,
     phoneNumber: (r.phone_number as string | null) ?? null,

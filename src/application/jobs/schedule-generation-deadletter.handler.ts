@@ -28,9 +28,7 @@ import { ScheduleGenerationRunsService } from '../../domain/services/schedule-ge
  * handler ya corrió en cada intento via finally).
  */
 @Injectable()
-export class ScheduleGenerationDeadletterHandler
-  implements OnApplicationBootstrap
-{
+export class ScheduleGenerationDeadletterHandler implements OnApplicationBootstrap {
   private readonly logger = new Logger(
     ScheduleGenerationDeadletterHandler.name,
   );

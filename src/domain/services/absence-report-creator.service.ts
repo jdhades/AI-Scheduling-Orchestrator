@@ -229,7 +229,8 @@ export class AbsenceReportCreator {
 
     // 1. Day-by-day classification.
     const allDays = this.expandDays(startDate, endDate);
-    const dayClassification: Array<{ date: string; assignmentIds: string[] }> = [];
+    const dayClassification: Array<{ date: string; assignmentIds: string[] }> =
+      [];
     for (const date of allDays) {
       const assignments = await this.assignmentRepo.findByEmployeeAndDateRange(
         employeeId,
@@ -266,7 +267,10 @@ export class AbsenceReportCreator {
     let isUrgent = false;
     for (const ref of deleted) {
       if (!ref.templateId) continue;
-      const template = await this.templateRepo.findById(ref.templateId, companyId);
+      const template = await this.templateRepo.findById(
+        ref.templateId,
+        companyId,
+      );
       if (!template) continue;
       const [h, m] = template.startTime.split(':').map((n) => parseInt(n, 10));
       const slotStart = new Date(`${ref.date}T00:00:00Z`);
@@ -374,8 +378,7 @@ export class AbsenceReportCreator {
     end: string,
     reason: string,
   ): string {
-    const period =
-      start === end ? `el ${start}` : `del ${start} al ${end}`;
+    const period = start === end ? `el ${start}` : `del ${start} al ${end}`;
     const reasonClause = reason.trim() ? ` por ${reason.trim()}` : '';
     return `${employeeName} no trabaja ${period}${reasonClause}.`;
   }

@@ -24,13 +24,14 @@ export async function withExponentialBackoff<T>(
       return await operation();
     } catch (error) {
       const err = error as Error;
-      
+
       // Intentamos identificar si es un error recuperable por Rate Limits (429) o fallas de red/servidor (500, 503)
-      const isRateLimitOrServer = err.message.includes('429') || 
-                                  err.message.includes('500') || 
-                                  err.message.includes('503') || 
-                                  err.message.includes('network') ||
-                                  err.message.toLocaleLowerCase().includes('fetch failed');
+      const isRateLimitOrServer =
+        err.message.includes('429') ||
+        err.message.includes('500') ||
+        err.message.includes('503') ||
+        err.message.includes('network') ||
+        err.message.toLocaleLowerCase().includes('fetch failed');
 
       if (retriesLeft > 0 && isRateLimitOrServer) {
         // Añadimos jitter aleatorio entre 0 y 20% para evitar sincronización de ráfagas
@@ -38,7 +39,7 @@ export async function withExponentialBackoff<T>(
         const sleepTime = currentDelay + jitter;
 
         logger.warn(
-          `[${contextName}] Operation failed with "${err.message}". Retrying in ${Math.round(sleepTime)}ms... (${retriesLeft} retries left)`
+          `[${contextName}] Operation failed with "${err.message}". Retrying in ${Math.round(sleepTime)}ms... (${retriesLeft} retries left)`,
         );
 
         await new Promise((resolve) => setTimeout(resolve, sleepTime));

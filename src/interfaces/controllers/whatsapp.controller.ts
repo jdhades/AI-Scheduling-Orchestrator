@@ -113,9 +113,7 @@ export class WhatsAppController {
       if (dedupErr) {
         // Error real — loguea pero deja procesar (prefiero reprocesar
         // a perder el mensaje silenciosamente).
-        this.logger.error(
-          `whatsapp_events upsert failed: ${dedupErr.message}`,
-        );
+        this.logger.error(`whatsapp_events upsert failed: ${dedupErr.message}`);
       } else if (!data || data.length === 0) {
         // Dup ya procesado — 200 OK silencioso.
         return;

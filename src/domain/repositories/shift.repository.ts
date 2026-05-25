@@ -17,7 +17,11 @@ export interface IShiftRepository {
    * Devuelve todos los turnos de una empresa para una semana dada.
    * weekStart debe ser el lunes de la semana (00:00:00).
    */
-  findByCompanyAndWeek(companyId: string, weekStart: Date, options?: { departmentId?: string }): Promise<Shift[]>;
+  findByCompanyAndWeek(
+    companyId: string,
+    weekStart: Date,
+    options?: { departmentId?: string },
+  ): Promise<Shift[]>;
 
   /**
    * Persiste una asignación de turno.

@@ -1,13 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ShiftAssignment, type AssignmentOrigin } from '../../domain/aggregates/shift-assignment.aggregate';
+import {
+  ShiftAssignment,
+  type AssignmentOrigin,
+} from '../../domain/aggregates/shift-assignment.aggregate';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
 import type { StrategyType } from '../../domain/types/scheduling-types';
 
 @Injectable()
-export class SupabaseShiftAssignmentRepository
-  implements IShiftAssignmentRepository
-{
+export class SupabaseShiftAssignmentRepository implements IShiftAssignmentRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
@@ -96,7 +97,10 @@ export class SupabaseShiftAssignmentRepository
     return (data ?? []).length;
   }
 
-  async findById(id: string, companyId: string): Promise<ShiftAssignment | null> {
+  async findById(
+    id: string,
+    companyId: string,
+  ): Promise<ShiftAssignment | null> {
     const { data, error } = await this.supabase
       .from('shift_assignments')
       .select('*')
@@ -198,7 +202,8 @@ export class SupabaseShiftAssignmentRepository
       companyId: row.company_id,
       origin: (row.origin ?? 'membership') as AssignmentOrigin,
       assignedAt: new Date(row.assigned_at),
-      assignedByStrategy: (row.assigned_by_strategy ?? 'hybrid') as StrategyType,
+      assignedByStrategy: (row.assigned_by_strategy ??
+        'hybrid') as StrategyType,
       fairnessSnapshot: row.fairness_snapshot ?? {},
       actualStartTime: new Date(row.actual_start_time),
       actualEndTime: new Date(row.actual_end_time),

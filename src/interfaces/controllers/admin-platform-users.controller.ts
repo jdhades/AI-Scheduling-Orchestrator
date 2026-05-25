@@ -16,7 +16,13 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 import { PlatformAdmin } from '../../infrastructure/auth/decorators/platform-admin.decorator';
 import { PlatformSuperAdmin } from '../../infrastructure/auth/decorators/platform-super-admin.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
@@ -270,13 +276,7 @@ export class AdminPlatformUsersController {
       .eq('id', id)
       .maybeSingle();
     if (error || !data) return null;
-    return data as {
-      id: string;
-      auth_user_id: string;
-      email: string;
-      role: PlatformRole;
-      created_at: string;
-    };
+    return data;
   }
 
   private async assertNotLastSuper(idAboutToChange: string): Promise<void> {
@@ -310,9 +310,7 @@ export class AdminPlatformUsersController {
         metadata: { actor_auth_user_id: caller.userId, ...meta },
       });
     } catch (err) {
-      this.logger.error(
-        `Failed to audit ${event}: ${(err as Error).message}`,
-      );
+      this.logger.error(`Failed to audit ${event}: ${(err as Error).message}`);
     }
   }
 

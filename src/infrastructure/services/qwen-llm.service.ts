@@ -8,7 +8,7 @@ import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
 /**
  * QwenLLMService — Implementación concreta de ILLMService
  *
- * Usa Qwen Plus (vía Alibaba Cloud DashScope OpenAI-compatible API) 
+ * Usa Qwen Plus (vía Alibaba Cloud DashScope OpenAI-compatible API)
  * para completar prompts de automatización y scheduling cognitivo.
  */
 @Injectable()
@@ -16,7 +16,8 @@ export class QwenLLMService implements ILLMService {
   private readonly logger = new Logger(QwenLLMService.name);
   private readonly apiKey: string | undefined;
   private readonly model = 'qwen3.6-plus';
-  private readonly baseUrl = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
+  private readonly baseUrl =
+    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
   private readonly TIMEOUT_MS = 300_000;
 
   constructor(
@@ -40,11 +41,14 @@ export class QwenLLMService implements ILLMService {
     return withExponentialBackoff(
       () => this.callQwen(prompt, signal),
       'QwenLLMService',
-      { maxRetries: 3, initialDelayMs: 2000 }
+      { maxRetries: 3, initialDelayMs: 2000 },
     );
   }
 
-  private async callQwen(prompt: string, externalSignal?: AbortSignal): Promise<string> {
+  private async callQwen(
+    prompt: string,
+    externalSignal?: AbortSignal,
+  ): Promise<string> {
     // Si el caller pasó un signal externo (ej. cancel de un job), lo
     // combinamos con el timeout interno: cualquiera de los dos aborta.
     const timeoutSignal = AbortSignal.timeout(this.TIMEOUT_MS);
@@ -97,7 +101,7 @@ export class QwenLLMService implements ILLMService {
       );
     }
 
-    const json = (await response.json()) as any;
+    const json = await response.json();
     const rawText: string = json?.choices?.[0]?.message?.content ?? '';
 
     const usage = json?.usage;

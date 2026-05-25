@@ -11,7 +11,11 @@
  */
 export type ScheduleGenerationJobSource =
   | { type: 'http' }
-  | { type: 'whatsapp'; from: string; sessionContext?: Record<string, unknown> };
+  | {
+      type: 'whatsapp';
+      from: string;
+      sessionContext?: Record<string, unknown>;
+    };
 
 export interface ScheduleGenerationJobPayload {
   companyId: string;
@@ -48,4 +52,3 @@ export interface UpdateRuleTextJobPayload {
   ruleId: string;
   newText: string;
 }
-

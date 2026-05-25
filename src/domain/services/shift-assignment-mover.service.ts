@@ -109,7 +109,8 @@ export class ShiftAssignmentMoverService {
     const noDateChange = newDate === current.date;
     const noTimeChange =
       (!input.newActualStartTime ||
-        input.newActualStartTime.getTime() === current.actualStartTime.getTime()) &&
+        input.newActualStartTime.getTime() ===
+          current.actualStartTime.getTime()) &&
       (!input.newActualEndTime ||
         input.newActualEndTime.getTime() === current.actualEndTime.getTime());
     if (noEmployeeChange && noDateChange && (!timesProvided || noTimeChange)) {

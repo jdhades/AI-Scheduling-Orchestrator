@@ -20,9 +20,7 @@ interface PendingRow {
 }
 
 @Injectable()
-export class SupabaseWhatsappPendingClarificationRepository
-  implements IWhatsappPendingClarificationRepository
-{
+export class SupabaseWhatsappPendingClarificationRepository implements IWhatsappPendingClarificationRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}

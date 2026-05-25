@@ -157,9 +157,7 @@ export class AdminImpersonateController {
       this.logger.error(
         `Impersonate failed for ${email}: ${linkErr?.message ?? 'no action_link'}`,
       );
-      throw new InternalServerErrorException(
-        'Failed to generate magic link',
-      );
+      throw new InternalServerErrorException('Failed to generate magic link');
     }
 
     // Auditar el evento. Crítico: este es el único registro durable de

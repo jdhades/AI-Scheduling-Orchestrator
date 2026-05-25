@@ -54,7 +54,10 @@ export class LlmRuleRephraseService implements IRuleRephraseService {
     // Si el LLM dijo "X" pero ningún interpreter matchea X, no la
     // ofrecemos al usuario — sería poner trampas.
     const verified: RephraseSuggestion[] = [];
-    for (const cand of candidates.slice(0, LlmRuleRephraseService.MAX_SUGGESTIONS)) {
+    for (const cand of candidates.slice(
+      0,
+      LlmRuleRephraseService.MAX_SUGGESTIONS,
+    )) {
       const matched = this.registry.findMatch(cand.suggestedText);
       if (!matched) {
         this.logger.debug(
@@ -163,10 +166,12 @@ export class LlmRuleRephraseService implements IRuleRephraseService {
         return [
           {
             suggestedText: obj.suggestedText as string,
-            matchedInterpreter: typeof obj.matchedInterpreter === 'string'
-              ? obj.matchedInterpreter
-              : undefined,
-            explanation: typeof obj.explanation === 'string' ? obj.explanation : undefined,
+            matchedInterpreter:
+              typeof obj.matchedInterpreter === 'string'
+                ? obj.matchedInterpreter
+                : undefined,
+            explanation:
+              typeof obj.explanation === 'string' ? obj.explanation : undefined,
           },
         ];
       }

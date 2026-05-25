@@ -104,13 +104,15 @@ export class ShiftTemplate {
     const year = weekMondayUtc.getUTCFullYear();
     const month = weekMondayUtc.getUTCMonth();
     const date = weekMondayUtc.getUTCDate() + daysFromMonday;
-    
+
     // Step 2: Extract hours and minutes
     const [startH, startM] = this.startTime.split(':').map(Number);
     const [endH, endM] = this.endTime.split(':').map(Number);
 
     // Build the specific UTC timestamp cleanly
-    const startDateTime = new Date(Date.UTC(year, month, date, startH, startM, 0, 0));
+    const startDateTime = new Date(
+      Date.UTC(year, month, date, startH, startM, 0, 0),
+    );
     const endDateTime = new Date(Date.UTC(year, month, date, endH, endM, 0, 0));
 
     // Handle midnight overlap or edge cases

@@ -71,7 +71,8 @@ export class IncidentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Body() dto: CreateIncidentDto,    @CurrentCompany() companyId: string,
+    @Body() dto: CreateIncidentDto,
+    @CurrentCompany() companyId: string,
   ): Promise<{ success: boolean }> {
     await this.commandBus.execute(
       new CreateIncidentCommand(
@@ -85,7 +86,8 @@ export class IncidentsController {
   }
 
   @Get()
-  async list(    @CurrentCompany() companyId: string,
+  async list(
+    @CurrentCompany() companyId: string,
     @Query('employeeId') employeeId?: string,
     @Query('status') status?: string,
     @Query('managerEmployeeId') managerEmployeeId?: string,
@@ -93,12 +95,13 @@ export class IncidentsController {
     const statusList = status
       ? (status.split(',').map((s) => s.trim()) as IncidentStatus[])
       : undefined;
-    const rows = (await this.queryBus.execute(
+    const rows = await this.queryBus.execute(
       new GetIncidentsQuery(companyId, {
         employeeId,
-        status: statusList && statusList.length === 1 ? statusList[0] : statusList,
+        status:
+          statusList && statusList.length === 1 ? statusList[0] : statusList,
       }),
-    )) as Array<{ employeeId: string }>;
+    );
     if (managerEmployeeId) {
       const scope = await this.managerScope.getEmployeeIdsForManager(
         companyId,
@@ -111,7 +114,8 @@ export class IncidentsController {
 
   @Get(':id')
   async getById(
-    @Param('id') id: string,    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
   ): Promise<unknown> {
     return this.queryBus.execute(new GetIncidentByIdQuery(id, companyId));
   }
@@ -124,7 +128,8 @@ export class IncidentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,
-    @Body() dto: RejectIncidentDto,    @CurrentCompany() companyId: string,
+    @Body() dto: RejectIncidentDto,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     await this.commandBus.execute(
       new RejectIncidentCommand(id, companyId, dto.reason),
@@ -139,7 +144,8 @@ export class IncidentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async resolve(
     @Param('id') id: string,
-    @Body() dto: ResolveIncidentDto,    @CurrentCompany() companyId: string,
+    @Body() dto: ResolveIncidentDto,
+    @CurrentCompany() companyId: string,
   ): Promise<void> {
     await this.commandBus.execute(
       new ResolveIncidentCommand(id, companyId, dto.details),

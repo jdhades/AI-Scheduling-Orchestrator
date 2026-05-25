@@ -4,9 +4,7 @@ import { ResolveIncidentCommand } from '../commands/resolve-incident.command';
 import { IncidentRepository } from '../../infrastructure/database/incident.repository';
 
 @CommandHandler(ResolveIncidentCommand)
-export class ResolveIncidentHandler
-  implements ICommandHandler<ResolveIncidentCommand>
-{
+export class ResolveIncidentHandler implements ICommandHandler<ResolveIncidentCommand> {
   constructor(
     private readonly incidentRepo: IncidentRepository,
     private readonly eventBus: EventBus,

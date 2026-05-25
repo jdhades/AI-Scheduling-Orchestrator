@@ -21,9 +21,10 @@ import { StripeModule } from './infrastructure/stripe/stripe.module';
     I18nModule.forRoot({
       fallbackLanguage: 'es',
       loaderOptions: {
-        path: process.env.NODE_ENV === 'production' 
-          ? path.join(__dirname, 'i18n') 
-          : path.join(process.cwd(), 'src', 'i18n'),
+        path:
+          process.env.NODE_ENV === 'production'
+            ? path.join(__dirname, 'i18n')
+            : path.join(process.cwd(), 'src', 'i18n'),
         watch: true,
       },
       resolvers: [AcceptLanguageResolver],

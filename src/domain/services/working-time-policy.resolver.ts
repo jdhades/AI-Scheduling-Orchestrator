@@ -23,7 +23,9 @@ export class WorkingTimePolicyResolver {
     department?: WorkingTimePolicyOverrides | null;
     company?: WorkingTimePolicyOverrides | null;
   }): WorkingTimePolicyVO {
-    const pick = <K extends keyof typeof WorkingTimePolicyResolver.SYSTEM_FALLBACK>(
+    const pick = <
+      K extends keyof typeof WorkingTimePolicyResolver.SYSTEM_FALLBACK,
+    >(
       key: K,
     ): number => {
       const e = params.employee?.[key];

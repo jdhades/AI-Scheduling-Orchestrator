@@ -123,7 +123,9 @@ export class SupabaseShiftRepository implements IShiftRepository {
       .lt('start_time', weekEnd.toISOString());
 
     if (shiftError)
-      throw new Error(`ShiftRepository.deleteAssignmentsByWeek (fetch shifts) failed: ${shiftError.message}`);
+      throw new Error(
+        `ShiftRepository.deleteAssignmentsByWeek (fetch shifts) failed: ${shiftError.message}`,
+      );
 
     const shiftIds = (shiftRows ?? []).map((r) => r.id);
     if (shiftIds.length === 0) return 0;
@@ -135,7 +137,9 @@ export class SupabaseShiftRepository implements IShiftRepository {
       .select('id'); // para contar
 
     if (deleteError)
-      throw new Error(`ShiftRepository.deleteAssignmentsByWeek (delete) failed: ${deleteError.message}`);
+      throw new Error(
+        `ShiftRepository.deleteAssignmentsByWeek (delete) failed: ${deleteError.message}`,
+      );
 
     return (deleted ?? []).length;
   }
@@ -190,7 +194,10 @@ export class SupabaseShiftRepository implements IShiftRepository {
       .lt('shifts.start_time', weekEnd.toISOString());
 
     if (options?.departmentId) {
-      query = query.eq('shifts.shift_templates.department_id', options.departmentId);
+      query = query.eq(
+        'shifts.shift_templates.department_id',
+        options.departmentId,
+      );
     }
 
     const { data, error } = await query;
@@ -262,9 +269,7 @@ export class SupabaseShiftRepository implements IShiftRepository {
     }
 
     // Prefix match in application code (UUID columns don't support LIKE in PostgREST)
-    const matches = (data ?? []).filter((row) =>
-      row.id.startsWith(shortId),
-    );
+    const matches = (data ?? []).filter((row) => row.id.startsWith(shortId));
 
     // Return only if there's exactly one match (unambiguous)
     return matches.length === 1 ? matches[0].id : null;

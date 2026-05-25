@@ -110,7 +110,10 @@ export class LLMRuntimeInterpreter implements PolicyInterpreter<LLMRuntimeParams
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  private buildPrompt(policyText: string, ctx: PolicyEvaluationContext): string {
+  private buildPrompt(
+    policyText: string,
+    ctx: PolicyEvaluationContext,
+  ): string {
     const shiftsBlock = ctx.shifts
       .map(
         (s) =>
@@ -152,7 +155,9 @@ Output ONLY a single JSON object, no prose, no code fences:
     const first = candidate.indexOf('{');
     const last = candidate.lastIndexOf('}');
     if (first === -1 || last === -1 || last <= first) {
-      this.logger.warn('llm_runtime: no JSON object in LLM output; returning []');
+      this.logger.warn(
+        'llm_runtime: no JSON object in LLM output; returning []',
+      );
       return [];
     }
 

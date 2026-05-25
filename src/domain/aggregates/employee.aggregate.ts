@@ -42,7 +42,19 @@ export class Employee extends AggregateRoot {
     workingTimeOverrides: WorkingTimePolicyOverrides = {},
     externalId?: string,
   ): Employee {
-    const employee = new Employee(id, companyId, name, role, phone, experience, locale, departmentId, contractType, workingTimeOverrides, externalId);
+    const employee = new Employee(
+      id,
+      companyId,
+      name,
+      role,
+      phone,
+      experience,
+      locale,
+      departmentId,
+      contractType,
+      workingTimeOverrides,
+      externalId,
+    );
     employee.apply(new EmployeeRegisteredEvent(id, companyId, phone.value));
     return employee;
   }

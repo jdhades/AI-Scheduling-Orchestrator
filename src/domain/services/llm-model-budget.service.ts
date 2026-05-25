@@ -84,7 +84,10 @@ export class LLMModelBudgetService {
     // Manual upsert: select por (companyId, model) → update o insert.
     // No usamos `.upsert()` directo de supabase porque el unique es
     // expression-based (COALESCE) y no matchea el conflict target.
-    const existing = await this.findByCompanyModel(input.companyId, input.model);
+    const existing = await this.findByCompanyModel(
+      input.companyId,
+      input.model,
+    );
     if (existing) {
       const { data, error } = await this.supabase
         .from('llm_model_budgets')
@@ -142,9 +145,10 @@ export class LLMModelBudgetService {
       .from('llm_model_budgets')
       .select('*')
       .eq('model', model);
-    query = companyId === null
-      ? query.is('company_id', null)
-      : query.eq('company_id', companyId);
+    query =
+      companyId === null
+        ? query.is('company_id', null)
+        : query.eq('company_id', companyId);
     const { data, error } = await query.maybeSingle();
     if (error || !data) return null;
     return this.mapRow(data);

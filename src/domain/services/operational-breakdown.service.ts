@@ -127,7 +127,9 @@ export class OperationalBreakdownService {
       const deptTemplateIds = new Set(
         activeTemplates.filter((t) => t.departmentId === d.id).map((t) => t.id),
       );
-      const deptTemplates = activeTemplates.filter((t) => t.departmentId === d.id);
+      const deptTemplates = activeTemplates.filter(
+        (t) => t.departmentId === d.id,
+      );
       const deptAssignments = assignments.filter((a) =>
         deptTemplateIds.has(a.templateId),
       );
@@ -141,7 +143,10 @@ export class OperationalBreakdownService {
         weekStartsOn,
       );
       const fairnessCv = this._computeFairnessCv(deptFairness);
-      const totalHours = deptFairness.reduce((acc, f) => acc + f.hoursWorked, 0);
+      const totalHours = deptFairness.reduce(
+        (acc, f) => acc + f.hoursWorked,
+        0,
+      );
       const avgHoursPerEmployee =
         deptEmployees.length > 0
           ? Math.round((totalHours / deptEmployees.length) * 10) / 10
@@ -192,11 +197,16 @@ export class OperationalBreakdownService {
 
     const hoursByEmp = new Map<string, number>();
     for (const f of fairness) {
-      hoursByEmp.set(f.employeeId, (hoursByEmp.get(f.employeeId) ?? 0) + f.hoursWorked);
+      hoursByEmp.set(
+        f.employeeId,
+        (hoursByEmp.get(f.employeeId) ?? 0) + f.hoursWorked,
+      );
     }
     const allHours = Array.from(hoursByEmp.values()).filter((h) => h > 0);
     const meanHours =
-      allHours.length > 0 ? allHours.reduce((a, b) => a + b, 0) / allHours.length : 0;
+      allHours.length > 0
+        ? allHours.reduce((a, b) => a + b, 0) / allHours.length
+        : 0;
 
     const swapCountByEmp = this._countByKey(
       swapRes.data ?? [],
@@ -218,7 +228,10 @@ export class OperationalBreakdownService {
       const dayOffCount = dayOffCountByEmp.get(e.id) ?? 0;
       const reliabilityScore = Math.max(
         0,
-        Math.min(100, 100 - absenceCount * 10 - swapCount * 3 - dayOffCount * 2),
+        Math.min(
+          100,
+          100 - absenceCount * 10 - swapCount * 3 - dayOffCount * 2,
+        ),
       );
       return {
         id: e.id,
@@ -257,7 +270,9 @@ export class OperationalBreakdownService {
     const activeTemplates = templates.filter((t) => t.isActive);
 
     // assignmentId → templateId para mapear audit log a templates.
-    const tplByAssignmentId = new Map(assignments.map((a) => [a.id, a.templateId]));
+    const tplByAssignmentId = new Map(
+      assignments.map((a) => [a.id, a.templateId]),
+    );
     const auditCountByTpl = new Map<string, number>();
     for (const row of (auditRes.data ?? []) as Array<{ entity_id: string }>) {
       const tplId = tplByAssignmentId.get(row.entity_id);
@@ -286,7 +301,9 @@ export class OperationalBreakdownService {
         0,
       );
       const avgAssigned =
-        instancesCount > 0 ? Math.round((totalAssigned / instancesCount) * 10) / 10 : null;
+        instancesCount > 0
+          ? Math.round((totalAssigned / instancesCount) * 10) / 10
+          : null;
       const fillRate =
         required > 0 && instancesCount > 0
           ? Math.round((filled / instancesCount) * 1000) / 10
@@ -348,7 +365,10 @@ export class OperationalBreakdownService {
     let classifyTextCalls = 0;
     let classifyAudioCalls = 0;
     let totalTokens = 0;
-    for (const row of (llmRes.data ?? []) as Array<{ operation: string; total_tokens: number }>) {
+    for (const row of (llmRes.data ?? []) as Array<{
+      operation: string;
+      total_tokens: number;
+    }>) {
       if (row.operation === 'whatsapp_classify') {
         classifyTextCalls++;
         totalTokens += row.total_tokens ?? 0;
@@ -387,16 +407,25 @@ export class OperationalBreakdownService {
     return { from, to };
   }
 
-  private async _fetchFairnessForWeeks(companyId: string, weekStarts: string[]) {
+  private async _fetchFairnessForWeeks(
+    companyId: string,
+    weekStarts: string[],
+  ) {
     const allRows = await Promise.all(
       weekStarts.map((ws) =>
-        this.fairnessRepo.findByWeek(companyId, new Date(`${ws}T00:00:00.000Z`)),
+        this.fairnessRepo.findByWeek(
+          companyId,
+          new Date(`${ws}T00:00:00.000Z`),
+        ),
       ),
     );
     return allRows.flat();
   }
 
-  private _countByKey<T>(rows: T[], keyFn: (row: T) => string | null | undefined): Map<string, number> {
+  private _countByKey<T>(
+    rows: T[],
+    keyFn: (row: T) => string | null | undefined,
+  ): Map<string, number> {
     const out = new Map<string, number>();
     for (const row of rows) {
       const key = keyFn(row);
@@ -406,7 +435,9 @@ export class OperationalBreakdownService {
     return out;
   }
 
-  private _computeFairnessCv(fairness: Array<{ hoursWorked: number; employeeId: string }>): number | null {
+  private _computeFairnessCv(
+    fairness: Array<{ hoursWorked: number; employeeId: string }>,
+  ): number | null {
     // Suma de horas por empleado (puede haber múltiples weeks).
     const byEmp = new Map<string, number>();
     for (const f of fairness) {
@@ -416,9 +447,10 @@ export class OperationalBreakdownService {
     if (hours.length === 0) return null;
     const mean = hours.reduce((a, b) => a + b, 0) / hours.length;
     if (mean === 0) return null;
-    const variance = hours.reduce((acc, h) => acc + (h - mean) ** 2, 0) / hours.length;
+    const variance =
+      hours.reduce((acc, h) => acc + (h - mean) ** 2, 0) / hours.length;
     const stdDev = Math.sqrt(variance);
-    return Math.round(((stdDev / mean) * 100) * 10) / 10;
+    return Math.round((stdDev / mean) * 100 * 10) / 10;
   }
 
   /**

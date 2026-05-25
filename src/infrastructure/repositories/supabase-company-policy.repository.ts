@@ -36,9 +36,7 @@ interface CompanyPolicyRow {
  * `deleted_at IS NULL`.
  */
 @Injectable()
-export class SupabaseCompanyPolicyRepository
-  implements ICompanyPolicyRepository
-{
+export class SupabaseCompanyPolicyRepository implements ICompanyPolicyRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
@@ -76,10 +74,7 @@ export class SupabaseCompanyPolicyRepository
     }
   }
 
-  async findById(
-    id: string,
-    companyId: string,
-  ): Promise<CompanyPolicy | null> {
+  async findById(id: string, companyId: string): Promise<CompanyPolicy | null> {
     const { data, error } = await this.supabase
       .from('company_policies')
       .select('*')

@@ -17,35 +17,86 @@
 
 export const CAPABILITIES = {
   // Billing & ownership ─────────────────────────────────────────────
-  'billing:manage':         { description: 'Manage subscription, invoices, payment method', defaultRoles: ['owner'] },
-  'settings:manage':        { description: 'Edit company-level settings (timezone, week start, etc.)', defaultRoles: ['owner'] },
-  'team:assign_scope':      { description: 'Assign managers to branches/departments', defaultRoles: ['owner'] },
-  'team:grant_capability':  { description: 'Grant individual users extra capabilities ("owner-like")', defaultRoles: ['owner'] },
+  'billing:manage': {
+    description: 'Manage subscription, invoices, payment method',
+    defaultRoles: ['owner'],
+  },
+  'settings:manage': {
+    description: 'Edit company-level settings (timezone, week start, etc.)',
+    defaultRoles: ['owner'],
+  },
+  'team:assign_scope': {
+    description: 'Assign managers to branches/departments',
+    defaultRoles: ['owner'],
+  },
+  'team:grant_capability': {
+    description: 'Grant individual users extra capabilities ("owner-like")',
+    defaultRoles: ['owner'],
+  },
 
   // Workspace structure ─────────────────────────────────────────────
-  'branches:write':         { description: 'Create/edit/delete branches', defaultRoles: ['owner'] },
-  'departments:write':      { description: 'Create/edit/delete departments (scoped for managers)', defaultRoles: ['owner', 'manager'] },
+  'branches:write': {
+    description: 'Create/edit/delete branches',
+    defaultRoles: ['owner'],
+  },
+  'departments:write': {
+    description: 'Create/edit/delete departments (scoped for managers)',
+    defaultRoles: ['owner', 'manager'],
+  },
 
   // People ──────────────────────────────────────────────────────────
-  'employees:write':        { description: 'Create/edit employees (scoped for managers)', defaultRoles: ['owner', 'manager'] },
-  'employees:wages_read':   { description: 'View employee wages/salary info', defaultRoles: ['owner'] },
+  'employees:write': {
+    description: 'Create/edit employees (scoped for managers)',
+    defaultRoles: ['owner', 'manager'],
+  },
+  'employees:wages_read': {
+    description: 'View employee wages/salary info',
+    defaultRoles: ['owner'],
+  },
 
   // Policies & rules ────────────────────────────────────────────────
-  'policies:write':         { description: 'Create/edit company policies + semantic rules', defaultRoles: ['owner'] },
-  'policies:read':          { description: 'View policies + rules', defaultRoles: ['owner', 'manager'] },
+  'policies:write': {
+    description: 'Create/edit company policies + semantic rules',
+    defaultRoles: ['owner'],
+  },
+  'policies:read': {
+    description: 'View policies + rules',
+    defaultRoles: ['owner', 'manager'],
+  },
 
   // Scheduling ──────────────────────────────────────────────────────
-  'schedule:generate':      { description: 'Trigger AI schedule generation', defaultRoles: ['owner', 'manager'] },
-  'schedule:write':         { description: 'Edit shift assignments (scoped for managers)', defaultRoles: ['owner', 'manager'] },
+  'schedule:generate': {
+    description: 'Trigger AI schedule generation',
+    defaultRoles: ['owner', 'manager'],
+  },
+  'schedule:write': {
+    description: 'Edit shift assignments (scoped for managers)',
+    defaultRoles: ['owner', 'manager'],
+  },
 
   // Approvals ───────────────────────────────────────────────────────
-  'swaps:approve':          { description: 'Approve/reject shift swap requests', defaultRoles: ['owner', 'manager'] },
-  'absences:approve':       { description: 'Approve/reject absence reports', defaultRoles: ['owner', 'manager'] },
-  'incidents:manage':       { description: 'Manage incidents (resolve, close)', defaultRoles: ['owner', 'manager'] },
-  'dayoffs:approve':        { description: 'Approve/reject day-off requests', defaultRoles: ['owner', 'manager'] },
+  'swaps:approve': {
+    description: 'Approve/reject shift swap requests',
+    defaultRoles: ['owner', 'manager'],
+  },
+  'absences:approve': {
+    description: 'Approve/reject absence reports',
+    defaultRoles: ['owner', 'manager'],
+  },
+  'incidents:manage': {
+    description: 'Manage incidents (resolve, close)',
+    defaultRoles: ['owner', 'manager'],
+  },
+  'dayoffs:approve': {
+    description: 'Approve/reject day-off requests',
+    defaultRoles: ['owner', 'manager'],
+  },
 
   // Observability ───────────────────────────────────────────────────
-  'audit:read':             { description: 'View audit log (security events)', defaultRoles: ['owner', 'manager', 'employee'] },
+  'audit:read': {
+    description: 'View audit log (security events)',
+    defaultRoles: ['owner', 'manager', 'employee'],
+  },
 } as const;
 
 export type Capability = keyof typeof CAPABILITIES;
@@ -66,7 +117,12 @@ export const SCOPED_CAPABILITIES: ReadonlySet<Capability> = new Set([
 export function defaultsForRole(
   role: 'owner' | 'manager' | 'employee',
 ): Capability[] {
-  return (Object.entries(CAPABILITIES) as [Capability, { defaultRoles: readonly string[] }][])
+  return (
+    Object.entries(CAPABILITIES) as [
+      Capability,
+      { defaultRoles: readonly string[] },
+    ][]
+  )
     .filter(([, def]) => def.defaultRoles.includes(role))
     .map(([cap]) => cap);
 }

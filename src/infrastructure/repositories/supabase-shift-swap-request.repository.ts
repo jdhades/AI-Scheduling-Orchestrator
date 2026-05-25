@@ -7,9 +7,7 @@ import type {
 } from '../../domain/repositories/shift-swap-request.repository';
 
 @Injectable()
-export class SupabaseShiftSwapRequestRepository
-  implements IShiftSwapRequestRepository
-{
+export class SupabaseShiftSwapRequestRepository implements IShiftSwapRequestRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
@@ -65,6 +63,8 @@ export class SupabaseShiftSwapRequestRepository
       throw new Error(
         `ShiftSwapRequestRepository.findAllByCompany: ${error.message}`,
       );
-    return (data ?? []).map((r) => ShiftSwapRequest.fromPersistence(r as never));
+    return (data ?? []).map((r) =>
+      ShiftSwapRequest.fromPersistence(r as never),
+    );
   }
 }

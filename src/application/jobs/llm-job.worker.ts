@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import type { Job } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
@@ -57,10 +53,7 @@ export class LlmJobWorker implements OnApplicationBootstrap {
     const boss = this.pgBoss.getInstance();
     const concurrency = Math.max(
       1,
-      Math.min(
-        parseInt(process.env.LLM_WORKER_CONCURRENCY ?? '2', 10) || 2,
-        5,
-      ),
+      Math.min(parseInt(process.env.LLM_WORKER_CONCURRENCY ?? '2', 10) || 2, 5),
     );
     const workOpts = {
       batchSize: concurrency,

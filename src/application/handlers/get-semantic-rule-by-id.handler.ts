@@ -7,9 +7,7 @@ import {
 } from '../../domain/repositories/semantic-rule.repository.interface';
 
 @QueryHandler(GetSemanticRuleByIdQuery)
-export class GetSemanticRuleByIdHandler
-  implements IQueryHandler<GetSemanticRuleByIdQuery>
-{
+export class GetSemanticRuleByIdHandler implements IQueryHandler<GetSemanticRuleByIdQuery> {
   constructor(
     @Inject(SEMANTIC_RULE_REPOSITORY_TOKEN)
     private readonly ruleRepository: ISemanticRuleRepository,

@@ -106,10 +106,7 @@ export class AbsenceReportsController {
     // ej. el manager registra la ausencia de un empleado que avisó por
     // teléfono). El scope check de manager (depto) ya lo maneja
     // ManagerScopeService en otros endpoints; acá basta el role gate.
-    if (
-      user?.role === 'employee' &&
-      dto.employeeId !== user.employeeId
-    ) {
+    if (user?.role === 'employee' && dto.employeeId !== user.employeeId) {
       throw new ForbiddenException(
         'Cannot file absence reports on behalf of another employee',
       );
@@ -144,8 +141,7 @@ export class AbsenceReportsController {
   ): Promise<object[]> {
     const rows = await this.repo.findAllByCompany(companyId, {
       employeeId,
-      isUrgent:
-        isUrgent === undefined ? undefined : isUrgent === 'true',
+      isUrgent: isUrgent === undefined ? undefined : isUrgent === 'true',
       fromISO,
     });
     if (managerEmployeeId) {

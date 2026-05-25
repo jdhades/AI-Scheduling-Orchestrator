@@ -4,9 +4,7 @@ import { RejectIncidentCommand } from '../commands/reject-incident.command';
 import { IncidentRepository } from '../../infrastructure/database/incident.repository';
 
 @CommandHandler(RejectIncidentCommand)
-export class RejectIncidentHandler
-  implements ICommandHandler<RejectIncidentCommand>
-{
+export class RejectIncidentHandler implements ICommandHandler<RejectIncidentCommand> {
   constructor(
     private readonly incidentRepo: IncidentRepository,
     private readonly eventBus: EventBus,

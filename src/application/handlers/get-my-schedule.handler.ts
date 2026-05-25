@@ -11,9 +11,10 @@ import { CompanyPreferencesService } from '../services/company-preferences.servi
 import { weekStartOf, type WeekStartsOn } from '../../domain/shared/week';
 
 @QueryHandler(GetMyScheduleQuery)
-export class GetMyScheduleHandler
-  implements IQueryHandler<GetMyScheduleQuery, string>
-{
+export class GetMyScheduleHandler implements IQueryHandler<
+  GetMyScheduleQuery,
+  string
+> {
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
     private readonly assignmentRepo: IShiftAssignmentRepository,
@@ -25,7 +26,8 @@ export class GetMyScheduleHandler
 
   async execute(query: GetMyScheduleQuery): Promise<string> {
     const { employeeId, companyId, weekStart, locale, forEmployeeName } = query;
-    const weekStartsOn = await this.companyPreferences.getWeekStartsOn(companyId);
+    const weekStartsOn =
+      await this.companyPreferences.getWeekStartsOn(companyId);
 
     const reference = weekStart
       ? new Date(`${weekStart}T00:00:00.000Z`)
@@ -74,7 +76,9 @@ export class GetMyScheduleHandler
       );
     }
 
-    const templateIds = Array.from(new Set(assignments.map((a) => a.templateId)));
+    const templateIds = Array.from(
+      new Set(assignments.map((a) => a.templateId)),
+    );
     const templates = new Map<string, ShiftTemplate>();
     await Promise.all(
       templateIds.map(async (id) => {

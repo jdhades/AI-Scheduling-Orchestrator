@@ -128,12 +128,14 @@ export class SupabaseSemanticRuleRepository implements ISemanticRuleRepository {
     patch: SemanticRuleMetadataPatch,
   ): Promise<void> {
     const row: Record<string, unknown> = {};
-    if (patch.priorityLevel !== undefined) row.priority_level = patch.priorityLevel;
+    if (patch.priorityLevel !== undefined)
+      row.priority_level = patch.priorityLevel;
     if (patch.isActive !== undefined) row.is_active = patch.isActive;
     if (patch.expiresAt !== undefined)
       row.expires_at = patch.expiresAt ? patch.expiresAt.toISOString() : null;
     if (patch.branchId !== undefined) row.branch_id = patch.branchId;
-    if (patch.departmentId !== undefined) row.department_id = patch.departmentId;
+    if (patch.departmentId !== undefined)
+      row.department_id = patch.departmentId;
 
     if (Object.keys(row).length === 0) return;
 
@@ -205,7 +207,7 @@ function parseEmbedding(raw: unknown): number[] | null {
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'number')) {
-        return parsed as number[];
+        return parsed;
       }
     } catch {
       // No es JSON parseable — el embedding quedará como null.

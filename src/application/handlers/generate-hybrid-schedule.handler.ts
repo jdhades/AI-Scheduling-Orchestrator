@@ -47,7 +47,12 @@ export interface HybridScheduleResult {
    * llm_runtime + traducción de rules). NO incluye los del clasificador
    * de WhatsApp (esos calls viven fuera del scope del handler).
    */
-  llmUsage?: { calls: number; prompt: number; completion: number; total: number };
+  llmUsage?: {
+    calls: number;
+    prompt: number;
+    completion: number;
+    total: number;
+  };
 }
 
 /**
@@ -62,9 +67,10 @@ export interface HybridScheduleResult {
  *   6. Actualiza historial de fairness
  */
 @CommandHandler(GenerateHybridScheduleCommand)
-export class GenerateHybridScheduleHandler
-  implements ICommandHandler<GenerateHybridScheduleCommand, HybridScheduleResult>
-{
+export class GenerateHybridScheduleHandler implements ICommandHandler<
+  GenerateHybridScheduleCommand,
+  HybridScheduleResult
+> {
   private readonly logger = new Logger(GenerateHybridScheduleHandler.name);
 
   constructor(
@@ -125,15 +131,19 @@ export class GenerateHybridScheduleHandler
     const deptOverridesById = new Map<string, WorkingTimePolicyOverrides>();
     for (const d of deptsRes.data ?? []) {
       deptOverridesById.set(d.id, {
-        maxHoursPerDay: d.max_hours_per_day != null ? Number(d.max_hours_per_day) : null,
-        maxHoursPerWeek: d.max_hours_per_week != null ? Number(d.max_hours_per_week) : null,
+        maxHoursPerDay:
+          d.max_hours_per_day != null ? Number(d.max_hours_per_day) : null,
+        maxHoursPerWeek:
+          d.max_hours_per_week != null ? Number(d.max_hours_per_week) : null,
       });
     }
 
     const result = new Map<string, WorkingTimePolicyVO>();
     let customCount = 0;
     for (const emp of employees) {
-      const dept = emp.departmentId ? deptOverridesById.get(emp.departmentId) : undefined;
+      const dept = emp.departmentId
+        ? deptOverridesById.get(emp.departmentId)
+        : undefined;
       const policy = WorkingTimePolicyResolver.resolve({
         employee: emp.workingTimeOverrides,
         department: dept,
@@ -265,7 +275,8 @@ export class GenerateHybridScheduleHandler
       );
     }
 
-    const slots: VirtualShiftSlot[] = this.shiftSlotGenerator.generateSlotsForWeek(templates, weekStart);
+    const slots: VirtualShiftSlot[] =
+      this.shiftSlotGenerator.generateSlotsForWeek(templates, weekStart);
 
     // Capacidades pasan como HINT al orchestrator/strategies (target de distribución,
     // NO cuota obligatoria). `null` = slot elástico (recibe leftovers del round-robin).
@@ -303,12 +314,16 @@ export class GenerateHybridScheduleHandler
     // Dejamos logs informativos para trazabilidad.
     if (resolved.complexRules.length > 0) {
       resolved.complexRules.forEach((r) =>
-        this.logger.log(`Regla compleja (interpretada por el LLM): "${r.ruleText}" — ${r.reason}`),
+        this.logger.log(
+          `Regla compleja (interpretada por el LLM): "${r.ruleText}" — ${r.reason}`,
+        ),
       );
     }
     if (resolved.unstructuredRules.length > 0) {
       resolved.unstructuredRules.forEach((r) =>
-        this.logger.log(`Regla sin estructura (interpretada por el LLM): "${r.ruleText}"`),
+        this.logger.log(
+          `Regla sin estructura (interpretada por el LLM): "${r.ruleText}"`,
+        ),
       );
     }
 
@@ -418,7 +433,12 @@ export class GenerateHybridScheduleHandler
     const warnings: string[] = [];
     for (const u of buildResult.underfilled) {
       warnings.push(
-        this.i18nWarnUnderfilled(u.slot, u.target, u.filled, command.locale ?? 'es'),
+        this.i18nWarnUnderfilled(
+          u.slot,
+          u.target,
+          u.filled,
+          command.locale ?? 'es',
+        ),
       );
     }
     // Phase 14 — el builder agrega warnings cuando el verify-loop best-of-three
@@ -513,9 +533,8 @@ export class GenerateHybridScheduleHandler
     // mantener una sola query lectiva por generación, iteramos
     // templates en paralelo (cada uno es 1 SELECT). Para 10-30
     // templates típicos esto es O(<50ms) en local.
-    const templates = await this.shiftTemplateRepository.findAllByCompany(
-      companyId,
-    );
+    const templates =
+      await this.shiftTemplateRepository.findAllByCompany(companyId);
     const lists = await Promise.all(
       templates.map((t) =>
         this.templateBreakRepository.findByTemplateId(t.id, companyId),

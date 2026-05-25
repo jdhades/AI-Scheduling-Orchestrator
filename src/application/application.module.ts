@@ -135,7 +135,11 @@ const EventHandlers = [
   AbsenceReportedHandler,
 ];
 
-const ConversationalServices = [MessageRouterService, CommandMapperService, PolicyScopeResolver];
+const ConversationalServices = [
+  MessageRouterService,
+  CommandMapperService,
+  PolicyScopeResolver,
+];
 
 const DomainServices = [
   SemanticRetrievalService,

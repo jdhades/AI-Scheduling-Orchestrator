@@ -26,7 +26,10 @@ export class SwapShiftHandler implements ICommandHandler<SwapShiftCommand> {
       assignmentId,
       companyId,
     );
-    if (!requesterAssignment || requesterAssignment.employeeId !== requesterId) {
+    if (
+      !requesterAssignment ||
+      requesterAssignment.employeeId !== requesterId
+    ) {
       throw new Error(
         `Assignment ${assignmentId} is not assigned to the requesting employee`,
       );

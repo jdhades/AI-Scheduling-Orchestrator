@@ -7,9 +7,7 @@ import {
 } from '../../domain/repositories/semantic-rule.repository.interface';
 
 @CommandHandler(UpdateSemanticRuleMetadataCommand)
-export class UpdateSemanticRuleMetadataHandler
-  implements ICommandHandler<UpdateSemanticRuleMetadataCommand>
-{
+export class UpdateSemanticRuleMetadataHandler implements ICommandHandler<UpdateSemanticRuleMetadataCommand> {
   constructor(
     @Inject(SEMANTIC_RULE_REPOSITORY_TOKEN)
     private readonly ruleRepository: ISemanticRuleRepository,

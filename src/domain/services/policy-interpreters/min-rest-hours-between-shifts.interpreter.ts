@@ -39,9 +39,7 @@ const SPANISH_NUMBERS: Record<string, number> = {
  * persista con interpreterId estructurado en lugar de quedar LLM-only.
  */
 @Injectable()
-export class MinRestHoursBetweenShiftsInterpreter
-  implements PolicyInterpreter<MinRestHoursParams>
-{
+export class MinRestHoursBetweenShiftsInterpreter implements PolicyInterpreter<MinRestHoursParams> {
   readonly id = 'min_rest_hours_between_shifts';
   readonly description =
     'Cada empleado debe tener al menos N horas de descanso entre turnos consecutivos.';
@@ -56,7 +54,10 @@ export class MinRestHoursBetweenShiftsInterpreter
   matches(text: string): boolean {
     const t = text.toLowerCase();
     const hasRest = /descans|rest\s|de descanso/.test(t);
-    const hasBetween = /entre turnos|entre cada turno|between shifts|between consecutive shifts/.test(t);
+    const hasBetween =
+      /entre turnos|entre cada turno|between shifts|between consecutive shifts/.test(
+        t,
+      );
     const hourRe = MinRestHoursBetweenShiftsInterpreter.NUM_HOUR;
     const hasNumber =
       new RegExp(`\\b\\d+${hourRe}\\b`).test(t) ||

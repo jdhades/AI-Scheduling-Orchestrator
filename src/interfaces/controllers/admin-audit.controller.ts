@@ -27,7 +27,11 @@ export interface EntityAuditRow {
   id: string;
   companyId: string;
   companyName: string | null;
-  entityType: 'shift_assignment' | 'shift_template' | 'employee' | 'company_policy';
+  entityType:
+    | 'shift_assignment'
+    | 'shift_template'
+    | 'employee'
+    | 'company_policy';
   entityId: string;
   action: 'create' | 'update' | 'delete';
   changes: Record<string, { before: unknown; after: unknown }>;
@@ -93,10 +97,14 @@ export class AdminAuditController {
     return rows.map((r) => ({
       id: r.id,
       companyId: r.company_id,
-      companyName: r.company_id ? (companyNames.get(r.company_id) ?? null) : null,
+      companyName: r.company_id
+        ? (companyNames.get(r.company_id) ?? null)
+        : null,
       authUserId: r.auth_user_id,
       employeeId: r.employee_id,
-      employeeName: r.employee_id ? (employeeNames.get(r.employee_id) ?? null) : null,
+      employeeName: r.employee_id
+        ? (employeeNames.get(r.employee_id) ?? null)
+        : null,
       event: r.event,
       ipAddress: r.ip_address,
       userAgent: r.user_agent,

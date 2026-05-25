@@ -1,6 +1,8 @@
 import type { ShiftMembership } from '../aggregates/shift-membership.aggregate';
 
-export const SHIFT_MEMBERSHIP_REPOSITORY = Symbol('SHIFT_MEMBERSHIP_REPOSITORY');
+export const SHIFT_MEMBERSHIP_REPOSITORY = Symbol(
+  'SHIFT_MEMBERSHIP_REPOSITORY',
+);
 
 /**
  * IShiftMembershipRepository — port de dominio
@@ -36,7 +38,10 @@ export interface IShiftMembershipRepository {
    * Retorna todas las membresías activas en la fecha dada (inclusive).
    * Filtro: effective_from <= date AND (effective_until IS NULL OR effective_until >= date).
    */
-  findActiveOnDate(companyId: string, dateISO: string): Promise<ShiftMembership[]>;
+  findActiveOnDate(
+    companyId: string,
+    dateISO: string,
+  ): Promise<ShiftMembership[]>;
 
   /**
    * Retorna todas las membresías activas en cualquier día dentro de un rango
@@ -49,8 +54,14 @@ export interface IShiftMembershipRepository {
   ): Promise<ShiftMembership[]>;
 
   /** Todas las membresías de un empleado (históricas + futuras). */
-  findByEmployee(employeeId: string, companyId: string): Promise<ShiftMembership[]>;
+  findByEmployee(
+    employeeId: string,
+    companyId: string,
+  ): Promise<ShiftMembership[]>;
 
   /** Todas las membresías asignadas a un template concreto. */
-  findByTemplate(templateId: string, companyId: string): Promise<ShiftMembership[]>;
+  findByTemplate(
+    templateId: string,
+    companyId: string,
+  ): Promise<ShiftMembership[]>;
 }

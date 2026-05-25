@@ -84,10 +84,7 @@ export class AdminLLMUsageController {
     const { data, error } = await query;
     if (error) return [];
 
-    const byOp = new Map<
-      string,
-      { success: number; error: number }
-    >();
+    const byOp = new Map<string, { success: number; error: number }>();
     for (const r of data ?? []) {
       const op = r.operation as string;
       const acc = byOp.get(op) ?? { success: 0, error: 0 };

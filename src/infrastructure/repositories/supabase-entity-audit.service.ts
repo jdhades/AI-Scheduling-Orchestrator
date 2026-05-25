@@ -31,7 +31,10 @@ export class SupabaseEntityAuditService implements IEntityAuditService {
   ) {}
 
   async log(params: LogParams): Promise<void> {
-    if (params.action === 'update' && Object.keys(params.changes).length === 0) {
+    if (
+      params.action === 'update' &&
+      Object.keys(params.changes).length === 0
+    ) {
       return;
     }
     const { error } = await this.supabase.from('entity_audit_log').insert({

@@ -56,10 +56,7 @@ export class TrialGuard implements CanActivate {
       return true;
     }
 
-    const { subscription_status: status, trial_ends_at: trialEndsAt } = data as {
-      subscription_status: string;
-      trial_ends_at: string | null;
-    };
+    const { subscription_status: status, trial_ends_at: trialEndsAt } = data;
 
     if (status === 'active' || status === 'past_due') return true;
 

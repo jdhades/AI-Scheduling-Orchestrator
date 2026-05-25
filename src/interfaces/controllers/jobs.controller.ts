@@ -54,11 +54,9 @@ interface JobStateDTO {
 @Controller('jobs')
 export class JobsController {
   private static readonly QUEUE_NAME = JOB_SCHEDULE_GENERATE;
-  private static readonly IN_FLIGHT_STATES: ReadonlyArray<JobWithMetadata['state']> = [
-    'created',
-    'retry',
-    'active',
-  ];
+  private static readonly IN_FLIGHT_STATES: ReadonlyArray<
+    JobWithMetadata['state']
+  > = ['created', 'retry', 'active'];
 
   constructor(
     private readonly pgBoss: PgBossService,
@@ -80,9 +78,7 @@ export class JobsController {
    * 'active' no matchee `:id`.
    */
   @Get('active')
-  async getActive(
-    @CurrentCompany() companyId: string,
-  ): Promise<JobStateDTO[]> {
+  async getActive(@CurrentCompany() companyId: string): Promise<JobStateDTO[]> {
     if (!this.pgBoss.isEnabled()) return [];
     const boss = this.pgBoss.getInstance();
     // findJobs con `data: { companyId }` filtra via `data @> $1` (jsonb
@@ -94,13 +90,10 @@ export class JobsController {
       { data: { companyId } },
     );
     return jobs
-      .filter((j) =>
-        JobsController.IN_FLIGHT_STATES.includes(j.state),
-      )
+      .filter((j) => JobsController.IN_FLIGHT_STATES.includes(j.state))
       .sort(
         (a, b) =>
-          new Date(b.createdOn).getTime() -
-          new Date(a.createdOn).getTime(),
+          new Date(b.createdOn).getTime() - new Date(a.createdOn).getTime(),
       )
       .map((j) => this._toDto(j));
   }
@@ -217,7 +210,9 @@ export class JobsController {
     }
   }
 
-  private _toDto(job: JobWithMetadata<ScheduleGenerationJobPayload>): JobStateDTO {
+  private _toDto(
+    job: JobWithMetadata<ScheduleGenerationJobPayload>,
+  ): JobStateDTO {
     return {
       id: job.id,
       name: job.name,
