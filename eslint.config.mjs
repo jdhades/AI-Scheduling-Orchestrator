@@ -62,4 +62,13 @@ export default tseslint.config(
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
+  {
+    // Tests usan `require()` para jest.mock dinámico y para invalidar
+    // module cache entre casos. Es idiomático en jest — no lo forzamos
+    // a ES imports.
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 );
