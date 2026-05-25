@@ -1,0 +1,141 @@
+# Compose para el VPS (staging y prod).
+#
+# Levanta 3 servicios:
+#   - backend   → API orchestrator (NestJS, puerto 4000 interno)
+#   - frontend  → Vite SPA servida por nginx (puerto 80 interno)
+#   - redis     → cache + throttler (no expuesto al host)
+#
+# Las imágenes vienen de GHCR (private). El VPS necesita `docker login
+# ghcr.io` previo, con el PAT classic con scope `read:packages`.
+#
+# Routing externo: NPM (Nginx Proxy Manager) corre en el mismo host,
+# en su propio container y network. Los servicios se atachan a la red
+# externa de NPM (`npm_default` por default — verificar con
+# `docker network ls`). NPM proxy hosts:
+#   app.<dominio>  → frontend:80
+#   api.<dominio>  → backend:4000
+#
+# Secretos van en .env (junto a este compose). Ese archivo NUNCA se
+# commitea. Usar deploy/.env.example como template.
+#
+# Operación típica:
+#   cd /opt/docker/ai-scheduling
+#   docker compose pull
+#   docker compose up -d
+#   docker compose logs -f backend
+
+name: ai-scheduling
+
+services:
+  backend:
+    image: ghcr.io/alternetica-io/ai-scheduling-orchestrator:${BACKEND_TAG:-latest}
+    container_name: as-backend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      # Overrides hardcoded del compose — el resto viene de .env. Estos
+      # son los que NO deberían cambiar entre entornos staging/prod.
+      - NODE_ENV=production
+      - PORT=4000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1536M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - npm
+      - internal
+
+  frontend:
+    image: ghcr.io/alternetica-io/ai-scheduling-frontend:${FRONTEND_TAG:-latest}
+    container_name: as-frontend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - npm
+
+  redis:
+    image: redis:7-alpine
+    container_name: as-redis
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 320M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    networks:
+      - internal
+
+networks:
+  # Red externa de NPM (Nginx Proxy Manager). En este VPS la red se
+  # llama `proxy-network` y la comparten todos los servicios que NPM
+  # proxea (nginx-proxy-manager, gs_*, alternetica-web, mail-poste,
+  # portainer, etc.). El nombre se puede sobreescribir desde .env si
+  # se migra a otro server con otra convención.
+  npm:
+    external: true
+    name: ${NPM_NETWORK:-proxy-network}
+
+  # Red interna del stack: backend ↔ redis. No expuesta al exterior.
+  internal:
+    driver: bridge
+    internal: true
