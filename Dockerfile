@@ -44,7 +44,7 @@ FROM node:${NODE_VERSION}
 ARG COMMIT=unknown
 LABEL org.opencontainers.image.source="https://github.com/alternetica-io/AI-Scheduling-Orchestrator"
 LABEL org.opencontainers.image.revision="${COMMIT}"
-LABEL org.opencontainers.image.description="Hongoshop scheduling orchestrator (NestJS + pg-boss)"
+LABEL org.opencontainers.image.description="AI Scheduling Orchestrator (NestJS + pg-boss)"
 
 # wget viene en alpine base — lo usamos en el healthcheck. tini no es
 # necesario: NestJS maneja SIGTERM correctamente via OnApplicationShutdown.

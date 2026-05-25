@@ -10,11 +10,11 @@
 # host) — para eso usa host.docker.internal. Si no tenés Supabase local
 # corriendo, primero arrancalo con `pnpm supabase start`.
 #
-# NO se usa para deploy en el VPS — eso vive en /opt/docker/hongoshop/
+# NO se usa para deploy en el VPS — eso vive en /opt/docker/ai-scheduling/
 # con su propio compose (con NPM network, sin redis interno si compartimos
 # uno, etc.).
 
-name: hs-orchestrator-local
+name: as-orchestrator-local
 
 services:
   backend:
@@ -22,8 +22,8 @@ services:
       context: .
       args:
         COMMIT: local-test
-    image: hs-orchestrator:local
-    container_name: hs-backend-local
+    image: as-orchestrator:local
+    container_name: as-backend-local
     restart: "no"
     security_opt:
       - no-new-privileges:true
@@ -55,7 +55,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: hs-redis-local
+    container_name: as-redis-local
     restart: "no"
     security_opt:
       - no-new-privileges:true
