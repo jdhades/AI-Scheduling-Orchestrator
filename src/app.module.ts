@@ -15,6 +15,7 @@ import { InterfacesModule } from './interfaces/interfaces.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
 import { ObservabilityModule } from './infrastructure/observability/observability.module';
 import { StripeModule } from './infrastructure/stripe/stripe.module';
+import { IntegrationsModule } from './infrastructure/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -43,6 +44,10 @@ import { StripeModule } from './infrastructure/stripe/stripe.module';
     InterfacesModule,
     AuthModule,
     StripeModule,
+    // @Global — accesible desde TwilioService, EmailService, LLM services
+    // sin necesidad de re-importarlo en cada módulo. Mantiene la cache
+    // de creds + EventEmitter compartido para reload dinámico.
+    IntegrationsModule,
   ],
   controllers: [AppController],
   providers: [

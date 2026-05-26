@@ -1,0 +1,189 @@
+-- =============================================================================
+-- integration_credentials — credenciales de APIs externas gestionadas desde
+-- el panel de admin platform (cross-tenant).
+-- =============================================================================
+-- Reemplaza las TWILIO_*, RESEND_API_KEY, QWEN_API_KEY, GEMINI_API_KEY,
+-- LLM_LOCAL_* en .env del backend. Stripe queda en .env (su signing
+-- secret necesita estabilidad para verificar webhooks).
+--
+-- Modelo:
+--   - 1 row por (provider, environment) — ej. ('twilio','test'),
+--     ('twilio','production'), ('resend','test')...
+--   - Credenciales sensibles en vault.secrets (cifradas pgsodium), referenciadas
+--     por vault_secret_id. La columna `secret` adentro de Vault es un JSON
+--     con todos los campos del provider (account_sid, auth_token, etc.).
+--   - Campos no-sensibles en `metadata` JSONB (last_test_ok_at, model name).
+--   - `enabled` flag controla si el service del backend hace calls reales o
+--     se mantiene en no-op.
+--
+-- RLS: solo platform_admin (super o support) puede leer/escribir.
+--   - Lectura de las creds reales requiere SECURITY DEFINER + grant a vault
+--     (el backend usa service_role que bypasea RLS, pero la UI vía supabase-js
+--     anon NO debe poder leer vault.secrets directo).
+-- =============================================================================
+
+-- Tabla principal — metadata + apuntador al secret en Vault
+CREATE TABLE IF NOT EXISTS public.integration_credentials (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  provider        TEXT NOT NULL,
+  environment     TEXT NOT NULL,
+  enabled         BOOLEAN NOT NULL DEFAULT false,
+  vault_secret_id UUID,                     -- NULL = sin creds cargadas (placeholder de UI)
+  metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  last_test_at    TIMESTAMPTZ,
+  last_test_ok    BOOLEAN,
+  last_test_error TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  UNIQUE (provider, environment),
+  CHECK (provider IN (
+    'twilio', 'resend', 'qwen', 'gemini', 'local_llm'
+  )),
+  CHECK (environment IN ('test', 'production'))
+);
+
+CREATE INDEX IF NOT EXISTS integration_credentials_provider_idx
+  ON public.integration_credentials (provider);
+
+COMMENT ON TABLE public.integration_credentials IS
+  'Config + apuntador a vault.secrets para credenciales de APIs externas. Editable solo por platform_admin via /admin/integrations.';
+
+-- Auto-actualizar updated_at
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER LANGUAGE PLPGSQL AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS integration_credentials_updated_at ON public.integration_credentials;
+CREATE TRIGGER integration_credentials_updated_at
+  BEFORE UPDATE ON public.integration_credentials
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ─── RLS — solo platform_admin ─────────────────────────────────────────────
+ALTER TABLE public.integration_credentials ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS integration_credentials_platform_admin
+  ON public.integration_credentials;
+CREATE POLICY integration_credentials_platform_admin
+  ON public.integration_credentials
+  FOR ALL TO authenticated
+  USING (public.is_platform_admin())
+  WITH CHECK (public.is_platform_admin());
+
+-- ─── Helper functions (SECURITY DEFINER) ───────────────────────────────────
+-- Encriptación/lectura de creds via Vault. SECURITY DEFINER porque la
+-- lectura de vault.decrypted_secrets requiere rol elevado; los helpers
+-- garantizan que solo platform_admin las invoque vía el chequeo interno.
+
+-- Crear o reemplazar el secret de una integración + actualizar el row.
+-- Args:
+--   p_provider:    'twilio' | 'resend' | ...
+--   p_environment: 'test' | 'production'
+--   p_secret_json: JSON con credenciales (objeto plano: {field: value})
+--   p_metadata:    JSONB público (opcional)
+--   p_enabled:     boolean — toggle activo/inactivo
+-- Returns: id del row de integration_credentials
+CREATE OR REPLACE FUNCTION public.upsert_integration_credential(
+  p_provider TEXT,
+  p_environment TEXT,
+  p_secret_json JSONB,
+  p_metadata JSONB DEFAULT '{}'::jsonb,
+  p_enabled BOOLEAN DEFAULT false
+)
+RETURNS UUID
+LANGUAGE PLPGSQL
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_row     public.integration_credentials;
+  v_sec_id  UUID;
+  v_name    TEXT := format('integration:%s:%s', p_provider, p_environment);
+BEGIN
+  IF NOT public.is_platform_admin() THEN
+    RAISE EXCEPTION 'Only platform admins can upsert integration credentials';
+  END IF;
+
+  SELECT * INTO v_row
+    FROM public.integration_credentials
+    WHERE provider = p_provider AND environment = p_environment;
+
+  IF v_row.id IS NULL THEN
+    -- Crear secret nuevo + insertar row
+    v_sec_id := vault.create_secret(p_secret_json::text, v_name, 'auto-generated by upsert_integration_credential');
+    INSERT INTO public.integration_credentials (
+      provider, environment, enabled, vault_secret_id, metadata
+    ) VALUES (
+      p_provider, p_environment, COALESCE(p_enabled, false), v_sec_id, COALESCE(p_metadata, '{}'::jsonb)
+    )
+    RETURNING id INTO v_sec_id;  -- reusamos var como out-param
+    RETURN v_sec_id;
+  ELSE
+    -- Update existente: si había secret, lo updateamos; sino, crear.
+    IF v_row.vault_secret_id IS NULL THEN
+      v_sec_id := vault.create_secret(p_secret_json::text, v_name, 'auto-generated by upsert_integration_credential');
+      UPDATE public.integration_credentials
+        SET vault_secret_id = v_sec_id,
+            enabled = COALESCE(p_enabled, enabled),
+            metadata = COALESCE(p_metadata, metadata)
+        WHERE id = v_row.id;
+    ELSE
+      PERFORM vault.update_secret(v_row.vault_secret_id, p_secret_json::text, v_name);
+      UPDATE public.integration_credentials
+        SET enabled = COALESCE(p_enabled, enabled),
+            metadata = COALESCE(p_metadata, metadata)
+        WHERE id = v_row.id;
+    END IF;
+    RETURN v_row.id;
+  END IF;
+END;
+$$;
+
+-- Leer el secret + metadata de una integración.
+-- El backend usa esta función con service_role para inicializar services.
+CREATE OR REPLACE FUNCTION public.get_integration_credential(
+  p_provider TEXT,
+  p_environment TEXT
+)
+RETURNS TABLE (
+  enabled BOOLEAN,
+  credentials JSONB,
+  metadata JSONB
+)
+LANGUAGE PLPGSQL
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_row public.integration_credentials;
+  v_secret TEXT;
+BEGIN
+  SELECT * INTO v_row
+    FROM public.integration_credentials
+    WHERE provider = p_provider AND environment = p_environment;
+  IF v_row.id IS NULL THEN
+    RETURN;  -- vacío → caller trata como "no configurado"
+  END IF;
+  IF v_row.vault_secret_id IS NULL THEN
+    enabled := v_row.enabled;
+    credentials := '{}'::jsonb;
+    metadata := v_row.metadata;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+  SELECT decrypted_secret INTO v_secret
+    FROM vault.decrypted_secrets
+    WHERE id = v_row.vault_secret_id;
+  enabled := v_row.enabled;
+  credentials := COALESCE(v_secret::jsonb, '{}'::jsonb);
+  metadata := v_row.metadata;
+  RETURN NEXT;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.upsert_integration_credential(TEXT, TEXT, JSONB, JSONB, BOOLEAN) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_integration_credential(TEXT, TEXT) TO authenticated, service_role;

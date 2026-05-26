@@ -33,7 +33,7 @@ const MOCK_ACCOUNT_SID = 'ACtest00000000000000000000000000000';
 const MOCK_AUTH_TOKEN = 'test_auth_token_00000000000000000000';
 const MOCK_FROM_NUMBER = '+14155238886';
 
-function buildService(): TwilioService {
+async function buildService(): Promise<TwilioService> {
   const configService = {
     get: jest.fn((key: string) => {
       const map: Record<string, string> = {
@@ -45,15 +45,24 @@ function buildService(): TwilioService {
     }),
   } as unknown as ConfigService;
 
-  return new TwilioService(configService);
+  // Mock IntegrationCredentialsService: nada configurado en DB →
+  // TwilioService cae al fallback de .env (legacy path testeado acá).
+  const integrations = {
+    get: jest.fn().mockResolvedValue(null),
+    activeEnv: 'test',
+  } as unknown as import('../../../src/infrastructure/integrations/integration-credentials.service').IntegrationCredentialsService;
+
+  const svc = new TwilioService(configService, integrations);
+  await svc.onModuleInit();
+  return svc;
 }
 
 describe('TwilioService', () => {
   let service: TwilioService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
-    service = buildService();
+    service = await buildService();
   });
 
   describe('sendWhatsApp()', () => {
