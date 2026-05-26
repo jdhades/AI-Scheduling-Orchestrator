@@ -131,7 +131,12 @@ describe('CompanyPolicyCreator', () => {
       }),
     );
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(repo, registry, llm, makePromptHistory());
+    const creator = new CompanyPolicyCreator(
+      repo,
+      registry,
+      llm,
+      makePromptHistory(),
+    );
 
     const result = await creator.create({
       ...baseInput,
@@ -147,7 +152,9 @@ describe('CompanyPolicyCreator', () => {
   });
 
   it('texto que el matcher no entiende + severity=hard: cae a llm_runtime con el texto original', async () => {
-    const llm = makeLlm(async () => 'Custom shift pattern: 24h on / 48h off rotation.');
+    const llm = makeLlm(
+      async () => 'Custom shift pattern: 24h on / 48h off rotation.',
+    );
     const localRegistry = new PolicyInterpreterRegistry([
       new MinRestDaysPerWeekInterpreter(),
       new LLMRuntimeInterpreter(llm),

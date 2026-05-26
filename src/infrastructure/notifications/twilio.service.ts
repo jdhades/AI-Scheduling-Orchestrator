@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import type { INotificationService } from '../../domain/services/notification.service';
@@ -91,7 +87,9 @@ export class TwilioService implements INotificationService, OnModuleInit {
    * Listener — el admin actualizó la integración Twilio. Re-init.
    */
   @OnEvent(INTEGRATION_UPDATED_EVENT)
-  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+  async onIntegrationUpdated(
+    payload: IntegrationUpdatedPayload,
+  ): Promise<void> {
     if (payload.provider !== 'twilio') return;
     if (payload.environment !== this.integrations.activeEnv) return;
     this.logger.log('TwilioService: integration updated — reloading client.');

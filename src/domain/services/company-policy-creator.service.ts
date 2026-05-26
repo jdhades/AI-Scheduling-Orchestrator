@@ -151,7 +151,10 @@ export class CompanyPolicyCreator {
       // (preserva el texto original). Si severity=soft, queda LLM-only
       // puro — el texto viaja al prompt sin enforcement deterministico.
       if (input.severity === 'hard' && this.registry.getById('llm_runtime')) {
-        const englishText = await this.translateToEnglish(text, input.companyId);
+        const englishText = await this.translateToEnglish(
+          text,
+          input.companyId,
+        );
         policy.attachInterpreter('llm_runtime', {
           originalText: text,
           englishText,

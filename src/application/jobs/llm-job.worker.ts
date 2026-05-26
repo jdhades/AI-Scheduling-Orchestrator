@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import type { Job } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
@@ -113,7 +118,7 @@ export class LlmJobWorker implements OnApplicationBootstrap {
         await Promise.allSettled(
           jobs.map((job) =>
             this.runWithEvents(job, 'create_rule', async (p) => {
-              const result = (await this.commandBus.execute(
+              const result = await this.commandBus.execute(
                 new CreateSemanticRuleCommand(
                   p.companyId,
                   p.text,
@@ -125,7 +130,7 @@ export class LlmJobWorker implements OnApplicationBootstrap {
                   p.scopeType === 'branch' ? (p.scopeId ?? null) : null,
                   p.scopeType === 'department' ? (p.scopeId ?? null) : null,
                 ),
-              )) as CreateSemanticRuleResult;
+              );
               // Audit log — solo si la regla se persistió realmente
               // (no duplicate semántico, no suggestion-loop).
               const persisted = !result.isDuplicate && !result.suggestions;
@@ -165,7 +170,10 @@ export class LlmJobWorker implements OnApplicationBootstrap {
         await Promise.allSettled(
           jobs.map((job) =>
             this.runWithEvents(job, 'update_rule_text', async (p) => {
-              const before = await this.ruleRepo.findById(p.ruleId, p.companyId);
+              const before = await this.ruleRepo.findById(
+                p.ruleId,
+                p.companyId,
+              );
               const result = await this.commandBus.execute(
                 new UpdateSemanticRuleTextCommand(
                   p.ruleId,

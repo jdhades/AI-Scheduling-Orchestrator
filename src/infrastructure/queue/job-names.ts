@@ -31,10 +31,7 @@ export const JOB_LLM_CREATE_POLICY = 'llm.create_policy';
 
 /** Tipos válidos para identificar el job en WS events / store frontend.
  * Mantener sync con las constantes de queue de arriba. */
-export type LlmJobType =
-  | 'create_rule'
-  | 'update_rule_text'
-  | 'create_policy';
+export type LlmJobType = 'create_rule' | 'update_rule_text' | 'create_policy';
 
 /** Map type → queue name. Centralizado para evitar typos en el wiring. */
 export const LLM_JOB_QUEUE_BY_TYPE: Record<LlmJobType, string> = {

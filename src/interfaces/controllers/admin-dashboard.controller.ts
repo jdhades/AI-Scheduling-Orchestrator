@@ -204,7 +204,10 @@ export class AdminDashboardController {
   async queuePerformance(
     @Query('hours') hoursStr?: string,
   ): Promise<QueuePerformanceRow[]> {
-    const hours = Math.max(1, Math.min(parseInt(hoursStr ?? '24', 10) || 24, 720));
+    const hours = Math.max(
+      1,
+      Math.min(parseInt(hoursStr ?? '24', 10) || 24, 720),
+    );
     const { data, error } = await this.supabase.rpc('queue_performance', {
       hours,
     });
@@ -248,8 +251,8 @@ export class AdminDashboardController {
       throw new Error(`queue_performance_daily RPC failed: ${error.message}`);
     }
     return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-      bucketDate: String(row.bucket_date ?? ''),
-      queueName: String(row.queue_name ?? ''),
+      bucketDate: (row.bucket_date as string | null) ?? '',
+      queueName: (row.queue_name as string | null) ?? '',
       completedCount: Number(row.completed_count ?? 0),
       failedCount: Number(row.failed_count ?? 0),
     }));
@@ -267,18 +270,23 @@ export class AdminDashboardController {
   async queuePerformanceByTenant(
     @Query('hours') hoursStr?: string,
   ): Promise<QueuePerformanceTenantRow[]> {
-    const hours = Math.max(1, Math.min(parseInt(hoursStr ?? '24', 10) || 24, 720));
+    const hours = Math.max(
+      1,
+      Math.min(parseInt(hoursStr ?? '24', 10) || 24, 720),
+    );
     const { data, error } = await this.supabase.rpc(
       'queue_performance_by_tenant',
       { hours },
     );
     if (error) {
-      throw new Error(`queue_performance_by_tenant RPC failed: ${error.message}`);
+      throw new Error(
+        `queue_performance_by_tenant RPC failed: ${error.message}`,
+      );
     }
     return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-      companyId: String(row.company_id ?? ''),
+      companyId: (row.company_id as string | null) ?? '',
       companyName: (row.company_name as string | null) ?? null,
-      queueName: String(row.queue_name ?? ''),
+      queueName: (row.queue_name as string | null) ?? '',
       completedCount: Number(row.completed_count ?? 0),
       failedCount: Number(row.failed_count ?? 0),
       p50DurationMs:

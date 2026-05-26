@@ -112,7 +112,7 @@ export class RuleController {
   ): Promise<{ jobId: string } | CreateSemanticRuleResult> {
     if (asyncFlag === 'false') {
       // Path sync legacy.
-      const result = (await this.commandBus.execute(
+      const result = await this.commandBus.execute(
         new CreateSemanticRuleCommand(
           companyId,
           dto.ruleText,
@@ -121,7 +121,7 @@ export class RuleController {
           dto.createdBy,
           dto.metadata,
         ),
-      )) as CreateSemanticRuleResult;
+      );
       // Audit log — solo si la regla se persistió realmente. Casos
       // donde NO hay persistencia y por tanto no hay entity a loguear:
       //   · isDuplicate=true (semantic dedup contra una existente)
@@ -135,10 +135,7 @@ export class RuleController {
             entityType: 'rule',
             entityId: created.getId(),
             action: 'create',
-            changes: snapshotAsChangeSet(
-              this.auditSnapshot(created),
-              'create',
-            ),
+            changes: snapshotAsChangeSet(this.auditSnapshot(created), 'create'),
             actorUserId: user?.userId ?? null,
             actorEmployeeId: user?.employeeId ?? null,
           });

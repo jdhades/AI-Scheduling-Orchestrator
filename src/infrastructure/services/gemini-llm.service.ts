@@ -59,7 +59,9 @@ export class GeminiLLMService implements ILLMService, OnModuleInit {
   }
 
   @OnEvent(INTEGRATION_UPDATED_EVENT)
-  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+  async onIntegrationUpdated(
+    payload: IntegrationUpdatedPayload,
+  ): Promise<void> {
     if (payload.provider !== 'gemini') return;
     if (payload.environment !== this.integrations.activeEnv) return;
     this.logger.log('GeminiLLMService: integration updated — reloading.');
@@ -82,7 +84,10 @@ export class GeminiLLMService implements ILLMService, OnModuleInit {
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        return { ok: false, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+        return {
+          ok: false,
+          error: `HTTP ${res.status}: ${body.slice(0, 120)}`,
+        };
       }
       return { ok: true };
     } catch (err) {

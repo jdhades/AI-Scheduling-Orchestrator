@@ -61,7 +61,9 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
   }
 
   @OnEvent(INTEGRATION_UPDATED_EVENT)
-  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+  async onIntegrationUpdated(
+    payload: IntegrationUpdatedPayload,
+  ): Promise<void> {
     if (payload.provider !== 'qwen') return;
     if (payload.environment !== this.integrations.activeEnv) return;
     this.logger.log('QwenLLMService: integration updated — reloading.');

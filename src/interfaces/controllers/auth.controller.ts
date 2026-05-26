@@ -591,7 +591,7 @@ export class AuthController {
       } catch (err) {
         // Log y seguimos — la invitación quedó válida en DB, el manager
         // puede copiar el link manual.
-        // eslint-disable-next-line no-console
+
         console.warn(
           `Invitation row created but email send failed for ${dto.email}: ${(err as Error).message}`,
         );

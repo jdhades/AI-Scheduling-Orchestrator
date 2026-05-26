@@ -131,8 +131,7 @@ export class EmployeeController {
     } else {
       token = randomBytes(32).toString('hex');
       const expiresAt = new Date(
-        Date.now() +
-          EmployeeController.INVITATION_TTL_HOURS * 60 * 60 * 1000,
+        Date.now() + EmployeeController.INVITATION_TTL_HOURS * 60 * 60 * 1000,
       );
       const { error: insErr } = await this.supabase
         .from('auth_invitations')
@@ -179,7 +178,7 @@ export class EmployeeController {
     } catch (err) {
       // Log y seguimos — la row queda válida; el manager puede mandar
       // el link manual via "Copy link".
-      // eslint-disable-next-line no-console
+
       console.warn(
         `dispatchInvitation: email send failed for ${params.email}: ${(err as Error).message}`,
       );
@@ -344,12 +343,16 @@ export class EmployeeController {
    * muestre badges + acción "Resend invite".
    */
   @Get()
-  async getEmployees(
-    @CurrentCompany() companyId: string,
-  ): Promise<Array<{ id: string; email: string | null; accountStatus: 'active' | 'pending' | 'none' }>> {
-    const dtos = (await this.queryBus.execute(
+  async getEmployees(@CurrentCompany() companyId: string): Promise<
+    Array<{
+      id: string;
+      email: string | null;
+      accountStatus: 'active' | 'pending' | 'none';
+    }>
+  > {
+    const dtos = await this.queryBus.execute(
       new GetCompanyEmployeesQuery(companyId),
-    )) as Array<{ id: string } & Record<string, unknown>>;
+    );
     return this.enrichWithAccountStatus(dtos, companyId);
   }
 

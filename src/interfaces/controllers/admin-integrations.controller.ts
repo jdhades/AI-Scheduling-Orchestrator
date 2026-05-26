@@ -31,7 +31,10 @@ const VALID_PROVIDERS = [
   'local_llm',
 ] as const satisfies readonly IntegrationProvider[];
 
-const VALID_ENVS = ['test', 'production'] as const satisfies readonly IntegrationEnvironment[];
+const VALID_ENVS = [
+  'test',
+  'production',
+] as const satisfies readonly IntegrationEnvironment[];
 
 export class UpsertIntegrationDto {
   @IsObject()
@@ -98,8 +101,16 @@ export class AdminIntegrationsController {
   async getByProvider(@Param('provider') provider: string): Promise<{
     provider: IntegrationProvider;
     activeEnv: IntegrationEnvironment;
-    test: { enabled: boolean; credentials: Record<string, unknown>; metadata: Record<string, unknown> } | null;
-    production: { enabled: boolean; credentials: Record<string, unknown>; metadata: Record<string, unknown> } | null;
+    test: {
+      enabled: boolean;
+      credentials: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+    } | null;
+    production: {
+      enabled: boolean;
+      credentials: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+    } | null;
   }> {
     this.assertValidProvider(provider);
     const p = provider as IntegrationProvider;
@@ -181,7 +192,11 @@ export class AdminIntegrationsController {
     switch (provider) {
       case 'twilio':
         return this.twilio.testConnection(
-          creds as { accountSid: string; authToken: string; fromNumber: string },
+          creds as {
+            accountSid: string;
+            authToken: string;
+            fromNumber: string;
+          },
         );
       case 'resend':
         return this.email.testConnection(

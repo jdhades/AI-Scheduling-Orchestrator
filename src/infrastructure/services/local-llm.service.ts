@@ -61,7 +61,9 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
   }
 
   @OnEvent(INTEGRATION_UPDATED_EVENT)
-  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+  async onIntegrationUpdated(
+    payload: IntegrationUpdatedPayload,
+  ): Promise<void> {
     if (payload.provider !== 'local_llm') return;
     if (payload.environment !== this.integrations.activeEnv) return;
     this.logger.log('LocalLLMService: integration updated — reloading.');

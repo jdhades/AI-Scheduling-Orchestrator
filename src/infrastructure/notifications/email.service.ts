@@ -59,8 +59,7 @@ export class EmailService implements OnModuleInit {
     if (cfg && cfg.enabled) {
       const creds = cfg.credentials as { apiKey?: string; from?: string };
       const apiKey = creds.apiKey ?? '';
-      this.from =
-        creds.from ?? 'AI Scheduling <noreply@islabroadcast.com>';
+      this.from = creds.from ?? 'AI Scheduling <noreply@islabroadcast.com>';
       if (apiKey) {
         this.resend = new Resend(apiKey);
         this.logger.log(
@@ -91,7 +90,9 @@ export class EmailService implements OnModuleInit {
    * Listener — el admin actualizó la integración Resend. Re-init.
    */
   @OnEvent(INTEGRATION_UPDATED_EVENT)
-  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+  async onIntegrationUpdated(
+    payload: IntegrationUpdatedPayload,
+  ): Promise<void> {
     if (payload.provider !== 'resend') return;
     if (payload.environment !== this.integrations.activeEnv) return;
     this.logger.log('EmailService: integration updated — reloading client.');
@@ -173,9 +174,7 @@ export class EmailService implements OnModuleInit {
       `The link expires in 7 days.`;
 
     if (!this.resend) {
-      this.logger.log(
-        `[LOG-ONLY] Invitation to ${params.to} → ${acceptUrl}`,
-      );
+      this.logger.log(`[LOG-ONLY] Invitation to ${params.to} → ${acceptUrl}`);
       return;
     }
 
