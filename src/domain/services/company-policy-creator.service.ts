@@ -8,13 +8,10 @@ import {
   type ICompanyPolicyRepository,
 } from '../repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from './policy-interpreter-registry';
-import {
-  RULE_REPHRASE_SERVICE,
-  type IRuleRephraseService,
-  type RephraseSuggestion,
-} from './rule-rephrase.service.interface';
+import { type RephraseSuggestion } from './rule-rephrase.service.interface';
 import { PolicySeverity } from '../value-objects/policy-severity.vo';
 import { LLM_SERVICE, type ILLMService } from './llm.service.interface';
+import { PromptHistoryService } from '../../infrastructure/observability/prompt-history.service';
 
 /**
  * CompanyPolicyCreator — Domain Service
@@ -70,11 +67,55 @@ export class CompanyPolicyCreator {
     @Inject(COMPANY_POLICY_REPOSITORY)
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
-    @Inject(RULE_REPHRASE_SERVICE)
-    private readonly rephraseService: IRuleRephraseService,
     @Inject(LLM_SERVICE)
     private readonly llm: ILLMService,
+    private readonly promptHistory: PromptHistoryService,
   ) {}
+
+  /**
+   * Wrap manual sobre this.llm.complete que persiste cada call al
+   * llm_prompt_history (incluyendo errores). Equivalente al wrapper
+   * de LlmResolverService pero sin depender del application layer
+   * (CompanyPolicyCreator vive en domain/, no puede inyectar el
+   * resolver directamente).
+   */
+  private async llmCompleteLogged(
+    operation: string,
+    companyId: string,
+    prompt: string,
+  ): Promise<string> {
+    const start = Date.now();
+    try {
+      const response = await this.llm.complete(prompt);
+      this.promptHistory.record({
+        companyId,
+        operation,
+        promptText: prompt,
+        responseText: response,
+        modelUsed: null,
+        tokensUsed: null,
+        durationMs: Date.now() - start,
+        success: true,
+        errorMessage: null,
+        jobId: null,
+      });
+      return response;
+    } catch (err) {
+      this.promptHistory.record({
+        companyId,
+        operation,
+        promptText: prompt,
+        responseText: null,
+        modelUsed: null,
+        tokensUsed: null,
+        durationMs: Date.now() - start,
+        success: false,
+        errorMessage: (err as Error).message,
+        jobId: null,
+      });
+      throw err;
+    }
+  }
 
   async create(
     input: CreateCompanyPolicyInput,
@@ -94,6 +135,7 @@ export class CompanyPolicyCreator {
     if (interpreter) {
       const params = await interpreter.extractParams(text);
       const intentPreserved = await this.matchPreservesIntent({
+        companyId: input.companyId,
         text,
         interpreterId: interpreter.id,
         interpreterDescription: interpreter.description,
@@ -119,7 +161,7 @@ export class CompanyPolicyCreator {
       // (preserva el texto original). Si severity=soft, queda LLM-only
       // puro — el texto viaja al prompt sin enforcement deterministico.
       if (input.severity === 'hard' && this.registry.getById('llm_runtime')) {
-        const englishText = await this.translateToEnglish(text);
+        const englishText = await this.translateToEnglish(text, input.companyId);
         policy.attachInterpreter('llm_runtime', {
           originalText: text,
           englishText,
@@ -129,30 +171,16 @@ export class CompanyPolicyCreator {
       return { status: 'created', policy, mode: 'llm_only' };
     }
 
-    // Caso 2: ningún interpreter — opcionalmente pedimos sugerencias.
-    // Si el caller pasó `skipSuggestions`, saltamos esta rama y caemos
-    // directo al fallback (caso 3) preservando el texto original.
-    if (!input.skipSuggestions) {
-      const interpreterHints = this.registry.getAvailableIds().map((id) => {
-        const itp = this.registry.getById(id);
-        return { id, description: itp?.description ?? '' };
-      });
-      const suggestions = await this.rephraseService.suggest({
-        originalText: text,
-        reason: 'no_interpreter_matched',
-        interpreters: interpreterHints,
-      });
+    // Sprint async-policies (2026-05-26): el suggestion loop con
+    // LlmRuleRephraseService quedó eliminado. Razón: cada vez que el
+    // matcher no entendía un texto, el LLM intentaba reformular hasta
+    // que matcheara algún interpreter — agregando hardcoded patterns
+    // implícito (cada interpreter es un "patrón conocido"). Modelo
+    // ganador: matchers como fast-path opcional, llm_runtime como
+    // default universal para todo lo demás. El texto del manager
+    // viaja al solver tal cual lo escribió.
 
-      if (suggestions.length > 0) {
-        return {
-          status: 'needs_clarification',
-          reason: 'no_interpreter_matched',
-          suggestions,
-        };
-      }
-    }
-
-    // Caso 3: fallback LLM-only.
+    // Caso 2 (antes "3"): fallback LLM-only / llm_runtime.
     //
     // Si la policy es `hard`, enchufamos el catch-all `llm_runtime`
     // para que igual el solver tenga enforcement en runtime (1 LLM call
@@ -175,7 +203,7 @@ export class CompanyPolicyCreator {
       // Pre-traducimos al inglés para que el prompt del LLM-proposer
       // quede consistente (el resto del prompt está en inglés). El
       // texto original se preserva para auditoría / display.
-      const englishText = await this.translateToEnglish(text);
+      const englishText = await this.translateToEnglish(text, input.companyId);
       policy.attachInterpreter('llm_runtime', {
         originalText: text,
         englishText,
@@ -198,6 +226,7 @@ export class CompanyPolicyCreator {
    * `true` (preferimos enforcement determinístico que bloqueo total).
    */
   private async matchPreservesIntent(input: {
+    companyId: string;
     text: string;
     interpreterId: string;
     interpreterDescription: string;
@@ -224,7 +253,11 @@ Respond with ONLY a JSON object, no prose, no code fences:
 {"fullyCovered": true|false, "reason": "<one short sentence>"}`;
 
     try {
-      const raw = await this.llm.complete(prompt);
+      const raw = await this.llmCompleteLogged(
+        'policy.match_intent',
+        input.companyId,
+        prompt,
+      );
       const m = raw.match(/\{[\s\S]*?\}/);
       if (!m) {
         this.logger.warn(
@@ -258,12 +291,19 @@ Respond with ONLY a JSON object, no prose, no code fences:
    * texto original (fail-open: la policy no se bloquea por un fallo de
    * traducción; el prompt queda con texto mixto en el peor caso).
    */
-  private async translateToEnglish(text: string): Promise<string> {
+  private async translateToEnglish(
+    text: string,
+    companyId: string,
+  ): Promise<string> {
     const prompt = `Translate the following workforce-scheduling policy to clear, concise English. Keep numbers, durations, names and shift-block patterns intact. Output ONLY the translated sentence, no quotes, no prose, no explanations.
 
 POLICY: ${text}`;
     try {
-      const out = await this.llm.complete(prompt);
+      const out = await this.llmCompleteLogged(
+        'policy.translate',
+        companyId,
+        prompt,
+      );
       const trimmed = out.trim().replace(/^["']|["']$/g, '');
       if (trimmed.length === 0) return text;
       return trimmed;
