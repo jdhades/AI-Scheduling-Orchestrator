@@ -26,6 +26,14 @@ export interface ImpersonateTargetRow {
   fullName: string | null;
   email: string | null;
   role: 'owner' | 'manager' | 'employee';
+  /**
+   * Estado del target para impersonar:
+   *  - 'ready'   : tiene auth_user_id linkeado → magic link directo.
+   *  - 'bootstrap': no tiene auth pero tiene email → el POST creará el
+   *                 auth.user on-the-fly antes de emitir el link.
+   *  - 'unavailable': no tiene email ni auth → no se puede impersonar.
+   */
+  status: 'ready' | 'bootstrap' | 'unavailable';
 }
 
 class ImpersonateDto {
@@ -74,11 +82,14 @@ export class AdminImpersonateController {
   async listTargets(
     @Param('id') companyId: string,
   ): Promise<ImpersonateTargetRow[]> {
+    // Listamos TODOS los employees del tenant (no filtramos por
+    // auth_user_id). Para tenants creados via seed o WhatsApp, el owner
+    // puede no tener auth todavía — el flow soporta bootstrap si hay
+    // email en `employees.email`.
     const { data, error } = await this.supabase
       .from('employees')
-      .select('id, auth_user_id, full_name, role')
+      .select('id, auth_user_id, full_name, email, role')
       .eq('company_id', companyId)
-      .not('auth_user_id', 'is', null)
       .order('role')
       .order('full_name');
     if (error) throw new BadRequestException(error.message);
@@ -86,26 +97,37 @@ export class AdminImpersonateController {
       id: string;
       auth_user_id: string | null;
       full_name: string | null;
+      email: string | null;
       role: 'owner' | 'manager' | 'employee';
     }>;
 
-    // Resolver emails desde auth.users vía admin SDK. Hacemos getUserById
-    // en paralelo — no es óptimo pero el listado típico tiene <50 rows.
+    // Resolver emails desde auth.users solo para los que tengan link.
+    // Para los que no, usamos `employees.email` (sembrado por el manager
+    // al crear el row). Hacemos getUserById en paralelo solo cuando hace
+    // falta — no es óptimo pero el listado típico tiene <50 rows.
     const enriched = await Promise.all(
       rows.map(async (r) => {
-        let email: string | null = null;
+        let email: string | null = r.email;
         if (r.auth_user_id) {
           const { data: userData } = await this.supabase.auth.admin.getUserById(
             r.auth_user_id,
           );
-          email = userData.user?.email ?? null;
+          // El email de auth.users gana sobre employees.email (es el que
+          // efectivamente recibe el magic link).
+          email = userData.user?.email ?? r.email;
         }
+        const status: ImpersonateTargetRow['status'] = r.auth_user_id
+          ? 'ready'
+          : email
+            ? 'bootstrap'
+            : 'unavailable';
         return {
           employeeId: r.id,
           authUserId: r.auth_user_id,
           fullName: r.full_name,
           email,
           role: r.role,
+          status,
         };
       }),
     );
@@ -121,21 +143,88 @@ export class AdminImpersonateController {
   ): Promise<{ url: string; expiresInSeconds: number }> {
     const { data: employee, error } = await this.supabase
       .from('employees')
-      .select('id, auth_user_id, full_name, role, company_id')
+      .select('id, auth_user_id, full_name, email, role, company_id')
       .eq('id', body.employeeId)
       .eq('company_id', companyId)
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
-    if (!employee || !employee.auth_user_id) {
-      throw new NotFoundException(
-        'Employee not found or has no auth user linked',
-      );
+    if (!employee) {
+      throw new NotFoundException('Employee not found in this tenant');
     }
 
-    const { data: userData } = await this.supabase.auth.admin.getUserById(
-      employee.auth_user_id as string,
-    );
-    const email = userData.user?.email;
+    // Resolver auth_user_id + email. Si el employee NO tiene auth
+    // linkeado todavía (tenant seedeado, alta vía WhatsApp, etc.) pero
+    // tiene email cargado, creamos el auth.user on-the-fly + linkeamos.
+    // De ese modo soporte siempre puede entrar al tenant sin que el
+    // owner haya hecho self-signup primero.
+    let authUserId: string | null = employee.auth_user_id as string | null;
+    let email: string | null = null;
+
+    if (authUserId) {
+      const { data: userData } = await this.supabase.auth.admin.getUserById(
+        authUserId,
+      );
+      email = userData.user?.email ?? null;
+    } else {
+      const employeeEmail = (employee.email as string | null)?.trim() || null;
+      if (!employeeEmail) {
+        throw new BadRequestException(
+          'Employee has no email and no auth user — cannot bootstrap impersonation. Add an email to the employee first.',
+        );
+      }
+
+      // Reusar auth.user existente si el email ya está registrado en
+      // otro tenant (improbable pero posible). Si no existe, creamos.
+      // `listUsers` no soporta filtro server-side por email — paginamos
+      // y buscamos. Límite 200/página es suficiente para staging; en
+      // tenants con 10k+ usuarios habría que cambiar a una query SQL
+      // directa contra auth.users.
+      const { data: existingUser } =
+        await this.supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
+      const candidates = (existingUser?.users ?? []) as Array<{
+        id: string;
+        email?: string | null;
+      }>;
+      const found = candidates.find(
+        (u) => u.email?.toLowerCase() === employeeEmail.toLowerCase(),
+      );
+
+      if (found) {
+        authUserId = found.id;
+        email = found.email ?? employeeEmail;
+        this.logger.log(
+          `Impersonate bootstrap: reusing existing auth.user ${authUserId} for ${employeeEmail}`,
+        );
+      } else {
+        const { data: created, error: createErr } =
+          await this.supabase.auth.admin.createUser({
+            email: employeeEmail,
+            email_confirm: true,
+          });
+        if (createErr || !created.user) {
+          throw new InternalServerErrorException(
+            `Failed to bootstrap auth user: ${createErr?.message ?? 'no user returned'}`,
+          );
+        }
+        authUserId = created.user.id;
+        email = created.user.email ?? employeeEmail;
+        this.logger.log(
+          `Impersonate bootstrap: created auth.user ${authUserId} for ${employeeEmail}`,
+        );
+      }
+
+      // Linkear el auth_user_id al employee row.
+      const { error: linkErr } = await this.supabase
+        .from('employees')
+        .update({ auth_user_id: authUserId })
+        .eq('id', employee.id);
+      if (linkErr) {
+        throw new InternalServerErrorException(
+          `Failed to link auth_user_id to employee: ${linkErr.message}`,
+        );
+      }
+    }
+
     if (!email) {
       throw new BadRequestException(
         'Target user has no email — phone-only employees cannot be impersonated',
