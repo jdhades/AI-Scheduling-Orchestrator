@@ -3,17 +3,20 @@ import { CommandBus } from '@nestjs/cqrs';
 import type { Job } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
 import {
+  JOB_LLM_CREATE_POLICY,
   JOB_LLM_CREATE_RULE,
   JOB_LLM_UPDATE_RULE_TEXT,
   type LlmJobType,
 } from '../../infrastructure/queue/job-names';
 import type {
+  CreatePolicyJobPayload,
   CreateRuleJobPayload,
   UpdateRuleTextJobPayload,
 } from '../../infrastructure/queue/job-types';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import { UpdateSemanticRuleTextCommand } from '../commands/update-semantic-rule-text.command';
+import { CompanyPolicyCreator } from '../../domain/services/company-policy-creator.service';
 
 /**
  * LlmJobWorker
@@ -37,6 +40,7 @@ export class LlmJobWorker implements OnApplicationBootstrap {
     private readonly pgBoss: PgBossService,
     private readonly commandBus: CommandBus,
     private readonly notificationsGateway: NotificationsGateway,
+    private readonly policyCreator: CompanyPolicyCreator,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -108,8 +112,42 @@ export class LlmJobWorker implements OnApplicationBootstrap {
       },
     );
 
+    await boss.work<CreatePolicyJobPayload>(
+      JOB_LLM_CREATE_POLICY,
+      workOpts,
+      async (jobs) => {
+        await Promise.allSettled(
+          jobs.map((job) =>
+            this.runWithEvents(job, 'create_policy', async (p) => {
+              const result = await this.policyCreator.create({
+                companyId: p.companyId,
+                text: p.text,
+                severity: p.severity,
+                scope: p.scope,
+                effectiveFrom: p.effectiveFrom,
+                createdBy: p.actorEmployeeId,
+              });
+              // El creator ahora siempre devuelve `created` (sin
+              // suggestion loop). El payload del WS event lleva el
+              // policy serializado para que el frontend pinte el
+              // panel "created-info" sin refetch.
+              if (result.status === 'created') {
+                return {
+                  id: result.policy.getId(),
+                  mode: result.mode,
+                  interpreterId: result.policy.getInterpreterId(),
+                  text: p.text,
+                };
+              }
+              return result;
+            }),
+          ),
+        );
+      },
+    );
+
     this.logger.log(
-      `LLM workers ready: ${JOB_LLM_CREATE_RULE}, ${JOB_LLM_UPDATE_RULE_TEXT} (concurrency=${concurrency})`,
+      `LLM workers ready: ${JOB_LLM_CREATE_RULE}, ${JOB_LLM_UPDATE_RULE_TEXT}, ${JOB_LLM_CREATE_POLICY} (concurrency=${concurrency})`,
     );
   }
 

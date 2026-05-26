@@ -38,7 +38,8 @@ import {
 } from '../../domain/repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from '../../domain/services/policy-interpreter-registry';
 import { CompanyPolicyCreator } from '../../domain/services/company-policy-creator.service';
-import type { RephraseSuggestion } from '../../domain/services/rule-rephrase.service.interface';
+import { LlmJobDispatcher } from '../../application/jobs/llm-job-dispatcher.service';
+import type { CreatePolicyJobPayload } from '../../infrastructure/queue/job-types';
 import type { PolicyScope } from '../../domain/aggregates/company-policy.aggregate';
 
 class PolicyScopeDto {
@@ -137,13 +138,10 @@ interface CompanyPolicyResponse {
  *                              NO se persistió. El frontend muestra las
  *                              sugerencias y el manager re-submitea.
  */
-type CreateCompanyPolicyResponse =
-  | { status: 'created'; policy: CompanyPolicyResponse }
-  | {
-      status: 'needs_clarification';
-      reason: string;
-      suggestions: RephraseSuggestion[];
-    };
+type CreateCompanyPolicyResponse = {
+  status: 'queued';
+  jobId: string;
+};
 
 /**
  * CompanyPoliciesController
@@ -162,6 +160,7 @@ export class CompanyPoliciesController {
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
     private readonly creator: CompanyPolicyCreator,
+    private readonly jobDispatcher: LlmJobDispatcher,
     @Inject(ENTITY_AUDIT_SERVICE)
     private readonly audit: IEntityAuditService,
   ) {}
@@ -207,18 +206,29 @@ export class CompanyPoliciesController {
     return this.toDto(policy);
   }
 
+  /**
+   * Sprint async-policies (2026-05-26): creación encolada vía pg-boss.
+   * Antes el HTTP request bloqueaba ~20-30s mientras Qwen matcheaba
+   * interpreters; el frontend cortaba a los 30s y la policy quedaba a
+   * medias. Ahora:
+   *   1. Encolamos el job → response 202 con jobId al toque
+   *   2. Worker (LlmJobWorker) corre creator.create() en background
+   *   3. WS event `LlmJobCompleted` con tipo `create_policy` notifica
+   *      al frontend que invalida la query de la lista.
+   *   4. Audit log se persiste DESPUÉS del job (no acá), porque el
+   *      worker es quien tiene el policy.id resultante. TODO opcional:
+   *      pasar `actorUserId` al payload del job para que el worker
+   *      audite con esa info — por ahora el audit registra solo el
+   *      actorEmployeeId.
+   */
   @Post()
   @Requires('policies:write')
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.ACCEPTED)
   async create(
     @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateCompanyPolicyDto,
   ): Promise<CreateCompanyPolicyResponse> {
-    // Toda la lógica vive en CompanyPolicyCreator (commit P1) — el
-    // controller solo traduce DTO ↔ resultado HTTP. Eso permite que el
-    // MessageRouter de WhatsApp reuse el mismo flow sin duplicación.
-    // Phase 14.1 — el caller puede mandar scope explícito; default tenant-wide.
     const scope: PolicyScope | undefined = dto.scope
       ? {
           type: dto.scope.type,
@@ -226,33 +236,19 @@ export class CompanyPoliciesController {
         }
       : undefined;
 
-    const result = await this.creator.create({
+    const payload: CreatePolicyJobPayload = {
       companyId,
+      actorEmployeeId: user?.employeeId ?? null,
       text: dto.text,
       severity: dto.severity,
       scope,
       effectiveFrom: dto.effectiveFrom,
-      createdBy: dto.createdBy ?? null,
-      skipSuggestions: dto.skipSuggestions,
-    });
+    };
 
-    if (result.status === 'needs_clarification') {
-      return {
-        status: 'needs_clarification',
-        reason: result.reason,
-        suggestions: result.suggestions,
-      };
-    }
-    await this.audit.log({
-      companyId,
-      entityType: 'company_policy',
-      entityId: result.policy.getId(),
-      action: 'create',
-      changes: snapshotAsChangeSet(this.auditSnapshot(result.policy), 'create'),
-      actorUserId: user?.userId ?? null,
-      actorEmployeeId: user?.employeeId ?? null,
+    const jobId = await this.jobDispatcher.enqueue('create_policy', payload, {
+      label: dto.text.slice(0, 80),
     });
-    return { status: 'created', policy: this.toDto(result.policy) };
+    return { status: 'queued', jobId };
   }
 
   @Patch(':id')

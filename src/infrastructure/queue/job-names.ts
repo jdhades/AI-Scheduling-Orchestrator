@@ -21,13 +21,24 @@ export const JOB_SCHEDULE_GENERATE_DEAD = 'schedule.generate.dead';
 // (vision-processing.consumer) sin endpoint HTTP — no aplica.
 export const JOB_LLM_CREATE_RULE = 'llm.create_rule';
 export const JOB_LLM_UPDATE_RULE_TEXT = 'llm.update_rule_text';
+/**
+ * Policy creation async (sprint async-policies 2026-05-26). Antes era
+ * síncrono — el HTTP request blocking-ueaba ~20-30s mientras Qwen
+ * matcheaba interpreters. Movido a queue: response 202+jobId al toque,
+ * WS event al terminar.
+ */
+export const JOB_LLM_CREATE_POLICY = 'llm.create_policy';
 
 /** Tipos válidos para identificar el job en WS events / store frontend.
  * Mantener sync con las constantes de queue de arriba. */
-export type LlmJobType = 'create_rule' | 'update_rule_text';
+export type LlmJobType =
+  | 'create_rule'
+  | 'update_rule_text'
+  | 'create_policy';
 
 /** Map type → queue name. Centralizado para evitar typos en el wiring. */
 export const LLM_JOB_QUEUE_BY_TYPE: Record<LlmJobType, string> = {
   create_rule: JOB_LLM_CREATE_RULE,
   update_rule_text: JOB_LLM_UPDATE_RULE_TEXT,
+  create_policy: JOB_LLM_CREATE_POLICY,
 };

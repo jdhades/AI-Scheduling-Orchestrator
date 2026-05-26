@@ -52,3 +52,19 @@ export interface UpdateRuleTextJobPayload {
   ruleId: string;
   newText: string;
 }
+
+/**
+ * Policy creation async (sprint 2026-05-26). El handler reconstruye
+ * la llamada a CompanyPolicyCreator desde estos campos.
+ */
+export interface CreatePolicyJobPayload {
+  companyId: string;
+  actorEmployeeId: string | null;
+  text: string;
+  severity: 'hard' | 'soft';
+  scope?: {
+    type: 'company' | 'branch' | 'department' | 'employee';
+    id: string | null;
+  };
+  effectiveFrom?: string;
+}

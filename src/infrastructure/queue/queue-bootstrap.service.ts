@@ -3,6 +3,7 @@ import { PgBossService } from './pg-boss.service';
 import {
   JOB_SCHEDULE_GENERATE,
   JOB_SCHEDULE_GENERATE_DEAD,
+  JOB_LLM_CREATE_POLICY,
   JOB_LLM_CREATE_RULE,
   JOB_LLM_UPDATE_RULE_TEXT,
 } from './job-names';
@@ -85,7 +86,12 @@ export class QueueBootstrapService implements OnModuleInit {
     // 2 reglas distintas en paralelo). retryLimit=0 + expire=600s para
     // matchear schedule.generate. Sin dead-letter por ahora — failures
     // se reportan vía WS event LlmJobFailed.
-    for (const queue of [JOB_LLM_CREATE_RULE, JOB_LLM_UPDATE_RULE_TEXT]) {
+    const llmQueues = [
+      JOB_LLM_CREATE_RULE,
+      JOB_LLM_UPDATE_RULE_TEXT,
+      JOB_LLM_CREATE_POLICY,
+    ];
+    for (const queue of llmQueues) {
       await boss.createQueue(queue, {
         policy: 'standard',
         retryLimit: 0,
@@ -94,7 +100,7 @@ export class QueueBootstrapService implements OnModuleInit {
       await this.syncQueueConfig(queue, 0, 600);
     }
     this.logger.log(
-      `LLM queues ready: ${JOB_LLM_CREATE_RULE}, ${JOB_LLM_UPDATE_RULE_TEXT} (standard, retry=0, expire=600s)`,
+      `LLM queues ready: ${llmQueues.join(', ')} (standard, retry=0, expire=600s)`,
     );
   }
 
