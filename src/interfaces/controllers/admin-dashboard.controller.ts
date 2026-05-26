@@ -1,9 +1,18 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { PlatformAdmin } from '../../infrastructure/auth/decorators/platform-admin.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
 import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
+
+export interface QueuePerformanceRow {
+  queueName: string;
+  completedCount: number;
+  failedCount: number;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  successRate: number;
+}
 
 export interface AdminDashboardOverview {
   tenants: {
@@ -153,6 +162,44 @@ export class AdminDashboardController {
       },
       recentAuthFailures,
     };
+  }
+
+  /**
+   * GET /admin/dashboard/queue-performance?hours=24
+   *
+   * Métricas operacionales por queue de pg-boss en la ventana indicada.
+   * Latencia P50/P95 (ms) calculada sólo sobre jobs completed; success
+   * rate ratio sobre el universo (completed + failed + cancelled).
+   *
+   * Para dashboards futuros con histórico (sparkline 7d) habría que
+   * agregar parámetro de bucket — por ahora un valor agregado alcanza
+   * para detectar regresiones operacionales obvias.
+   */
+  @Get('queue-performance')
+  async queuePerformance(
+    @Query('hours') hoursStr?: string,
+  ): Promise<QueuePerformanceRow[]> {
+    const hours = Math.max(1, Math.min(parseInt(hoursStr ?? '24', 10) || 24, 720));
+    const { data, error } = await this.supabase.rpc('queue_performance', {
+      hours,
+    });
+    if (error) {
+      throw new Error(`queue_performance RPC failed: ${error.message}`);
+    }
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      queueName: row.queue_name as string,
+      completedCount: Number(row.completed_count ?? 0),
+      failedCount: Number(row.failed_count ?? 0),
+      p50DurationMs:
+        row.p50_duration_ms === null || row.p50_duration_ms === undefined
+          ? null
+          : Number(row.p50_duration_ms),
+      p95DurationMs:
+        row.p95_duration_ms === null || row.p95_duration_ms === undefined
+          ? null
+          : Number(row.p95_duration_ms),
+      successRate: Number(row.success_rate ?? 0),
+    }));
   }
 
   private async _countPrompts(
