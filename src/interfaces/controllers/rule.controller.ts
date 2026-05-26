@@ -8,6 +8,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   Patch,
@@ -29,6 +30,17 @@ import {
 } from '../dtos/update-semantic-rule.dto';
 import type { CreateSemanticRuleResult } from '../../application/handlers/create-semantic-rule.handler';
 import type { SemanticRuleDto } from '../../application/handlers/get-semantic-rules.handler';
+import {
+  ENTITY_AUDIT_SERVICE,
+  type IEntityAuditService,
+  computeChangeSet,
+  snapshotAsChangeSet,
+} from '../../domain/audit/entity-audit.service';
+import {
+  SEMANTIC_RULE_REPOSITORY_TOKEN,
+  type ISemanticRuleRepository,
+} from '../../domain/repositories/semantic-rule.repository.interface';
+import { SemanticRuleAggregate } from '../../domain/aggregates/semantic-rule.aggregate';
 
 /**
  * RuleController
@@ -48,7 +60,36 @@ export class RuleController {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly llmDispatcher: LlmJobDispatcher,
+    @Inject(SEMANTIC_RULE_REPOSITORY_TOKEN)
+    private readonly ruleRepo: ISemanticRuleRepository,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  /**
+   * Snapshot serializable de una regla para el changeset del audit log.
+   * Solo campos editables — id/createdAt/companyId quedan fuera porque
+   * son inmutables y meten ruido en el diff.
+   */
+  private auditSnapshot(r: SemanticRuleAggregate): {
+    ruleText: string;
+    ruleType: string;
+    priorityLevel: number;
+    isActive: boolean;
+    expiresAt: string | null;
+    branchId: string | null;
+    departmentId: string | null;
+  } {
+    return {
+      ruleText: r.getRuleText(),
+      ruleType: r.getRuleType().getValue(),
+      priorityLevel: r.getPriority().getValue(),
+      isActive: r.getIsActive(),
+      expiresAt: r.getExpiresAt()?.toISOString() ?? null,
+      branchId: r.getBranchId(),
+      departmentId: r.getDepartmentId(),
+    };
+  }
 
   /**
    * POST /rules/semantic?companyId=UUID
@@ -71,7 +112,7 @@ export class RuleController {
   ): Promise<{ jobId: string } | CreateSemanticRuleResult> {
     if (asyncFlag === 'false') {
       // Path sync legacy.
-      return this.commandBus.execute(
+      const result = (await this.commandBus.execute(
         new CreateSemanticRuleCommand(
           companyId,
           dto.ruleText,
@@ -80,7 +121,30 @@ export class RuleController {
           dto.createdBy,
           dto.metadata,
         ),
-      );
+      )) as CreateSemanticRuleResult;
+      // Audit log — solo si la regla se persistió realmente. Casos
+      // donde NO hay persistencia y por tanto no hay entity a loguear:
+      //   · isDuplicate=true (semantic dedup contra una existente)
+      //   · suggestions presente (suggestion-loop intercepta la creación)
+      const persisted = !result.isDuplicate && !result.suggestions;
+      if (persisted && result.id) {
+        const created = await this.ruleRepo.findById(result.id, companyId);
+        if (created) {
+          await this.audit.log({
+            companyId,
+            entityType: 'rule',
+            entityId: created.getId(),
+            action: 'create',
+            changes: snapshotAsChangeSet(
+              this.auditSnapshot(created),
+              'create',
+            ),
+            actorUserId: user?.userId ?? null,
+            actorEmployeeId: user?.employeeId ?? null,
+          });
+        }
+      }
+      return result;
     }
     const jobId = await this.llmDispatcher.enqueue(
       'create_rule',
@@ -138,6 +202,7 @@ export class RuleController {
   async updateMetadata(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: UpdateSemanticRuleMetadataDto,
   ): Promise<void> {
     const patch = {
@@ -153,9 +218,36 @@ export class RuleController {
             ? null
             : new Date(dto.expiresAt),
     };
+    const before = await this.ruleRepo.findById(id, companyId);
+    if (!before) throw new NotFoundException(`Semantic rule ${id} not found`);
     await this.commandBus.execute(
       new UpdateSemanticRuleMetadataCommand(id, companyId, patch),
     );
+    const after = await this.ruleRepo.findById(id, companyId);
+    if (after) {
+      const fields = [
+        'ruleText',
+        'ruleType',
+        'priorityLevel',
+        'isActive',
+        'expiresAt',
+        'branchId',
+        'departmentId',
+      ] as const;
+      await this.audit.log({
+        companyId,
+        entityType: 'rule',
+        entityId: id,
+        action: 'update',
+        changes: computeChangeSet(
+          this.auditSnapshot(before),
+          this.auditSnapshot(after),
+          fields,
+        ),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
   }
 
   /**
@@ -175,9 +267,37 @@ export class RuleController {
     @Query('async') asyncFlag?: string,
   ): Promise<{ jobId: string } | unknown> {
     if (asyncFlag === 'false') {
-      return this.commandBus.execute(
+      const before = await this.ruleRepo.findById(id, companyId);
+      if (!before) throw new NotFoundException(`Semantic rule ${id} not found`);
+      const result = await this.commandBus.execute(
         new UpdateSemanticRuleTextCommand(id, companyId, dto.ruleText),
       );
+      const after = await this.ruleRepo.findById(id, companyId);
+      if (after) {
+        const fields = [
+          'ruleText',
+          'ruleType',
+          'priorityLevel',
+          'isActive',
+          'expiresAt',
+          'branchId',
+          'departmentId',
+        ] as const;
+        await this.audit.log({
+          companyId,
+          entityType: 'rule',
+          entityId: id,
+          action: 'update',
+          changes: computeChangeSet(
+            this.auditSnapshot(before),
+            this.auditSnapshot(after),
+            fields,
+          ),
+          actorUserId: user?.userId ?? null,
+          actorEmployeeId: user?.employeeId ?? null,
+        });
+      }
+      return result;
     }
     const jobId = await this.llmDispatcher.enqueue(
       'update_rule_text',
@@ -203,7 +323,9 @@ export class RuleController {
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<{ deleted: boolean }> {
+    const before = await this.ruleRepo.findById(id, companyId);
     const result = await this.commandBus.execute(
       new DeleteSemanticRuleCommand(id, companyId),
     );
@@ -212,6 +334,18 @@ export class RuleController {
       throw new NotFoundException(
         `Semantic rule ${id} not found for company ${companyId}`,
       );
+    }
+
+    if (before) {
+      await this.audit.log({
+        companyId,
+        entityType: 'rule',
+        entityId: id,
+        action: 'delete',
+        changes: snapshotAsChangeSet(this.auditSnapshot(before), 'delete'),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
     }
 
     return { deleted: true };

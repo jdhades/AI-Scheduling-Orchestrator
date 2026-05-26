@@ -20,6 +20,7 @@ const VALID_TYPES: ReadonlySet<EntityType> = new Set([
   'shift_template',
   'employee',
   'company_policy',
+  'rule',
 ]);
 
 interface HistoryEntryResponse {

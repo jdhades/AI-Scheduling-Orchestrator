@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import type { Job } from 'pg-boss';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
@@ -17,6 +17,43 @@ import { NotificationsGateway } from '../../infrastructure/websocket/notificatio
 import { CreateSemanticRuleCommand } from '../commands/create-semantic-rule.command';
 import { UpdateSemanticRuleTextCommand } from '../commands/update-semantic-rule-text.command';
 import { CompanyPolicyCreator } from '../../domain/services/company-policy-creator.service';
+import type { CreateSemanticRuleResult } from '../handlers/create-semantic-rule.handler';
+import {
+  ENTITY_AUDIT_SERVICE,
+  type IEntityAuditService,
+  computeChangeSet,
+  snapshotAsChangeSet,
+} from '../../domain/audit/entity-audit.service';
+import {
+  SEMANTIC_RULE_REPOSITORY_TOKEN,
+  type ISemanticRuleRepository,
+} from '../../domain/repositories/semantic-rule.repository.interface';
+import { SemanticRuleAggregate } from '../../domain/aggregates/semantic-rule.aggregate';
+
+/**
+ * Snapshot serializable de una regla para changesets del audit log.
+ * Duplicado idéntico al del RuleController — extraer a un helper común
+ * solo si aparece un tercer caller (regla DRY pragmática).
+ */
+function ruleAuditSnapshot(r: SemanticRuleAggregate): {
+  ruleText: string;
+  ruleType: string;
+  priorityLevel: number;
+  isActive: boolean;
+  expiresAt: string | null;
+  branchId: string | null;
+  departmentId: string | null;
+} {
+  return {
+    ruleText: r.getRuleText(),
+    ruleType: r.getRuleType().getValue(),
+    priorityLevel: r.getPriority().getValue(),
+    isActive: r.getIsActive(),
+    expiresAt: r.getExpiresAt()?.toISOString() ?? null,
+    branchId: r.getBranchId(),
+    departmentId: r.getDepartmentId(),
+  };
+}
 
 /**
  * LlmJobWorker
@@ -41,6 +78,10 @@ export class LlmJobWorker implements OnApplicationBootstrap {
     private readonly commandBus: CommandBus,
     private readonly notificationsGateway: NotificationsGateway,
     private readonly policyCreator: CompanyPolicyCreator,
+    @Inject(SEMANTIC_RULE_REPOSITORY_TOKEN)
+    private readonly ruleRepo: ISemanticRuleRepository,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -72,7 +113,7 @@ export class LlmJobWorker implements OnApplicationBootstrap {
         await Promise.allSettled(
           jobs.map((job) =>
             this.runWithEvents(job, 'create_rule', async (p) => {
-              const result = await this.commandBus.execute(
+              const result = (await this.commandBus.execute(
                 new CreateSemanticRuleCommand(
                   p.companyId,
                   p.text,
@@ -84,7 +125,32 @@ export class LlmJobWorker implements OnApplicationBootstrap {
                   p.scopeType === 'branch' ? (p.scopeId ?? null) : null,
                   p.scopeType === 'department' ? (p.scopeId ?? null) : null,
                 ),
-              );
+              )) as CreateSemanticRuleResult;
+              // Audit log — solo si la regla se persistió realmente
+              // (no duplicate semántico, no suggestion-loop).
+              const persisted = !result.isDuplicate && !result.suggestions;
+              if (persisted && result.id) {
+                const created = await this.ruleRepo.findById(
+                  result.id,
+                  p.companyId,
+                );
+                if (created) {
+                  await this.audit.log({
+                    companyId: p.companyId,
+                    entityType: 'rule',
+                    entityId: created.getId(),
+                    action: 'create',
+                    changes: snapshotAsChangeSet(
+                      ruleAuditSnapshot(created),
+                      'create',
+                    ),
+                    // En path async no tenemos JWT del request — solo
+                    // el actorEmployeeId que el dispatcher serializó.
+                    actorUserId: null,
+                    actorEmployeeId: p.actorEmployeeId ?? null,
+                  });
+                }
+              }
               return result;
             }),
           ),
@@ -99,13 +165,45 @@ export class LlmJobWorker implements OnApplicationBootstrap {
         await Promise.allSettled(
           jobs.map((job) =>
             this.runWithEvents(job, 'update_rule_text', async (p) => {
-              return this.commandBus.execute(
+              const before = await this.ruleRepo.findById(p.ruleId, p.companyId);
+              const result = await this.commandBus.execute(
                 new UpdateSemanticRuleTextCommand(
                   p.ruleId,
                   p.companyId,
                   p.newText,
                 ),
               );
+              if (before) {
+                const after = await this.ruleRepo.findById(
+                  p.ruleId,
+                  p.companyId,
+                );
+                if (after) {
+                  const fields = [
+                    'ruleText',
+                    'ruleType',
+                    'priorityLevel',
+                    'isActive',
+                    'expiresAt',
+                    'branchId',
+                    'departmentId',
+                  ] as const;
+                  await this.audit.log({
+                    companyId: p.companyId,
+                    entityType: 'rule',
+                    entityId: p.ruleId,
+                    action: 'update',
+                    changes: computeChangeSet(
+                      ruleAuditSnapshot(before),
+                      ruleAuditSnapshot(after),
+                      fields,
+                    ),
+                    actorUserId: null,
+                    actorEmployeeId: p.actorEmployeeId ?? null,
+                  });
+                }
+              }
+              return result;
             }),
           ),
         );
