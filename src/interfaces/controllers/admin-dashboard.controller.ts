@@ -14,6 +14,31 @@ export interface QueuePerformanceRow {
   successRate: number;
 }
 
+/**
+ * Bucket diario para el sparkline 7d. El frontend lo pivota a
+ * `Record<queueName, DailyBucket[]>` para dibujar una serie por queue.
+ */
+export interface QueuePerformanceDailyBucket {
+  bucketDate: string; // YYYY-MM-DD
+  queueName: string;
+  completedCount: number;
+  failedCount: number;
+}
+
+/**
+ * Una fila por (tenant, queue). El frontend agrupa por tenant y muestra
+ * top-N para detectar qué companies generan más carga / errores.
+ */
+export interface QueuePerformanceTenantRow {
+  companyId: string;
+  companyName: string | null;
+  queueName: string;
+  completedCount: number;
+  failedCount: number;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+}
+
 export interface AdminDashboardOverview {
   tenants: {
     total: number;
@@ -199,6 +224,71 @@ export class AdminDashboardController {
           ? null
           : Number(row.p95_duration_ms),
       successRate: Number(row.success_rate ?? 0),
+    }));
+  }
+
+  /**
+   * GET /admin/dashboard/queue-performance-daily?days=7
+   *
+   * Buckets diarios (completed + failed) por queue para los últimos N
+   * días. Alimenta el sparkline 7d del dashboard. Default 7d, max 90d.
+   *
+   * Importante: días sin actividad NO devuelven filas — el frontend
+   * rellena con ceros para que el sparkline tenga ancho consistente.
+   */
+  @Get('queue-performance-daily')
+  async queuePerformanceDaily(
+    @Query('days') daysStr?: string,
+  ): Promise<QueuePerformanceDailyBucket[]> {
+    const days = Math.max(1, Math.min(parseInt(daysStr ?? '7', 10) || 7, 90));
+    const { data, error } = await this.supabase.rpc('queue_performance_daily', {
+      days,
+    });
+    if (error) {
+      throw new Error(`queue_performance_daily RPC failed: ${error.message}`);
+    }
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      bucketDate: String(row.bucket_date ?? ''),
+      queueName: String(row.queue_name ?? ''),
+      completedCount: Number(row.completed_count ?? 0),
+      failedCount: Number(row.failed_count ?? 0),
+    }));
+  }
+
+  /**
+   * GET /admin/dashboard/queue-performance-by-tenant?hours=24
+   *
+   * Carga + latencia agrupadas por (tenant, queue) para ver qué companies
+   * empujan más jobs / fallan más. Devuelve company_id (null cuando el
+   * payload del job no llevaba companyId — debería ser raro) y nombre
+   * de la company resuelto via LEFT JOIN companies.
+   */
+  @Get('queue-performance-by-tenant')
+  async queuePerformanceByTenant(
+    @Query('hours') hoursStr?: string,
+  ): Promise<QueuePerformanceTenantRow[]> {
+    const hours = Math.max(1, Math.min(parseInt(hoursStr ?? '24', 10) || 24, 720));
+    const { data, error } = await this.supabase.rpc(
+      'queue_performance_by_tenant',
+      { hours },
+    );
+    if (error) {
+      throw new Error(`queue_performance_by_tenant RPC failed: ${error.message}`);
+    }
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      companyId: String(row.company_id ?? ''),
+      companyName: (row.company_name as string | null) ?? null,
+      queueName: String(row.queue_name ?? ''),
+      completedCount: Number(row.completed_count ?? 0),
+      failedCount: Number(row.failed_count ?? 0),
+      p50DurationMs:
+        row.p50_duration_ms === null || row.p50_duration_ms === undefined
+          ? null
+          : Number(row.p50_duration_ms),
+      p95DurationMs:
+        row.p95_duration_ms === null || row.p95_duration_ms === undefined
+          ? null
+          : Number(row.p95_duration_ms),
     }));
   }
 
