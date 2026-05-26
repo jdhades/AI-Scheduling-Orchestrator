@@ -35,13 +35,12 @@ const MOCK_FROM_NUMBER = '+14155238886';
 
 function buildService(): TwilioService {
   const configService = {
-    getOrThrow: jest.fn((key: string) => {
+    get: jest.fn((key: string) => {
       const map: Record<string, string> = {
         'twilio.accountSid': MOCK_ACCOUNT_SID,
         'twilio.authToken': MOCK_AUTH_TOKEN,
         'twilio.fromNumber': MOCK_FROM_NUMBER,
       };
-      if (!map[key]) throw new Error(`Config key ${key} not found`);
       return map[key];
     }),
   } as unknown as ConfigService;
