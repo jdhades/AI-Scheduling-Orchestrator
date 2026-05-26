@@ -88,15 +88,15 @@ export class AdminImpersonateController {
     // email en `employees.email`.
     const { data, error } = await this.supabase
       .from('employees')
-      .select('id, auth_user_id, full_name, email, role')
+      .select('id, auth_user_id, name, email, role')
       .eq('company_id', companyId)
       .order('role')
-      .order('full_name');
+      .order('name');
     if (error) throw new BadRequestException(error.message);
     const rows = (data ?? []) as Array<{
       id: string;
       auth_user_id: string | null;
-      full_name: string | null;
+      name: string | null;
       email: string | null;
       role: 'owner' | 'manager' | 'employee';
     }>;
@@ -124,7 +124,7 @@ export class AdminImpersonateController {
         return {
           employeeId: r.id,
           authUserId: r.auth_user_id,
-          fullName: r.full_name,
+          fullName: r.name,
           email,
           role: r.role,
           status,
@@ -143,7 +143,7 @@ export class AdminImpersonateController {
   ): Promise<{ url: string; expiresInSeconds: number }> {
     const { data: employee, error } = await this.supabase
       .from('employees')
-      .select('id, auth_user_id, full_name, email, role, company_id')
+      .select('id, auth_user_id, name, email, role, company_id')
       .eq('id', body.employeeId)
       .eq('company_id', companyId)
       .maybeSingle();
