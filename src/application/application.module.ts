@@ -51,8 +51,6 @@ import { POLICY_INTERPRETERS_TOKEN } from '../domain/services/policy-interpreter
 import { MinRestDaysPerWeekInterpreter } from '../domain/services/policy-interpreters/min-rest-days-per-week.interpreter';
 import { MinRestHoursBetweenShiftsInterpreter } from '../domain/services/policy-interpreters/min-rest-hours-between-shifts.interpreter';
 import { LLMRuntimeInterpreter } from '../domain/services/policy-interpreters/llm-runtime.interpreter';
-import { RULE_REPHRASE_SERVICE } from '../domain/services/rule-rephrase.service.interface';
-import { LlmRuleRephraseService } from '../domain/services/llm-rule-rephrase.service';
 import { CompanyPolicyCreator } from '../domain/services/company-policy-creator.service';
 import { PolicyEnforcementService } from '../domain/services/policy-enforcement.service';
 import { StructuredRuleResolver } from '../domain/services/structured-rule-resolver.service';
@@ -159,7 +157,6 @@ const DomainServices = [
   MinRestHoursBetweenShiftsInterpreter,
   LLMRuntimeInterpreter,
   PolicyInterpreterRegistry,
-  LlmRuleRephraseService,
   CompanyPolicyCreator,
   // MVP de integración solver: el WeekScheduleBuilder lo puede inyectar
   // cuando esté listo para consumir policies activas (evaluate() para
@@ -245,11 +242,6 @@ const PolicyDomainProviders = [
     ],
     useFactory: (...interpreters: unknown[]) => interpreters,
   },
-  // Token-binding del rephrase service usado por CompanyPolicyCreator.
-  {
-    provide: RULE_REPHRASE_SERVICE,
-    useExisting: LlmRuleRephraseService,
-  },
   // Suggestion-loop para SemanticRule (commit 6). El handler de
   // CreateSemanticRule lo inyecta cuando intent=complex.
   {
@@ -282,7 +274,6 @@ const PolicyDomainProviders = [
     // Tokens del subsistema CompanyPolicy: el controller HTTP de
     // /company-policies (en InterfacesModule) los inyecta.
     POLICY_INTERPRETERS_TOKEN,
-    RULE_REPHRASE_SERVICE,
     SEMANTIC_RULE_REPHRASE_SERVICE,
   ],
 })

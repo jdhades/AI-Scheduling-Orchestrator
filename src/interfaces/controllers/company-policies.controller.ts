@@ -127,16 +127,10 @@ interface CompanyPolicyResponse {
 }
 
 /**
- * Respuesta del POST /company-policies. Discriminated union:
- *
- *   - 'created'              : la policy se persistió. Si interpreterId
- *                              es null, queda como LLM-only (el solver
- *                              la pasa al prompt de schedule generation).
- *
- *   - 'needs_clarification' : el sistema no encontró un patrón aplicable
- *                              y el LLM propuso reformulaciones. La policy
- *                              NO se persistió. El frontend muestra las
- *                              sugerencias y el manager re-submitea.
+ * Respuesta del POST /company-policies. Sprint async-policies (2026-05-26)
+ * unificó el path en async: el endpoint encola un job pg-boss y responde
+ * 202 con el jobId. El frontend muestra el banner global de progreso y
+ * refresca la lista al recibir `LlmJobCompleted` por WS.
  */
 type CreateCompanyPolicyResponse = {
   status: 'queued';

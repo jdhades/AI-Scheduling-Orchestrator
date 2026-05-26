@@ -1712,14 +1712,13 @@ export class MessageRouterService {
 
   /**
    * Handler del intent create_policy (tenant-wide). Llama a
-   * CompanyPolicyCreator que se encarga del suggestion-loop. Tres
-   * resultados:
+   * CompanyPolicyCreator que persiste directo. Dos resultados tras el
+   * sprint async-policies (2026-05-26):
    *   - 'created' + matched   → persistido con interpreter, reply ✓.
    *   - 'created' + llm_only  → persistido sin interpreter, reply con
    *                              warning honesto (el solver lo trata
    *                              como contexto LLM, no como constraint
    *                              hard).
-   *   - 'needs_clarification' → persiste pending + reply numerado.
    */
   private async _handleCreatePolicy(
     from: string,
@@ -1777,54 +1776,6 @@ export class MessageRouterService {
     };
     const result = await this.companyPolicyCreator.create(input);
 
-    if (result.status === 'needs_clarification') {
-      // Persistimos las sugerencias y replicamos el suggestion-loop por mensaje.
-      const persisted = result.suggestions.map((s) => ({
-        id: s.id,
-        suggestedText: s.suggestedText,
-        meta: {
-          matchedInterpreterId: s.matchedInterpreterId,
-          matchedParams: s.matchedParams,
-        },
-      }));
-      const pending = WhatsappPendingClarification.create({
-        employeeId,
-        companyId,
-        targetKind: 'policy',
-        originalText: text,
-        suggestions: persisted,
-      });
-      await this.pendingClarificationRepo.save(pending);
-
-      let session = await this.sessionRepository.getSession(from);
-      if (!session) {
-        session = ConversationSessionVO.create({
-          employeePhone: from,
-          companyId,
-        });
-      }
-      session = session.withIntent('create_policy_clarification', {
-        pendingAction: 'create_policy_clarification',
-        policySeverity: 'hard',
-        // Phase 14.2 — recordamos el scope resuelto para que la elección
-        // de la sugerencia (handler de clarification) lo pueda reusar.
-        policyScopeType: scope.type,
-        policyScopeId: scope.id ?? '',
-      });
-      await this.sessionRepository.saveSession(session);
-
-      let msg = '⚠️ Tu política es ambigua. Elegí una versión:\n\n';
-      result.suggestions.forEach((s, i) => {
-        msg += `${i + 1}. ${s.suggestedText}\n`;
-      });
-      msg += scopeLabel ? `\n_(Alcance detectado: ${scopeLabel})_\n` : '';
-      msg +=
-        '\n_Respondé con el número (1, 2, 3...) o escribí una nueva política._';
-      this._reply(from, msg);
-      return true;
-    }
-
-    // status === 'created'
     await this.sessionRepository.clearSession(from);
     const scopeSuffix = scopeLabel ? ` (alcance: ${scopeLabel})` : '';
     if (result.mode === 'matched') {
@@ -1941,35 +1892,6 @@ export class MessageRouterService {
       scope,
       createdBy: employeeId,
     });
-
-    // Si la sugerencia elegida ALSO sale needs_clarification (improbable,
-    // estaban pre-verificadas), repetimos el loop.
-    if (result.status === 'needs_clarification') {
-      const persisted = result.suggestions.map((s) => ({
-        id: s.id,
-        suggestedText: s.suggestedText,
-        meta: {
-          matchedInterpreterId: s.matchedInterpreterId,
-          matchedParams: s.matchedParams,
-        },
-      }));
-      const newPending = WhatsappPendingClarification.create({
-        employeeId,
-        companyId,
-        targetKind: 'policy',
-        originalText: pick.suggestedText,
-        suggestions: persisted,
-      });
-      await this.pendingClarificationRepo.save(newPending);
-
-      let msg = '⚠️ La elección sigue siendo ambigua. Elegí otra:\n\n';
-      result.suggestions.forEach((s, i) => {
-        msg += `${i + 1}. ${s.suggestedText}\n`;
-      });
-      msg += '\n_Respondé con el número o escribí una nueva._';
-      this._reply(from, msg);
-      return true;
-    }
 
     await this.sessionRepository.clearSession(from);
     if (result.mode === 'matched') {

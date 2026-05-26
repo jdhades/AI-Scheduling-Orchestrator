@@ -8,7 +8,6 @@ import {
   type ICompanyPolicyRepository,
 } from '../repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from './policy-interpreter-registry';
-import { type RephraseSuggestion } from './rule-rephrase.service.interface';
 import { PolicySeverity } from '../value-objects/policy-severity.vo';
 import { LLM_SERVICE, type ILLMService } from './llm.service.interface';
 import { PromptHistoryService } from '../../infrastructure/observability/prompt-history.service';
@@ -21,15 +20,17 @@ import { PromptHistoryService } from '../../infrastructure/observability/prompt-
  * extrajimos para que el MessageRouter de WhatsApp pueda reusar la
  * misma lógica sin duplicación.
  *
- * Tres caminos posibles, expresados como discriminated union:
+ * Dos caminos posibles tras el sprint async-policies (2026-05-26):
  *  - 'created' + matched      : el registry encontró un interpreter,
  *                                params extraídos, policy persistida.
- *  - 'needs_clarification'    : ningún interpreter matchea pero el LLM
- *                                propuso reformulaciones verificadas.
- *                                NO persiste — caller decide qué hacer.
- *  - 'created' + llm_only     : ningún interpreter + el LLM tampoco
- *                                pudo proponer nada; persistimos como
- *                                LLM-only para no bloquear al manager.
+ *  - 'created' + llm_only     : ningún interpreter matchea; persistimos
+ *                                como llm_runtime (severity=hard) o
+ *                                LLM-only puro (severity=soft). En ambos
+ *                                casos preservamos el texto del manager
+ *                                tal cual lo escribió.
+ *
+ * El suggestion-loop "needs_clarification" se eliminó en el mismo sprint
+ * — el matcher es fast-path opcional, llm_runtime es el catch-all.
  */
 
 export interface CreateCompanyPolicyInput {
@@ -40,24 +41,13 @@ export interface CreateCompanyPolicyInput {
   scope?: PolicyScope;
   effectiveFrom?: string;
   createdBy?: string | null;
-  /**
-   * Si true, el creator NO consulta al rephrase service y NO devuelve
-   * `needs_clarification`. Va directo al fallback: si el texto matchea
-   * un interpreter, lo usa (con match guard); si no, cae a `llm_runtime`
-   * (severity=hard) o `llm_only` puro (severity=soft) preservando el
-   * texto original del manager. Pensado para cuando el manager rechaza
-   * las sugerencias propuestas y prefiere su redacción.
-   */
-  skipSuggestions?: boolean;
 }
 
-export type CompanyPolicyCreationResult =
-  | { status: 'created'; policy: CompanyPolicy; mode: 'matched' | 'llm_only' }
-  | {
-      status: 'needs_clarification';
-      reason: 'no_interpreter_matched';
-      suggestions: RephraseSuggestion[];
-    };
+export type CompanyPolicyCreationResult = {
+  status: 'created';
+  policy: CompanyPolicy;
+  mode: 'matched' | 'llm_only';
+};
 
 @Injectable()
 export class CompanyPolicyCreator {
