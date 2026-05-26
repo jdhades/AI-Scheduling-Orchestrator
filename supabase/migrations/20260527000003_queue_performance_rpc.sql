@@ -1,8 +1,9 @@
 -- MIGRATION: function `public.queue_performance(hours int)` para el
--- AdminDashboard. Lee `pgboss.job` y devuelve por queue:
+-- AdminDashboard. Lee `pgboss.job` (pg-boss v12, columnas snake_case)
+-- y devuelve por queue:
 --   · completed_count    — jobs en state='completed' en la ventana
 --   · failed_count       — jobs en state='failed' (cancelled cuenta como fail)
---   · p50_duration_ms    — mediana del (completedon − createdon) sólo de completed
+--   · p50_duration_ms    — mediana del (completed_on − created_on) sólo de completed
 --   · p95_duration_ms    — percentile 95 de la misma serie
 --   · success_rate       — completed / (completed + failed), 0..1
 --
@@ -30,9 +31,9 @@ AS $$
     SELECT
       name,
       state,
-      EXTRACT(EPOCH FROM (completedon - createdon)) * 1000 AS duration_ms
+      EXTRACT(EPOCH FROM (completed_on - created_on)) * 1000 AS duration_ms
     FROM pgboss.job
-    WHERE createdon >= NOW() - (hours || ' hours')::INTERVAL
+    WHERE created_on >= NOW() - (hours || ' hours')::INTERVAL
       AND state IN ('completed', 'failed', 'cancelled')
   )
   SELECT
