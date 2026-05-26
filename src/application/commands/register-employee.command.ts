@@ -15,5 +15,6 @@ export class RegisterEmployeeCommand {
     public readonly phone: PhoneNumber,
     public readonly experience: ExperienceLevel,
     public readonly externalId?: string,
+    public readonly email?: string,
   ) {}
 }

@@ -34,6 +34,10 @@ import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo'
 import { RegisterEmployeeDto } from '../dtos/register-employee.dto';
 import { GetEmployeeCalendarDto } from '../dtos/get-employee-calendar.dto';
 import { UpdateEmployeeDto } from '../dtos/update-employee.dto';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
+import { EmailService } from '../../infrastructure/notifications/email.service';
 
 /**
  * EmployeeController — Interfaces Layer
@@ -52,12 +56,194 @@ const DEFAULT_RANGES = { junior: 6, intermediate: 24, senior: 999 };
 
 @Controller('employees')
 export class EmployeeController {
+  /** TTL default de invitaciones — 7 días (igual que en AuthController). */
+  private static readonly INVITATION_TTL_HOURS = 24 * 7;
+
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     @Inject(ENTITY_AUDIT_SERVICE)
     private readonly audit: IEntityAuditService,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
+    private readonly emailService: EmailService,
   ) {}
+
+  /**
+   * Bookkeeping HR fields que viven a nivel de tabla `employees` pero NO
+   * en el aggregate. Hoy: `email`. El aggregate no los modela porque no
+   * tienen invariantes de negocio — solo persistencia + uso UI.
+   */
+  private async upsertEmployeeEmail(
+    employeeId: string,
+    companyId: string,
+    email: string,
+  ): Promise<void> {
+    const { error } = await this.supabase
+      .from('employees')
+      .update({ email })
+      .eq('id', employeeId)
+      .eq('company_id', companyId);
+    if (error) {
+      // 23505 = unique violation. La constraint dice email único por
+      // company → 409 al caller en lugar de 500.
+      if ((error as { code?: string }).code === '23505') {
+        throw new ConflictException(
+          `Another employee in this company already has the email ${email}`,
+        );
+      }
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Crea una `auth_invitations` row vinculada al employee y le manda el
+   * email vía Resend. Idempotente: si ya existe una pending no expirada
+   * para el mismo employee, la reusa (no genera token nuevo). Si está
+   * expirada/consumida, genera nueva.
+   *
+   * Devuelve el token (por si la UI lo quiere mostrar como link copyable).
+   * Si el send del mail falla, la row de invitación queda creada igual
+   * — el manager puede copiar el link manual.
+   */
+  private async dispatchInvitation(params: {
+    employeeId: string;
+    companyId: string;
+    email: string;
+    role: 'manager' | 'employee';
+    departmentId: string | null;
+    invitedBy: string | null;
+  }): Promise<{ token: string; reused: boolean }> {
+    // ¿Ya hay una pending activa para este employee?
+    const { data: existing } = await this.supabase
+      .from('auth_invitations')
+      .select('id, token, expires_at')
+      .eq('employee_id', params.employeeId)
+      .is('consumed_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    let token: string;
+    let reused = false;
+    if (existing) {
+      token = existing.token as string;
+      reused = true;
+    } else {
+      token = randomBytes(32).toString('hex');
+      const expiresAt = new Date(
+        Date.now() +
+          EmployeeController.INVITATION_TTL_HOURS * 60 * 60 * 1000,
+      );
+      const { error: insErr } = await this.supabase
+        .from('auth_invitations')
+        .insert({
+          company_id: params.companyId,
+          invited_by: params.invitedBy,
+          email: params.email,
+          phone_number: null,
+          role: params.role,
+          department_id: params.departmentId,
+          employee_id: params.employeeId,
+          token,
+          expires_at: expiresAt.toISOString(),
+        });
+      if (insErr) throw new Error(insErr.message);
+    }
+
+    // Resolver nombres para el template.
+    let inviterName = 'A manager';
+    if (params.invitedBy) {
+      const { data: inviter } = await this.supabase
+        .from('employees')
+        .select('name')
+        .eq('id', params.invitedBy)
+        .maybeSingle();
+      if (inviter?.name) inviterName = inviter.name as string;
+    }
+    let companyName = 'Your company';
+    const { data: co } = await this.supabase
+      .from('companies')
+      .select('name')
+      .eq('id', params.companyId)
+      .maybeSingle();
+    if (co?.name) companyName = co.name as string;
+
+    try {
+      await this.emailService.sendInvitation({
+        to: params.email,
+        token,
+        companyName,
+        inviterName,
+        role: params.role,
+      });
+    } catch (err) {
+      // Log y seguimos — la row queda válida; el manager puede mandar
+      // el link manual via "Copy link".
+      // eslint-disable-next-line no-console
+      console.warn(
+        `dispatchInvitation: email send failed for ${params.email}: ${(err as Error).message}`,
+      );
+    }
+    return { token, reused };
+  }
+
+  /**
+   * Enriquece DTOs de empleados con email + estado de cuenta (active /
+   * pending / none). Una sola query a `employees` por batch + una query
+   * a `auth_invitations` para pending por employee_id.
+   */
+  private async enrichWithAccountStatus<T extends { id: string }>(
+    dtos: T[],
+    companyId: string,
+  ): Promise<
+    Array<
+      T & {
+        email: string | null;
+        accountStatus: 'active' | 'pending' | 'none';
+      }
+    >
+  > {
+    if (dtos.length === 0) return [];
+    const ids = dtos.map((d) => d.id);
+    const { data: rows } = await this.supabase
+      .from('employees')
+      .select('id, email, auth_user_id')
+      .in('id', ids)
+      .eq('company_id', companyId);
+    const byId = new Map<
+      string,
+      { email: string | null; authUserId: string | null }
+    >();
+    for (const r of rows ?? []) {
+      byId.set(r.id as string, {
+        email: (r.email as string | null) ?? null,
+        authUserId: (r.auth_user_id as string | null) ?? null,
+      });
+    }
+    const { data: pending } = await this.supabase
+      .from('auth_invitations')
+      .select('employee_id')
+      .in('employee_id', ids)
+      .is('consumed_at', null)
+      .gt('expires_at', new Date().toISOString());
+    const pendingSet = new Set(
+      (pending ?? []).map((p) => p.employee_id as string),
+    );
+
+    return dtos.map((d) => {
+      const meta = byId.get(d.id);
+      const status: 'active' | 'pending' | 'none' = meta?.authUserId
+        ? 'active'
+        : pendingSet.has(d.id)
+          ? 'pending'
+          : 'none';
+      return {
+        ...d,
+        email: meta?.email ?? null,
+        accountStatus: status,
+      };
+    });
+  }
 
   private auditFields = [
     'name',
@@ -79,7 +265,7 @@ export class EmployeeController {
     @Body() dto: RegisterEmployeeDto,
     @Headers('x-company-id') companyId: string,
     @CurrentUser() user: AuthContext | undefined,
-  ): Promise<{ employeeId: string }> {
+  ): Promise<{ employeeId: string; invitationSent?: boolean }> {
     const phone = PhoneNumber.create(dto.phone);
     const experience = new ExperienceLevel(
       dto.experienceMonths,
@@ -97,6 +283,29 @@ export class EmployeeController {
         dto.externalId,
       ),
     );
+
+    // Email es bookkeeping HR (no en aggregate). Update directo +
+    // dispatch automático de invitación si el email vino.
+    let invitationSent = false;
+    if (dto.email) {
+      await this.upsertEmployeeEmail(employeeId, companyId, dto.email);
+      const { data: empRow } = await this.supabase
+        .from('employees')
+        .select('role, department_id')
+        .eq('id', employeeId)
+        .maybeSingle();
+      const role: 'manager' | 'employee' =
+        (empRow?.role as string) === 'manager' ? 'manager' : 'employee';
+      await this.dispatchInvitation({
+        employeeId,
+        companyId,
+        email: dto.email,
+        role,
+        departmentId: (empRow?.department_id as string | null) ?? null,
+        invitedBy: user?.employeeId ?? null,
+      });
+      invitationSent = true;
+    }
 
     const created = await this.queryBus
       .execute(new GetEmployeeByIdQuery(employeeId, companyId))
@@ -116,7 +325,7 @@ export class EmployeeController {
       });
     }
 
-    return { employeeId };
+    return { employeeId, invitationSent };
   }
 
   private pickAuditFields(
@@ -130,11 +339,65 @@ export class EmployeeController {
 
   /**
    * GET /employees
-   * Devuelve todos los empleados de la empresa.
+   * Devuelve todos los empleados de la empresa, enriquecidos con email
+   * + accountStatus (active|pending|none) para que la UI de "Team"
+   * muestre badges + acción "Resend invite".
    */
   @Get()
-  async getEmployees(@CurrentCompany() companyId: string): Promise<unknown> {
-    return this.queryBus.execute(new GetCompanyEmployeesQuery(companyId));
+  async getEmployees(
+    @CurrentCompany() companyId: string,
+  ): Promise<Array<{ id: string; email: string | null; accountStatus: 'active' | 'pending' | 'none' }>> {
+    const dtos = (await this.queryBus.execute(
+      new GetCompanyEmployeesQuery(companyId),
+    )) as Array<{ id: string } & Record<string, unknown>>;
+    return this.enrichWithAccountStatus(dtos, companyId);
+  }
+
+  /**
+   * POST /employees/:id/resend-invite — re-dispara la invitación al
+   * email del employee. Idempotente: si hay una pending no expirada,
+   * la reusa; si no, genera token nuevo. 404 si el employee no existe
+   * en este tenant. 409 si ya tiene cuenta (no se puede re-invitar).
+   * 400 si el employee no tiene email cargado.
+   */
+  @Post(':id/resend-invite')
+  @Requires('employees:write')
+  @HttpCode(HttpStatus.OK)
+  async resendInvite(
+    @Param('id') employeeId: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+  ): Promise<{ ok: true; reused: boolean }> {
+    const { data: emp } = await this.supabase
+      .from('employees')
+      .select('id, email, role, department_id, auth_user_id')
+      .eq('id', employeeId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (!emp) {
+      throw new NotFoundException(`Employee ${employeeId} not found`);
+    }
+    if (emp.auth_user_id) {
+      throw new ConflictException(
+        'Employee already has an active account; cannot resend invite',
+      );
+    }
+    if (!emp.email) {
+      throw new ConflictException(
+        'Employee has no email — set one via edit before sending invite',
+      );
+    }
+    const role: 'manager' | 'employee' =
+      (emp.role as string) === 'manager' ? 'manager' : 'employee';
+    const result = await this.dispatchInvitation({
+      employeeId,
+      companyId,
+      email: emp.email as string,
+      role,
+      departmentId: (emp.department_id as string | null) ?? null,
+      invitedBy: user?.employeeId ?? null,
+    });
+    return { ok: true, reused: result.reused };
   }
 
   /**
@@ -191,6 +454,35 @@ export class EmployeeController {
     await this.commandBus.execute(
       new UpdateEmployeeCommand(employeeId, companyId, dto),
     );
+
+    // Email es bookkeeping HR. Si el caller manda uno y no es igual al
+    // actual, lo persistimos directo + disparamos invitación cuando el
+    // employee todavía no tiene auth_user_id (no perturbamos cuentas
+    // activas).
+    if (dto.email) {
+      const { data: emp } = await this.supabase
+        .from('employees')
+        .select('email, role, department_id, auth_user_id')
+        .eq('id', employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (emp && emp.email !== dto.email) {
+        await this.upsertEmployeeEmail(employeeId, companyId, dto.email);
+      }
+      if (emp && !emp.auth_user_id) {
+        const role: 'manager' | 'employee' =
+          (emp.role as string) === 'manager' ? 'manager' : 'employee';
+        await this.dispatchInvitation({
+          employeeId,
+          companyId,
+          email: dto.email,
+          role,
+          departmentId: (emp.department_id as string | null) ?? null,
+          invitedBy: user?.employeeId ?? null,
+        });
+      }
+    }
+
     const after = (await this.queryBus
       .execute(new GetEmployeeByIdQuery(employeeId, companyId))
       .catch(() => null)) as Record<string, unknown> | null;

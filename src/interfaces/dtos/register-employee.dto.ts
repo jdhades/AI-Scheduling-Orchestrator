@@ -1,4 +1,5 @@
 import {
+  IsEmail,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -28,6 +29,17 @@ export class RegisterEmployeeDto {
   @IsString()
   @IsNotEmpty()
   phone: string;
+
+  /**
+   * Email opcional. Si se provee, el backend automáticamente dispara una
+   * invitación al crear el employee (auth_invitations + Resend mail) para
+   * que pueda definir su password y loguearse. Si no se provee, el employee
+   * queda como registro HR sin posibilidad de login.
+   */
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(254)
+  email?: string;
 
   @IsNumber()
   @Min(0)
