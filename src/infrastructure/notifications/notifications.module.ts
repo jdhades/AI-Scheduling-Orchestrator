@@ -18,12 +18,18 @@ import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service
 @Module({
   imports: [ConfigModule],
   providers: [
+    // TwilioService como provider directo + aliased también como
+    // NOTIFICATION_SERVICE. El alias mantiene el contract con domain
+    // handlers que solo conocen la interface; el provider directo
+    // permite que AdminIntegrationsController inyecte la clase
+    // concreta para llamar testConnection() / reload().
+    TwilioService,
     {
       provide: NOTIFICATION_SERVICE,
-      useClass: TwilioService,
+      useExisting: TwilioService,
     },
     EmailService,
   ],
-  exports: [NOTIFICATION_SERVICE, EmailService],
+  exports: [NOTIFICATION_SERVICE, TwilioService, EmailService],
 })
 export class NotificationsModule {}
