@@ -1,9 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import type { ILLMService } from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
+import {
+  IntegrationCredentialsService,
+  INTEGRATION_UPDATED_EVENT,
+  type IntegrationUpdatedPayload,
+} from '../integrations/integration-credentials.service';
 
 /**
  * QwenLLMService — Implementación concreta de ILLMService
@@ -12,9 +18,9 @@ import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
  * para completar prompts de automatización y scheduling cognitivo.
  */
 @Injectable()
-export class QwenLLMService implements ILLMService {
+export class QwenLLMService implements ILLMService, OnModuleInit {
   private readonly logger = new Logger(QwenLLMService.name);
-  private readonly apiKey: string | undefined;
+  private apiKey: string | undefined;
   private readonly model = 'qwen3.6-plus';
   private readonly baseUrl =
     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
@@ -24,12 +30,71 @@ export class QwenLLMService implements ILLMService {
     private readonly config: ConfigService,
     private readonly usageTracker: LLMUsageTracker,
     private readonly usageLogger: LLMUsageLogger,
-  ) {
+    private readonly integrations: IntegrationCredentialsService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.reload();
+  }
+
+  /** Refresh apiKey desde DB (Vault) → fallback a .env. */
+  async reload(): Promise<void> {
+    const cfg = await this.integrations.get('qwen');
+    if (cfg && cfg.enabled) {
+      const k = (cfg.credentials as { apiKey?: string }).apiKey;
+      if (k) {
+        this.apiKey = k;
+        this.logger.log(
+          `QwenLLMService enabled from integration_credentials (env=${this.integrations.activeEnv}).`,
+        );
+        return;
+      }
+    }
     this.apiKey = this.config.get<string>('qwen.apiKey');
-    if (!this.apiKey) {
+    if (this.apiKey) {
+      this.logger.log('QwenLLMService enabled from .env (legacy fallback).');
+    } else {
       this.logger.warn(
         'QwenLLMService: QWEN_API_KEY not configured — LLM calls will fail gracefully',
       );
+    }
+  }
+
+  @OnEvent(INTEGRATION_UPDATED_EVENT)
+  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+    if (payload.provider !== 'qwen') return;
+    if (payload.environment !== this.integrations.activeEnv) return;
+    this.logger.log('QwenLLMService: integration updated — reloading.');
+    await this.reload();
+  }
+
+  /** Dry-run para el botón "Test connection" del admin. */
+  async testConnection(creds: {
+    apiKey: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) {
+        return { ok: false, error: `HTTP ${res.status}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 

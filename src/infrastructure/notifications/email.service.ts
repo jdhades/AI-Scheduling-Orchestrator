@@ -1,6 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Resend } from 'resend';
+import {
+  IntegrationCredentialsService,
+  INTEGRATION_UPDATED_EVENT,
+  type IntegrationUpdatedPayload,
+} from '../integrations/integration-credentials.service';
 
 /**
  * EmailService — wrapper transactional sobre Resend.
@@ -29,25 +35,98 @@ export class EmailService implements OnModuleInit {
   private from = '';
   private frontendUrl = '';
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly integrations: IntegrationCredentialsService,
+  ) {}
 
-  onModuleInit(): void {
-    const apiKey = this.config.get<string>('RESEND_API_KEY');
-    this.from =
-      this.config.get<string>('EMAIL_FROM') ??
-      'AI Scheduling <noreply@islabroadcast.com>';
+  async onModuleInit(): Promise<void> {
+    await this.reload();
+  }
+
+  /**
+   * Re-leer config desde DB (Vault). Fallback a .env si la DB no
+   * tiene row todavía (compat bootstrap).
+   */
+  async reload(): Promise<void> {
+    // FRONTEND_URL no es secreto — siempre de .env (rara vez cambia y
+    // se necesita para armar links incluso si Resend está apagado).
     this.frontendUrl =
       this.config.get<string>('FRONTEND_URL') ??
       'https://app.islabroadcast.com';
 
-    if (!apiKey) {
-      this.logger.warn(
-        'RESEND_API_KEY not set — EmailService en modo log-only. Los mails NO se envían realmente.',
-      );
+    const cfg = await this.integrations.get('resend');
+    if (cfg && cfg.enabled) {
+      const creds = cfg.credentials as { apiKey?: string; from?: string };
+      const apiKey = creds.apiKey ?? '';
+      this.from =
+        creds.from ?? 'AI Scheduling <noreply@islabroadcast.com>';
+      if (apiKey) {
+        this.resend = new Resend(apiKey);
+        this.logger.log(
+          `EmailService enabled from integration_credentials (env=${this.integrations.activeEnv}, from=${this.from})`,
+        );
+        return;
+      }
+    }
+
+    // Fallback .env
+    const apiKey = this.config.get<string>('RESEND_API_KEY');
+    this.from =
+      this.config.get<string>('EMAIL_FROM') ??
+      'AI Scheduling <noreply@islabroadcast.com>';
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+      this.logger.log(`EmailService enabled from .env (from=${this.from})`);
       return;
     }
-    this.resend = new Resend(apiKey);
-    this.logger.log(`EmailService ready (from=${this.from})`);
+
+    this.resend = null;
+    this.logger.warn(
+      'RESEND_API_KEY not set — EmailService en modo log-only. Los mails NO se envían realmente.',
+    );
+  }
+
+  /**
+   * Listener — el admin actualizó la integración Resend. Re-init.
+   */
+  @OnEvent(INTEGRATION_UPDATED_EVENT)
+  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+    if (payload.provider !== 'resend') return;
+    if (payload.environment !== this.integrations.activeEnv) return;
+    this.logger.log('EmailService: integration updated — reloading client.');
+    await this.reload();
+  }
+
+  /**
+   * Dry-run para el botón "Test connection" del panel admin.
+   * Manda un mail al sender mismo (Resend permite eso siempre).
+   */
+  async testConnection(creds: {
+    apiKey: string;
+    from?: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const client = new Resend(creds.apiKey);
+      const from = creds.from ?? 'onboarding@resend.dev';
+      // Extraer el email del formato "Name <email@x>" si vino así.
+      const m = from.match(/<([^>]+)>/);
+      const to = m ? m[1] : from;
+      const { data, error } = await client.emails.send({
+        from,
+        to,
+        subject: 'AI Scheduling — test connection',
+        text: 'This is an automated test. You can ignore this email.',
+      });
+      if (error) return { ok: false, error: error.message };
+      if (!data?.id) return { ok: false, error: 'No id returned by Resend' };
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /**

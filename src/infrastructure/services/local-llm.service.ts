@@ -1,8 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import type { ILLMService } from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
+import {
+  IntegrationCredentialsService,
+  INTEGRATION_UPDATED_EVENT,
+  type IntegrationUpdatedPayload,
+} from '../integrations/integration-credentials.service';
 
 /**
  * LocalLLMService — implementación de ILLMService contra un runtime local
@@ -16,23 +22,75 @@ import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
  * No requiere API key (el server local acepta la request sin Authorization).
  */
 @Injectable()
-export class LocalLLMService implements ILLMService {
+export class LocalLLMService implements ILLMService, OnModuleInit {
   private readonly logger = new Logger(LocalLLMService.name);
-  private readonly baseUrl: string;
-  private readonly model: string;
+  private baseUrl = '';
+  private model = '';
   private readonly TIMEOUT_MS = 300_000;
 
   constructor(
     private readonly config: ConfigService,
     private readonly usageTracker: LLMUsageTracker,
-  ) {
+    private readonly integrations: IntegrationCredentialsService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.reload();
+  }
+
+  async reload(): Promise<void> {
+    const cfg = await this.integrations.get('local_llm');
+    if (cfg && cfg.enabled) {
+      const c = cfg.credentials as { baseUrl?: string; model?: string };
+      if (c.baseUrl) {
+        this.baseUrl = c.baseUrl;
+        this.model = c.model ?? 'local-model';
+        this.logger.log(
+          `LocalLLMService enabled from integration_credentials → ${this.baseUrl} (model=${this.model})`,
+        );
+        return;
+      }
+    }
     this.baseUrl =
       this.config.get<string>('llmLocal.baseUrl') ??
       'http://127.0.0.1:1234/v1/chat/completions';
     this.model = this.config.get<string>('llmLocal.model') ?? 'local-model';
     this.logger.log(
-      `LocalLLMService configured → ${this.baseUrl} (model=${this.model})`,
+      `LocalLLMService configured from .env → ${this.baseUrl} (model=${this.model})`,
     );
+  }
+
+  @OnEvent(INTEGRATION_UPDATED_EVENT)
+  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+    if (payload.provider !== 'local_llm') return;
+    if (payload.environment !== this.integrations.activeEnv) return;
+    this.logger.log('LocalLLMService: integration updated — reloading.');
+    await this.reload();
+  }
+
+  async testConnection(creds: {
+    baseUrl: string;
+    model?: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(creds.baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: creds.model ?? 'local-model',
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   async complete(prompt: string, _signal?: AbortSignal): Promise<string> {

@@ -48,6 +48,7 @@ import { AdminPolicyInterpretersController } from './controllers/admin-policy-in
 import { AdminPlansController } from './controllers/admin-plans.controller';
 import { AdminImpersonateController } from './controllers/admin-impersonate.controller';
 import { AdminPlatformUsersController } from './controllers/admin-platform-users.controller';
+import { AdminIntegrationsController } from './controllers/admin-integrations.controller';
 import { SupportTicketsController } from './controllers/support-tickets.controller';
 import { AdminSupportTicketsController } from './controllers/admin-support-tickets.controller';
 import { AdminNotificationsController } from './controllers/admin-notifications.controller';
@@ -130,6 +131,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AdminPlansController,
     AdminImpersonateController,
     AdminPlatformUsersController,
+    AdminIntegrationsController,
     SupportTicketsController,
     AdminSupportTicketsController,
     AdminNotificationsController,

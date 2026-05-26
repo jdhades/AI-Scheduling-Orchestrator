@@ -1,7 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import type { ILLMService } from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
+import {
+  IntegrationCredentialsService,
+  INTEGRATION_UPDATED_EVENT,
+  type IntegrationUpdatedPayload,
+} from '../integrations/integration-credentials.service';
 
 /**
  * GeminiLLMService — Implementación concreta de ILLMService
@@ -15,18 +21,75 @@ import { withExponentialBackoff } from '../utils/with-exponential-backoff';
  * - Extracción robusta: la respuesta puede venir con wrapping de markdown
  */
 @Injectable()
-export class GeminiLLMService implements ILLMService {
+export class GeminiLLMService implements ILLMService, OnModuleInit {
   private readonly logger = new Logger(GeminiLLMService.name);
-  private readonly apiKey: string | undefined;
+  private apiKey: string | undefined;
   private readonly model = 'gemini-2.0-flash'; // Flash: menor latencia para scheduling
   private readonly TIMEOUT_MS = 15_000;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly integrations: IntegrationCredentialsService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.reload();
+  }
+
+  async reload(): Promise<void> {
+    const cfg = await this.integrations.get('gemini');
+    if (cfg && cfg.enabled) {
+      const k = (cfg.credentials as { apiKey?: string }).apiKey;
+      if (k) {
+        this.apiKey = k;
+        this.logger.log(
+          `GeminiLLMService enabled from integration_credentials (env=${this.integrations.activeEnv}).`,
+        );
+        return;
+      }
+    }
     this.apiKey = this.config.get<string>('GEMINI_API_KEY');
-    if (!this.apiKey) {
+    if (this.apiKey) {
+      this.logger.log('GeminiLLMService enabled from .env (legacy fallback).');
+    } else {
       this.logger.warn(
         'GeminiLLMService: GEMINI_API_KEY not configured — LLM calls will fail gracefully',
       );
+    }
+  }
+
+  @OnEvent(INTEGRATION_UPDATED_EVENT)
+  async onIntegrationUpdated(payload: IntegrationUpdatedPayload): Promise<void> {
+    if (payload.provider !== 'gemini') return;
+    if (payload.environment !== this.integrations.activeEnv) return;
+    this.logger.log('GeminiLLMService: integration updated — reloading.');
+    await this.reload();
+  }
+
+  async testConnection(creds: {
+    apiKey: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${creds.apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'ping' }] }],
+          generationConfig: { maxOutputTokens: 1 },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
