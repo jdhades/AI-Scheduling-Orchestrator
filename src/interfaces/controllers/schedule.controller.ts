@@ -168,6 +168,8 @@ export class ScheduleController {
           dto.sourceWeekStart,
           dto.targetWeekStarts,
           dto.overwrite ?? false,
+          dto.employeeId ?? null,
+          dto.dayOfWeek ?? null,
         ),
       );
     } catch (err) {

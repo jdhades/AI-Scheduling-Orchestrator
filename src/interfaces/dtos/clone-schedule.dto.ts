@@ -3,8 +3,12 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsInt,
   IsOptional,
+  IsUUID,
   Matches,
+  Max,
+  Min,
 } from 'class-validator';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -31,8 +35,31 @@ export class CloneScheduleDto {
   targetWeekStarts!: string[];
 
   /** Si true, borra assignments existentes en cada target week antes de
-   *  clonar. Si false (default), tira 409 cuando alguna target ya tiene. */
+   *  clonar. Si false (default), tira 409 cuando alguna target ya tiene.
+   *
+   *  Con clone granular (employeeId y/o dayOfWeek set), overwrite aplica
+   *  solo al scope filtrado — no toca el resto de la semana destino. */
   @IsOptional()
   @IsBoolean()
   overwrite?: boolean;
+
+  /**
+   * Clone granular — solo este empleado. Si se omite, se clonan todos.
+   * Combinable con dayOfWeek para clonar un único cell.
+   */
+  @IsOptional()
+  @IsUUID('loose')
+  employeeId?: string;
+
+  /**
+   * Clone granular — solo este día de la semana. 0=Sunday, 6=Saturday
+   * (estándar JS Date.getUTCDay). Si se omite, se clonan los 7 días.
+   * El handler mapea por offset de día-de-semana, no por fecha exacta
+   * (ya lo hace para el clone full-week — reusamos esa lógica).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek?: number;
 }

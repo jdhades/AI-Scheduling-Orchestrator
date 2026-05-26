@@ -25,6 +25,11 @@ export class CloneScheduleCommand {
     public readonly sourceWeekStart: string, // YYYY-MM-DD
     public readonly targetWeekStarts: string[], // YYYY-MM-DD[]
     public readonly overwrite: boolean = false,
+    /** Si set, solo clona los assignments de ESTE empleado. */
+    public readonly employeeId: string | null = null,
+    /** Si set (0-6 con 0=Sunday), solo clona assignments cuyo día
+     *  de la semana matchee — JS Date.getUTCDay convention. */
+    public readonly dayOfWeek: number | null = null,
   ) {}
 }
 

@@ -59,7 +59,14 @@ export class CloneScheduleHandler implements ICommandHandler<
   ) {}
 
   async execute(command: CloneScheduleCommand): Promise<CloneScheduleResult> {
-    const { companyId, sourceWeekStart, targetWeekStarts, overwrite } = command;
+    const {
+      companyId,
+      sourceWeekStart,
+      targetWeekStarts,
+      overwrite,
+      employeeId,
+      dayOfWeek,
+    } = command;
 
     if (targetWeekStarts.length === 0) {
       return { created: 0, skipped: [], replaced: [] };
@@ -75,27 +82,48 @@ export class CloneScheduleHandler implements ICommandHandler<
     const weekStartsOn =
       await this.companyPreferences.getWeekStartsOn(companyId);
 
-    // 1) Source assignments (origen del clone).
+    // 1) Source assignments (origen del clone). Clone granular: filtra
+    // por employeeId y/o dayOfWeek si vienen del DTO. Sin filtros =
+    // toda la semana (back-compat con clone full-week).
     const sourceFrom = sourceWeekStart;
     const sourceTo = this._weekEnd(sourceWeekStart);
-    const source = await this.assignmentRepo.findByCompanyAndDateRange(
+    const allSource = await this.assignmentRepo.findByCompanyAndDateRange(
       companyId,
       sourceFrom,
       sourceTo,
     );
+    const source = allSource.filter((a) => {
+      if (employeeId && a.employeeId !== employeeId) return false;
+      if (dayOfWeek !== null && dayOfWeek !== undefined) {
+        const dow = new Date(`${a.date}T00:00:00.000Z`).getUTCDay();
+        if (dow !== dayOfWeek) return false;
+      }
+      return true;
+    });
     if (source.length === 0) {
       return { created: 0, skipped: [], replaced: [] };
     }
 
-    // 2) Pre-check de conflictos: ¿alguna target week ya tiene assignments?
-    // En paralelo para todas las targets.
+    // 2) Pre-check de conflictos: ¿alguna target week ya tiene assignments
+    // EN EL SCOPE del clone? Para clone full-week es la semana entera; para
+    // granular es solo el subset filtrado. Sin esto, clonar la fila de
+    // Pablo a una semana que ya tiene 50 turnos de otros empleados
+    // tiraría 409 falsamente.
     const existingByWeek = await Promise.all(
       targets.map(async (ws) => {
-        const rows = await this.assignmentRepo.findByCompanyAndDateRange(
+        const allRows = await this.assignmentRepo.findByCompanyAndDateRange(
           companyId,
           ws,
           this._weekEnd(ws),
         );
+        const rows = allRows.filter((a) => {
+          if (employeeId && a.employeeId !== employeeId) return false;
+          if (dayOfWeek !== null && dayOfWeek !== undefined) {
+            const dow = new Date(`${a.date}T00:00:00.000Z`).getUTCDay();
+            if (dow !== dayOfWeek) return false;
+          }
+          return true;
+        });
         return { weekStart: ws, count: rows.length, rows };
       }),
     );
@@ -205,16 +233,31 @@ export class CloneScheduleHandler implements ICommandHandler<
       toInsertByWeek.set(ws, insertsForWeek);
     }
 
-    // 5) Borrar lo existente en las targets (solo si overwrite). Borramos
-    // por semana al rango completo — alcance estricto a target weeks.
+    // 5) Borrar lo existente en las targets (solo si overwrite).
+    //   - Full-week clone (sin filtros): borramos el rango completo de
+    //     la semana via deleteByDateRange.
+    //   - Granular (employeeId / dayOfWeek): borramos solo los rows
+    //     filtrados (ya los tenemos en `conflicts[i].rows`) via
+    //     deleteByIdsBatch — preserva el resto de la semana.
     const replaced: Array<{ weekStart: string; count: number }> = [];
+    const granular =
+      !!employeeId || (dayOfWeek !== null && dayOfWeek !== undefined);
     if (overwrite) {
       for (const c of conflicts) {
-        const deletedCount = await this.assignmentRepo.deleteByDateRange(
-          companyId,
-          c.weekStart,
-          this._weekEnd(c.weekStart),
-        );
+        let deletedCount: number;
+        if (granular) {
+          const ids = c.rows.map((a) => a.id);
+          if (ids.length > 0) {
+            await this.assignmentRepo.deleteByIdsBatch(ids, companyId);
+          }
+          deletedCount = ids.length;
+        } else {
+          deletedCount = await this.assignmentRepo.deleteByDateRange(
+            companyId,
+            c.weekStart,
+            this._weekEnd(c.weekStart),
+          );
+        }
         replaced.push({ weekStart: c.weekStart, count: deletedCount });
         // Borradas → también afectan fairness de esos empleados.
         for (const a of c.rows) {
