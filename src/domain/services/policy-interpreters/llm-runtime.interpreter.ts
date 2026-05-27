@@ -4,7 +4,11 @@ import {
   type PolicyInterpreter,
   type PolicyViolation,
 } from '../policy-interpreter.interface';
-import { LlmResolverService } from '../../../application/services/llm-resolver.service';
+import {
+  LlmBudgetExceededException,
+  LlmProviderNotAllowedException,
+  LlmResolverService,
+} from '../../../application/services/llm-resolver.service';
 
 /**
  * Catch-all interpreter que delega la evaluación al LLM en runtime.
@@ -104,9 +108,17 @@ export class LLMRuntimeInterpreter implements PolicyInterpreter<LLMRuntimeParams
       });
       raw = await llm.complete(prompt);
     } catch (err) {
-      // Fail-open: si el LLM falla no podemos bloquear schedules. Loguear
-      // y devolver vacío. La policy igual sigue activa (en el próximo
-      // intento se re-intenta).
+      // Budget/allowlist → propagar. La generación de horario aborta
+      // con 403 — preferimos que el manager vea el bloqueo a que el
+      // verify-loop iterativamente intente y consuma budget.
+      if (
+        err instanceof LlmBudgetExceededException ||
+        err instanceof LlmProviderNotAllowedException
+      ) {
+        throw err;
+      }
+      // Fail-open para provider errors: no bloqueamos schedules. La
+      // policy sigue activa para próximos intentos.
       this.logger.warn(
         `llm_runtime LLM call failed (${(err as Error).message}); returning [] (fail-open)`,
       );

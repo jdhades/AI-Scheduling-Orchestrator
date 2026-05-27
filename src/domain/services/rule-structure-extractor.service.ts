@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { LlmResolverService } from '../../application/services/llm-resolver.service';
+import {
+  LlmBudgetExceededException,
+  LlmProviderNotAllowedException,
+  LlmResolverService,
+} from '../../application/services/llm-resolver.service';
 import {
   type RuleStructure,
   isValidRuleStructure,
@@ -46,6 +50,17 @@ export class RuleStructureExtractor {
       });
       raw = await llm.complete(prompt);
     } catch (error) {
+      // Las excepciones de enforcement (budget excedido, modelo no
+      // permitido para este tenant) propagan — el manager debe ver el
+      // 403 con mensaje claro. Las fallas del provider (timeout, etc.)
+      // siguen siendo fail-open: persistimos sin estructura para no
+      // bloquear la creación de la regla por un hiccup del LLM.
+      if (
+        error instanceof LlmBudgetExceededException ||
+        error instanceof LlmProviderNotAllowedException
+      ) {
+        throw error;
+      }
       this.logger.warn(
         `RuleStructureExtractor: LLM call failed for rule "${params.ruleText.substring(0, 60)}". Error: ${(error as Error).message}`,
       );

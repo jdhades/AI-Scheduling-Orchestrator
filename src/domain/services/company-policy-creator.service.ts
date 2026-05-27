@@ -9,7 +9,11 @@ import {
 } from '../repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from './policy-interpreter-registry';
 import { PolicySeverity } from '../value-objects/policy-severity.vo';
-import { LlmResolverService } from '../../application/services/llm-resolver.service';
+import {
+  LlmBudgetExceededException,
+  LlmProviderNotAllowedException,
+  LlmResolverService,
+} from '../../application/services/llm-resolver.service';
 
 /**
  * CompanyPolicyCreator — Domain Service
@@ -250,6 +254,15 @@ Respond with ONLY a JSON object, no prose, no code fences:
       );
       return true;
     } catch (err) {
+      // Budget/allowlist → propagar al endpoint (403 con mensaje
+      // claro). Provider error → fail-open: asumimos que la intención
+      // está preservada y dejamos al interpreter encargarse.
+      if (
+        err instanceof LlmBudgetExceededException ||
+        err instanceof LlmProviderNotAllowedException
+      ) {
+        throw err;
+      }
       this.logger.warn(
         `matchPreservesIntent failed (${(err as Error).message}); using interpreter`,
       );
@@ -279,6 +292,15 @@ POLICY: ${text}`;
       if (trimmed.length === 0) return text;
       return trimmed;
     } catch (err) {
+      // Budget/allowlist → propagar. Provider error → fail-open con
+      // el texto original (peor caso: el prompt del solver queda con
+      // texto mixto idioma; sigue siendo aplicable).
+      if (
+        err instanceof LlmBudgetExceededException ||
+        err instanceof LlmProviderNotAllowedException
+      ) {
+        throw err;
+      }
       this.logger.warn(
         `translateToEnglish failed (${(err as Error).message}); using original`,
       );

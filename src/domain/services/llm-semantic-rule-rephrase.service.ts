@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { LlmResolverService } from '../../application/services/llm-resolver.service';
+import {
+  LlmBudgetExceededException,
+  LlmProviderNotAllowedException,
+  LlmResolverService,
+} from '../../application/services/llm-resolver.service';
 import {
   type ISemanticRuleRephraseService,
   type SemanticRuleRephraseInput,
@@ -40,6 +44,15 @@ export class LlmSemanticRuleRephraseService implements ISemanticRuleRephraseServ
       });
       raw = await llm.complete(prompt);
     } catch (error) {
+      // Budget/allowlist → propagar (el manager debe ver el 403).
+      // Resto → fail-open: sugerencias vacías es la semántica histórica
+      // ante un LLM call problemático.
+      if (
+        error instanceof LlmBudgetExceededException ||
+        error instanceof LlmProviderNotAllowedException
+      ) {
+        throw error;
+      }
       this.logger.warn(
         `LlmSemanticRuleRephraseService: LLM call failed for "${input.originalText.substring(0, 60)}". Error: ${(error as Error).message}`,
       );
