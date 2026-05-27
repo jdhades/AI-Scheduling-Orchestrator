@@ -48,7 +48,10 @@ async function main() {
 
     for (const rule of toProcess) {
       total++;
-      const structure = await extractor.extract({ ruleText: rule.getRuleText() });
+      const structure = await extractor.extract({
+        ruleText: rule.getRuleText(),
+        companyId: company.id as string,
+      });
       if (structure) {
         rule.setStructure(structure);
         await ruleRepo.save(rule);
