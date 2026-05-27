@@ -21,6 +21,8 @@ import { SupabaseShiftAssignmentBreakRepository } from './supabase-shift-assignm
 import { SupabaseShiftTemplateBreakRepository } from './supabase-shift-template-break.repository';
 import { SupabaseTaskRepository } from './supabase-task.repository';
 import { SupabaseEntityAuditService } from './supabase-entity-audit.service';
+import { SupabaseImportStagingRepository } from './supabase-import-staging.repository';
+import { IMPORT_STAGING_REPOSITORY } from '../../domain/imports/import-staging.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_MEMBERSHIP_REPOSITORY } from '../../domain/repositories/shift-membership.repository';
 import { SHIFT_ASSIGNMENT_BREAK_REPOSITORY } from '../../domain/repositories/shift-assignment-break.repository';
@@ -181,6 +183,10 @@ import { TenantModule } from '../tenant/tenant.module';
       provide: ENTITY_AUDIT_SERVICE,
       useClass: SupabaseEntityAuditService,
     },
+    {
+      provide: IMPORT_STAGING_REPOSITORY,
+      useClass: SupabaseImportStagingRepository,
+    },
   ],
   exports: [
     EMPLOYEE_REPOSITORY,
@@ -208,6 +214,7 @@ import { TenantModule } from '../tenant/tenant.module';
     SHIFT_TEMPLATE_BREAK_REPOSITORY,
     TASK_REPOSITORY,
     ENTITY_AUDIT_SERVICE,
+    IMPORT_STAGING_REPOSITORY,
   ],
 })
 export class RepositoriesModule {}

@@ -62,6 +62,10 @@ import { RedisModule } from '../infrastructure/redis/redis.module';
 import { NotificationsModule } from '../infrastructure/notifications/notifications.module';
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './controllers/health.controller';
+import { ImportsController } from './controllers/imports.controller';
+import { ImportValidatorService } from '../application/imports/import-validator.service';
+import { ImportPreviewBuilderService } from '../application/imports/import-preview-builder.service';
+import { ImportCommitterService } from '../application/imports/import-committer.service';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
@@ -138,6 +142,16 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AdminSupportTicketsController,
     AdminNotificationsController,
     HealthController,
+    ImportsController,
+  ],
+  providers: [
+    // Sprint Data Import (Fase 1) — los 3 services del subsistema de
+    // importación viven acá porque solo los usa ImportsController. Si
+    // a futuro un job background necesita el committer, mover a
+    // ApplicationModule.
+    ImportValidatorService,
+    ImportPreviewBuilderService,
+    ImportCommitterService,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

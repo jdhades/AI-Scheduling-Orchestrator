@@ -97,6 +97,13 @@ export const CAPABILITIES = {
     description: 'View audit log (security events)',
     defaultRoles: ['owner', 'manager', 'employee'],
   },
+
+  // Data import ─────────────────────────────────────────────────────
+  'imports:run': {
+    description:
+      'Run multi-modal data imports (employees, shifts, time-off via upload/Excel/external agent)',
+    defaultRoles: ['owner'],
+  },
 } as const;
 
 export type Capability = keyof typeof CAPABILITIES;
