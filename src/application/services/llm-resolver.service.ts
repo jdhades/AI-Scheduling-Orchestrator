@@ -16,6 +16,7 @@ import { CompanyPreferencesService } from './company-preferences.service';
 import { PromptHistoryService } from '../../infrastructure/observability/prompt-history.service';
 import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
 import { LLMModelBudgetService } from '../../domain/services/llm-model-budget.service';
+import { CompanyLlmAllowlistService } from '../../domain/services/company-llm-allowlist.service';
 
 export interface ResolverContext {
   /** Subsistema que disparó la call (ej. `schedule_generation`). */
@@ -44,6 +45,28 @@ export class LlmBudgetExceededException extends ForbiddenException {
       model,
       usedTokens,
       budgetTokens,
+    });
+  }
+}
+
+/**
+ * Excepción dedicada al fail del check de whitelist. El tenant tiene
+ * una allowlist configurada y el (provider, model) que el resolver
+ * eligió no está en ella. Soporte resuelve o agregando el modelo a la
+ * allowlist o cambiando companies.llm_provider / llm_model.
+ */
+export class LlmProviderNotAllowedException extends ForbiddenException {
+  constructor(
+    public readonly companyId: string,
+    public readonly provider: string,
+    public readonly model: string,
+  ) {
+    super({
+      error: 'llm_provider_not_allowed',
+      message: `LLM provider/model "${provider}:${model}" is not on this tenant's allowlist`,
+      companyId,
+      provider,
+      model,
     });
   }
 }
@@ -84,6 +107,7 @@ export class LlmResolverService {
     @Inject(LLM_SERVICE) private readonly envDefault: ILLMService,
     private readonly usageLogger: LLMUsageLogger,
     private readonly budgets: LLMModelBudgetService,
+    private readonly allowlist: CompanyLlmAllowlistService,
   ) {}
 
   async forCompany(
@@ -93,6 +117,14 @@ export class LlmResolverService {
     const cfg = await this.companyPreferences.getLlmConfig(companyId);
     const base = this._pickProvider(cfg.provider, companyId);
     const modelLabel = cfg.model ?? cfg.provider ?? null;
+    const providerLabel = cfg.provider ?? null;
+
+    // Allowlist enforcement — si el tenant tiene whitelist configurada
+    // y el (provider, model) elegido NO está en ella, rechazamos. Sin
+    // filas en allowlist → cualquier modelo permitido (compat).
+    if (providerLabel && modelLabel) {
+      await this._enforceAllowlist(companyId, providerLabel, modelLabel);
+    }
 
     // Budget enforcement — chequeo previo al return del LLM service.
     // Si el tenant tiene budget configurado (override o global) y ya
@@ -109,6 +141,25 @@ export class LlmResolverService {
       jobId: context.jobId ?? null,
       modelLabel,
     });
+  }
+
+  /**
+   * Chequea que el (provider, model) elegido esté en la whitelist del
+   * tenant. Si la company no tiene filas en allowlist, todo permitido.
+   * Si tiene filas y el (provider, model) no aparece, lanza.
+   */
+  private async _enforceAllowlist(
+    companyId: string,
+    provider: string,
+    model: string,
+  ): Promise<void> {
+    const allowed = await this.allowlist.isAllowed(companyId, provider, model);
+    if (!allowed) {
+      this.logger.warn(
+        `LLM provider not allowed — company=${companyId} provider=${provider} model=${model}`,
+      );
+      throw new LlmProviderNotAllowedException(companyId, provider, model);
+    }
   }
 
   /**

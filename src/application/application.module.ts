@@ -61,6 +61,7 @@ import { ManagerScopeService } from './services/manager-scope.service';
 import { ManagerNotificationService } from './services/manager-notification.service';
 import { CompanyPreferencesService } from './services/company-preferences.service';
 import { TenantFeatureService } from '../domain/services/tenant-feature.service';
+import { CompanyLlmAllowlistService } from '../domain/services/company-llm-allowlist.service';
 import { LlmResolverService } from './services/llm-resolver.service';
 import { CoverageService } from '../domain/services/coverage.service';
 import { OperationalKpisService } from '../domain/services/operational-kpis.service';
@@ -176,6 +177,9 @@ const DomainServices = [
   // Sprint admin: feature flags per-tenant. Catálogo en código,
   // overrides en BD. Consumers leen via TenantFeatureService.isEnabled.
   TenantFeatureService,
+  // Whitelist (provider, model) per-tenant. Consumido por
+  // LlmResolverService antes de devolver el cliente LLM.
+  CompanyLlmAllowlistService,
   // Sprint admin/soporte — devuelve el ILLMService apropiado por tenant
   // (companies.llm_provider). Sin pref configurada → env-wide default.
   LlmResolverService,

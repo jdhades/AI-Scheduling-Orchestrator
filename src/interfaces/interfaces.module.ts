@@ -43,6 +43,7 @@ import { AdminDashboardController } from './controllers/admin-dashboard.controll
 import { AdminTenantOpsController } from './controllers/admin-tenant-ops.controller';
 import { AdminLLMBudgetsController } from './controllers/admin-llm-budgets.controller';
 import { AdminTenantFeaturesController } from './controllers/admin-tenant-features.controller';
+import { AdminCompanyLlmAllowlistController } from './controllers/admin-company-llm-allowlist.controller';
 import { AdminLLMModelsController } from './controllers/admin-llm-models.controller';
 import { AdminPolicyInterpretersController } from './controllers/admin-policy-interpreters.controller';
 import { AdminPlansController } from './controllers/admin-plans.controller';
@@ -126,6 +127,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AdminTenantOpsController,
     AdminLLMBudgetsController,
     AdminTenantFeaturesController,
+    AdminCompanyLlmAllowlistController,
     AdminLLMModelsController,
     AdminPolicyInterpretersController,
     AdminPlansController,
