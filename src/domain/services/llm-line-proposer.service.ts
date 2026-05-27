@@ -111,7 +111,7 @@ export class LLMLineProposerService {
 
     let raw: string;
     try {
-      raw = await llm.complete(prompt, signal);
+      raw = await llm.complete(prompt, { signal });
     } catch (err) {
       // Si fue cancel del usuario, propagamos hacia arriba para que el
       // worker marque el job como cancelado en lugar de caer al
@@ -169,7 +169,7 @@ Expected output format:
 
     let raw: string;
     try {
-      raw = await llm.complete(prompt, signal);
+      raw = await llm.complete(prompt, { signal });
     } catch (err) {
       if (signal?.aborted) throw err;
       this.logger.warn(

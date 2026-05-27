@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
-import type { ILLMService } from '../../domain/services/llm.service.interface';
+import type {
+  ILLMService,
+  LLMCompleteOptions,
+} from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 import {
@@ -25,7 +28,8 @@ import {
 export class LocalLLMService implements ILLMService, OnModuleInit {
   private readonly logger = new Logger(LocalLLMService.name);
   private baseUrl = '';
-  private model = '';
+  /** Default model. Override via `options.model` en complete(). */
+  private defaultModel = '';
   private readonly TIMEOUT_MS = 300_000;
 
   constructor(
@@ -44,9 +48,9 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
       const c = cfg.credentials as { baseUrl?: string; model?: string };
       if (c.baseUrl) {
         this.baseUrl = c.baseUrl;
-        this.model = c.model ?? 'local-model';
+        this.defaultModel = c.model ?? 'local-model';
         this.logger.log(
-          `LocalLLMService enabled from integration_credentials → ${this.baseUrl} (model=${this.model})`,
+          `LocalLLMService enabled from integration_credentials → ${this.baseUrl} (model=${this.defaultModel})`,
         );
         return;
       }
@@ -54,9 +58,9 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
     this.baseUrl =
       this.config.get<string>('llmLocal.baseUrl') ??
       'http://127.0.0.1:1234/v1/chat/completions';
-    this.model = this.config.get<string>('llmLocal.model') ?? 'local-model';
+    this.defaultModel = this.config.get<string>('llmLocal.model') ?? 'local-model';
     this.logger.log(
-      `LocalLLMService configured from .env → ${this.baseUrl} (model=${this.model})`,
+      `LocalLLMService configured from .env → ${this.baseUrl} (model=${this.defaultModel})`,
     );
   }
 
@@ -95,15 +99,16 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
     }
   }
 
-  async complete(prompt: string, _signal?: AbortSignal): Promise<string> {
+  async complete(prompt: string, options?: LLMCompleteOptions): Promise<string> {
+    const model = options?.model ?? this.defaultModel;
     return withExponentialBackoff(
-      () => this.callLocal(prompt),
+      () => this.callLocal(prompt, model),
       'LocalLLMService',
       { maxRetries: 1, initialDelayMs: 1000 },
     );
   }
 
-  private async callLocal(prompt: string): Promise<string> {
+  private async callLocal(prompt: string, model: string): Promise<string> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
 
@@ -114,7 +119,7 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
-          model: this.model,
+          model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 4096,
@@ -151,7 +156,7 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
     }
 
     this.logger.debug(
-      `LocalLLMService: received ${rawText.length} chars from ${this.model}`,
+      `LocalLLMService: received ${rawText.length} chars from ${model}`,
     );
     return rawText;
   }

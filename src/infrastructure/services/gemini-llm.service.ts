@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
-import type { ILLMService } from '../../domain/services/llm.service.interface';
+import type {
+  ILLMService,
+  LLMCompleteOptions,
+} from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 import {
   IntegrationCredentialsService,
@@ -24,7 +27,8 @@ import {
 export class GeminiLLMService implements ILLMService, OnModuleInit {
   private readonly logger = new Logger(GeminiLLMService.name);
   private apiKey: string | undefined;
-  private readonly model = 'gemini-2.0-flash'; // Flash: menor latencia para scheduling
+  /** Default cuando el caller no especifica `options.model`. */
+  private readonly defaultModel = 'gemini-2.0-flash';
   private readonly TIMEOUT_MS = 15_000;
 
   constructor(
@@ -72,7 +76,7 @@ export class GeminiLLMService implements ILLMService, OnModuleInit {
     apiKey: string;
   }): Promise<{ ok: boolean; error?: string }> {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${creds.apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.defaultModel}:generateContent?key=${creds.apiKey}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,20 +102,21 @@ export class GeminiLLMService implements ILLMService, OnModuleInit {
     }
   }
 
-  async complete(prompt: string, _signal?: AbortSignal): Promise<string> {
+  async complete(prompt: string, options?: LLMCompleteOptions): Promise<string> {
     if (!this.apiKey) {
       throw new Error('GeminiLLMService: GEMINI_API_KEY is not configured');
     }
+    const model = options?.model ?? this.defaultModel;
 
     return withExponentialBackoff(
-      () => this.callGemini(prompt),
+      () => this.callGemini(prompt, model),
       'GeminiLLMService',
       { maxRetries: 3, initialDelayMs: 2000 },
     );
   }
 
-  private async callGemini(prompt: string): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+  private async callGemini(prompt: string, model: string): Promise<string> {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);

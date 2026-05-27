@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   LLM_SERVICE,
   type ILLMService,
+  type LLMCompleteOptions,
 } from '../../domain/services/llm.service.interface';
 import { QwenLLMService } from '../../infrastructure/services/qwen-llm.service';
 import { GeminiLLMService } from '../../infrastructure/services/gemini-llm.service';
@@ -227,10 +228,20 @@ export class LlmResolverService {
   ): ILLMService {
     const history = this.promptHistory;
     return {
-      async complete(prompt: string, signal?: AbortSignal): Promise<string> {
+      async complete(
+        prompt: string,
+        options?: LLMCompleteOptions,
+      ): Promise<string> {
         const start = Date.now();
         try {
-          const response = await base.complete(prompt, signal);
+          // Inyectamos el modelo del tenant ANTES de llamar al base.
+          // El caller puede haber pasado un override (ej. tests), en cuyo
+          // caso respetamos el del caller — sino ganamos con ctx.modelLabel.
+          const effectiveOptions: LLMCompleteOptions = {
+            ...options,
+            model: options?.model ?? ctx.modelLabel ?? undefined,
+          };
+          const response = await base.complete(prompt, effectiveOptions);
           history.record({
             companyId: ctx.companyId,
             operation: ctx.operation,

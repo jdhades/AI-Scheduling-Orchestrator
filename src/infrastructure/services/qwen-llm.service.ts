@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
-import type { ILLMService } from '../../domain/services/llm.service.interface';
+import type {
+  ILLMService,
+  LLMCompleteOptions,
+} from '../../domain/services/llm.service.interface';
 import { withExponentialBackoff } from '../utils/with-exponential-backoff';
 import { LLMUsageTracker } from '../observability/llm-usage-tracker.service';
 import { LLMUsageLogger } from '../observability/llm-usage-logger.service';
@@ -21,7 +24,12 @@ import {
 export class QwenLLMService implements ILLMService, OnModuleInit {
   private readonly logger = new Logger(QwenLLMService.name);
   private apiKey: string | undefined;
-  private readonly model = 'qwen3.6-plus';
+  /**
+   * Modelo por default. Se usa cuando el caller no pasa `options.model`
+   * — típicamente paths legacy sin tenant context. Cuando viene via el
+   * resolver per-tenant, el `companies.llm_model` gana.
+   */
+  private readonly defaultModel = 'qwen3.6-plus';
   private readonly baseUrl =
     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
   private readonly TIMEOUT_MS = 300_000;
@@ -82,7 +90,7 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: this.model,
+          model: this.defaultModel,
           messages: [{ role: 'user', content: 'ping' }],
           max_tokens: 1,
         }),
@@ -100,13 +108,14 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
     }
   }
 
-  async complete(prompt: string, signal?: AbortSignal): Promise<string> {
+  async complete(prompt: string, options?: LLMCompleteOptions): Promise<string> {
     if (!this.apiKey) {
       throw new Error('QwenLLMService: QWEN_API_KEY is not configured');
     }
+    const model = options?.model ?? this.defaultModel;
 
     return withExponentialBackoff(
-      () => this.callQwen(prompt, signal),
+      () => this.callQwen(prompt, model, options?.signal),
       'QwenLLMService',
       { maxRetries: 3, initialDelayMs: 2000 },
     );
@@ -114,6 +123,7 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
 
   private async callQwen(
     prompt: string,
+    model: string,
     externalSignal?: AbortSignal,
   ): Promise<string> {
     // Si el caller pasó un signal externo (ej. cancel de un job), lo
@@ -134,7 +144,7 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
         },
         signal: fetchSignal,
         body: JSON.stringify({
-          model: this.model,
+          model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1, // Bajo para respuestas deterministas estructuradas
           max_tokens: 8192, // qwen3.x "thinking mode" consume completion tokens internamente;
@@ -182,8 +192,11 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
         total: usage.total_tokens ?? 0,
       });
       // Persistencia para el dashboard de costos (lee contexto via ALS).
+      // Usamos el model EFECTIVAMENTE consumido (el del request) para
+      // que el budget enforcement matchee exactamente — sino el dashboard
+      // miente y `monthlyTokensUsed` nunca suma contra el tenant config.
       this.usageLogger.record({
-        model: this.model,
+        model,
         promptTokens: usage.prompt_tokens ?? 0,
         completionTokens: usage.completion_tokens ?? 0,
         totalTokens: usage.total_tokens ?? 0,
