@@ -66,6 +66,7 @@ export class UpdateSemanticRuleTextHandler implements ICommandHandler<UpdateSema
 
     const structure = await this.structureExtractor.extract({
       ruleText: command.newText,
+      companyId: command.companyId,
     });
     if (structure) rule.setStructure(structure);
     const structureRegenerated = structure !== null;

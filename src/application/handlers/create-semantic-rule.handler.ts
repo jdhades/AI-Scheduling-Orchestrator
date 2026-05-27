@@ -164,6 +164,7 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
     // 2.6 Extraer estructura con LLM (analiza el texto UNA vez y guarda el resultado)
     const structure = await this.structureExtractor.extract({
       ruleText: command.ruleText,
+      companyId: command.companyId,
     });
     if (structure) {
       rule.setStructure(structure);

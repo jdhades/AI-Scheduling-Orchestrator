@@ -1,6 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { ILLMService } from './llm.service.interface';
-import { LLM_SERVICE } from './llm.service.interface';
+import { Injectable, Logger } from '@nestjs/common';
+import { LlmResolverService } from '../../application/services/llm-resolver.service';
 import {
   type RuleStructure,
   isValidRuleStructure,
@@ -18,26 +17,34 @@ import {
  * Si el LLM falla o devuelve JSON inválido → retorna `null`. El caller decide
  * si persiste la regla sin estructura (y marca warning para el manager) o
  * rechaza la creación.
+ *
+ * Sprint llm-enforcement: usa LlmResolverService → respeta budget +
+ * allowlist + prompt history per tenant. Si el tenant excedió budget,
+ * el throw del resolver llega acá; lo dejamos propagar (no try-catch
+ * silencioso) para que el handler responda 403 al manager — sino una
+ * regla cara silenciosamente no se aplicaría.
  */
 @Injectable()
 export class RuleStructureExtractor {
   private readonly logger = new Logger(RuleStructureExtractor.name);
 
-  constructor(
-    @Inject(LLM_SERVICE)
-    private readonly llmService: ILLMService,
-  ) {}
+  constructor(private readonly llmResolver: LlmResolverService) {}
 
   async extract(params: {
     ruleText: string;
     /** Año de referencia para resolver fechas sin año (ej. "el 25" → 2026-XX-25). */
     referenceYear?: number;
+    /** Tenant que dispara la extracción — necesario para el resolver. */
+    companyId: string;
   }): Promise<RuleStructure | null> {
     const prompt = this.buildPrompt(params.ruleText, params.referenceYear);
 
     let raw: string;
     try {
-      raw = await this.llmService.complete(prompt);
+      const llm = await this.llmResolver.forCompany(params.companyId, {
+        operation: 'rule.structure_extract',
+      });
+      raw = await llm.complete(prompt);
     } catch (error) {
       this.logger.warn(
         `RuleStructureExtractor: LLM call failed for rule "${params.ruleText.substring(0, 60)}". Error: ${(error as Error).message}`,
