@@ -265,6 +265,40 @@ export class LLMUsageLogger {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  /**
+   * Suma de `total_tokens` consumidos por `(companyId, model)` desde
+   * el primer día del mes calendario actual (UTC) hasta ahora. Usado
+   * por el budget enforcement antes de cada LLM call — si el resultado
+   * excede `llm_model_budgets.monthly_budget_tokens`, el caller rechaza.
+   *
+   * Retorna 0 si no hay rows o si hay error de DB (fail-open: preferimos
+   * no bloquear flujos si el sistema de logging tiene un hiccup; el
+   * monitoreo del admin igual nos avisa).
+   */
+  async monthlyTokensUsed(companyId: string, model: string): Promise<number> {
+    const startOfMonth = new Date();
+    startOfMonth.setUTCDate(1);
+    startOfMonth.setUTCHours(0, 0, 0, 0);
+
+    const { data, error } = await this.supabase
+      .from('llm_usage_log')
+      .select('total_tokens')
+      .eq('company_id', companyId)
+      .eq('model', model)
+      .gte('created_at', startOfMonth.toISOString());
+    if (error) {
+      this.logger.warn(
+        `monthlyTokensUsed query failed: ${error.message} — returning 0 (fail-open)`,
+      );
+      return 0;
+    }
+    let total = 0;
+    for (const r of data ?? []) {
+      total += (r.total_tokens as number) ?? 0;
+    }
+    return total;
+  }
+
   private empty(): UsageSummary {
     return {
       totals: {

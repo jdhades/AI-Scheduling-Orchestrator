@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   LLM_SERVICE,
@@ -9,12 +14,38 @@ import { GeminiLLMService } from '../../infrastructure/services/gemini-llm.servi
 import { LocalLLMService } from '../../infrastructure/services/local-llm.service';
 import { CompanyPreferencesService } from './company-preferences.service';
 import { PromptHistoryService } from '../../infrastructure/observability/prompt-history.service';
+import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
+import { LLMModelBudgetService } from '../../domain/services/llm-model-budget.service';
 
 export interface ResolverContext {
   /** Subsistema que disparó la call (ej. `schedule_generation`). */
   operation: string;
   /** jobId opcional cuando aplica (ej. schedule_generation_runs). */
   jobId?: string | null;
+}
+
+/**
+ * Excepción dedicada al hit de budget. El handler de schedule
+ * generation (y futuros consumers) la propaga sin retry — el manager
+ * debe contactar a soporte para subir el techo o esperar al rollover
+ * del mes.
+ */
+export class LlmBudgetExceededException extends ForbiddenException {
+  constructor(
+    public readonly companyId: string,
+    public readonly model: string,
+    public readonly usedTokens: number,
+    public readonly budgetTokens: number,
+  ) {
+    super({
+      error: 'llm_budget_exceeded',
+      message: `LLM monthly budget exceeded for model "${model}": ${usedTokens}/${budgetTokens} tokens`,
+      companyId,
+      model,
+      usedTokens,
+      budgetTokens,
+    });
+  }
 }
 
 /**
@@ -51,6 +82,8 @@ export class LlmResolverService {
     private readonly companyPreferences: CompanyPreferencesService,
     private readonly promptHistory: PromptHistoryService,
     @Inject(LLM_SERVICE) private readonly envDefault: ILLMService,
+    private readonly usageLogger: LLMUsageLogger,
+    private readonly budgets: LLMModelBudgetService,
   ) {}
 
   async forCompany(
@@ -60,6 +93,15 @@ export class LlmResolverService {
     const cfg = await this.companyPreferences.getLlmConfig(companyId);
     const base = this._pickProvider(cfg.provider, companyId);
     const modelLabel = cfg.model ?? cfg.provider ?? null;
+
+    // Budget enforcement — chequeo previo al return del LLM service.
+    // Si el tenant tiene budget configurado (override o global) y ya
+    // consumió >= ese techo este mes, tiramos LlmBudgetExceededException.
+    // Sin budget configurado → sin enforcement (fail-open por compat).
+    if (modelLabel) {
+      await this._enforceBudget(companyId, modelLabel);
+    }
+
     if (!context) return base;
     return this._wrapWithLogging(base, {
       companyId,
@@ -67,6 +109,35 @@ export class LlmResolverService {
       jobId: context.jobId ?? null,
       modelLabel,
     });
+  }
+
+  /**
+   * Lee el budget efectivo (override company > default global) y el
+   * consumo del mes. Si excede, lanza. El check se hace en el resolve,
+   * NO antes de cada call dentro del proxy — alcanza con bloquear la
+   * obtención del cliente cuando se va a iniciar un job nuevo.
+   */
+  private async _enforceBudget(
+    companyId: string,
+    model: string,
+  ): Promise<void> {
+    const budgetTokens = await this.budgets.getEffectiveBudget(
+      companyId,
+      model,
+    );
+    if (budgetTokens === null) return; // sin techo configurado
+    const used = await this.usageLogger.monthlyTokensUsed(companyId, model);
+    if (used >= budgetTokens) {
+      this.logger.warn(
+        `Budget exceeded — company=${companyId} model=${model} used=${used}/${budgetTokens}`,
+      );
+      throw new LlmBudgetExceededException(
+        companyId,
+        model,
+        used,
+        budgetTokens,
+      );
+    }
   }
 
   default(): ILLMService {
