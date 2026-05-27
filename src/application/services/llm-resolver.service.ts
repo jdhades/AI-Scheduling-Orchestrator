@@ -227,6 +227,7 @@ export class LlmResolverService {
     },
   ): ILLMService {
     const history = this.promptHistory;
+    const usageLogger = this.usageLogger;
     return {
       async complete(
         prompt: string,
@@ -241,7 +242,20 @@ export class LlmResolverService {
             ...options,
             model: options?.model ?? ctx.modelLabel ?? undefined,
           };
-          const response = await base.complete(prompt, effectiveOptions);
+          // Envolvemos en el ALS del usageLogger para que el provider
+          // (Qwen/Gemini/Local) escriba `llm_usage_log` con
+          // (company_id, operation) correctos. Sin esto, los rows
+          // quedan con company_id=NULL y el budget enforcement /
+          // dashboard "AI cost" filtran cualquier consumer que no sea
+          // schedule_generation o whatsapp.
+          const response = await usageLogger.withContext(
+            {
+              companyId: ctx.companyId ?? undefined,
+              operation: ctx.operation,
+              jobId: ctx.jobId,
+            },
+            () => base.complete(prompt, effectiveOptions),
+          );
           history.record({
             companyId: ctx.companyId,
             operation: ctx.operation,
