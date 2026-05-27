@@ -17,6 +17,7 @@ jest.mock('../../../../src/infrastructure/queue/pg-boss.service', () => ({
 }));
 
 import { WhatsAppController } from '../../../../src/interfaces/controllers/whatsapp.controller';
+import { TenantFeatureService } from '../../../../src/domain/services/tenant-feature.service';
 import { MessageRouterService } from '../../../../src/application/conversational/message-router.service';
 import {
   EMPLOYEE_REPOSITORY,
@@ -36,6 +37,7 @@ describe('WhatsAppController', () => {
   let mockConfigService: jest.Mocked<ConfigService>;
   let mockMessageRouter: jest.Mocked<MessageRouterService>;
   let mockEmployeeRepo: jest.Mocked<IEmployeeRepository>;
+  let mockTenantFeatures: jest.Mocked<TenantFeatureService>;
 
   beforeEach(async () => {
     mockConfigService = {
@@ -56,6 +58,12 @@ describe('WhatsAppController', () => {
       findByPhone: jest.fn(),
     } as any;
 
+    // Default: feature flag whatsapp_inbound habilitado para que el
+    // flow continúe. Tests específicos pueden re-mockearlo a false.
+    mockTenantFeatures = {
+      isEnabled: jest.fn().mockResolvedValue(true),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WhatsAppController],
       providers: [
@@ -65,6 +73,7 @@ describe('WhatsAppController', () => {
         // SUPABASE_CLIENT se inyecta en el controller (Phase 18); el
         // test no toca DB así que basta con un stub vacío.
         { provide: 'SUPABASE_CLIENT', useValue: {} },
+        { provide: TenantFeatureService, useValue: mockTenantFeatures },
       ],
     }).compile();
 

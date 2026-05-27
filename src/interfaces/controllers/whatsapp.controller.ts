@@ -19,6 +19,7 @@ import { WhatsappWebhookDto } from '../dtos/whatsapp-webhook.dto';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { Inject } from '@nestjs/common';
+import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 
 // Twilio helpers — using require to match existing pattern in project
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -53,6 +54,7 @@ export class WhatsAppController {
     private readonly employeeRepo: IEmployeeRepository,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
+    private readonly tenantFeatures: TenantFeatureService,
   ) {
     this.twilioSid = this.config.get<string>('twilio.accountSid') ?? '';
     this.twilioToken = this.config.get<string>('twilio.authToken') ?? '';
@@ -139,7 +141,23 @@ export class WhatsAppController {
       return;
     }
 
-    // 4. Fire-and-forget: respond to Twilio immediately, process in background
+    // 4.5 Feature flag: WhatsApp inbound debe estar habilitado para este
+    //     tenant. Default ON; el admin lo puede apagar para un tenant
+    //     puntual (ej. mientras debuggea un loop o suspende el servicio
+    //     por billing). Retornamos 200 OK silencioso — Twilio considera
+    //     entregado y no re-intenta.
+    const inboundEnabled = await this.tenantFeatures.isEnabled(
+      employee.companyId,
+      'whatsapp_inbound',
+    );
+    if (!inboundEnabled) {
+      this.logger.log(
+        `WhatsApp inbound disabled for company=${employee.companyId} — message dropped silently`,
+      );
+      return;
+    }
+
+    // 5. Fire-and-forget: respond to Twilio immediately, process in background
     setImmediate(() => {
       void this.messageRouter.route({
         from: phone,

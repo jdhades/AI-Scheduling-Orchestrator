@@ -14,6 +14,18 @@ export interface FeatureCatalogEntry {
   description: string;
   /** Si el flag lleva payload JSON (ej. thresholds, listas). */
   hasPayload?: boolean;
+  /**
+   * Estado de la feature cuando no hay override explícito en
+   * tenant_features. Sin esto, `isEnabled()` retornaría siempre false
+   * y los flujos críticos (whatsapp, schedule_async, etc.) romperían
+   * para todos los tenants nuevos.
+   *
+   * Convención: features estables que YA están en producción tienen
+   * defaultEnabled=true (compat). Features experimentales o que
+   * requieren infra adicional tienen defaultEnabled=false hasta que
+   * soporte las prenda explícitamente por tenant.
+   */
+  defaultEnabled: boolean;
 }
 
 export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
@@ -22,43 +34,48 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
     label: 'WhatsApp inbound',
     description:
       'Habilita el endpoint de Twilio para procesar mensajes entrantes de empleados.',
+    defaultEnabled: true,
   },
   {
     key: 'schedule_async',
     label: 'Schedule async generation',
     description:
       'Las generaciones de horario corren via pg-boss en background. Sin este flag, se mantiene el path síncrono.',
+    defaultEnabled: true,
   },
   {
     key: 'policy_llm_runtime',
     label: 'Policy LLM runtime interpreter',
     description:
       'Permite que el LLM intervenga en runtime para interpretar policies que no matchean ningún interpreter estructurado.',
+    defaultEnabled: true,
   },
   {
     key: 'fairness_postprocess',
     label: 'Fairness post-processing',
     description:
       'Aplica el segundo pase de fairness después de la generación inicial. Caro pero mejora equidad de carga.',
+    defaultEnabled: true,
   },
-  {
-    key: 'shift_swaps_self_approve',
-    label: 'Self-approve shift swaps',
-    description:
-      'Los empleados pueden auto-aprobar swaps entre pares sin pasar por el manager si los skills coinciden.',
-    hasPayload: true,
-  },
+  // Removido 2026-05-27: `shift_swaps_self_approve` quedaba como
+  // placeholder de una feature no implementada. El flow real de
+  // auto-approve hoy se controla via `departments.swap_auto_approve`
+  // (decisión del owner del depto, no feature flag global). Si en el
+  // futuro construimos self-approve por matching de skills, el flag
+  // vuelve acá.
   {
     key: 'support_ticket_attachments',
     label: 'Support ticket attachments',
     description:
       'Permite que managers/owners adjunten imagen/video al reportar un error. Requiere que el bucket de Supabase Storage support-attachments esté configurado. Off por default — soporte la activa cuando confirma que el storage está listo.',
+    defaultEnabled: false,
   },
   {
     key: 'help_ai_chat',
     label: 'Help — AI chat tab',
     description:
       'Habilita la pestaña de chat con IA dentro del panel de ayuda (HelpPanel). Off por default — el backend del chat todavía no está implementado, así que cuando se active hay que tener la knowledge base + el agente listos. Las pestañas Guías y Soporte funcionan sin este flag.',
+    defaultEnabled: false,
   },
 ];
 
@@ -92,7 +109,8 @@ export class TenantFeatureService {
 
   /**
    * Devuelve el catálogo entero + overrides aplicados para una company.
-   * Features sin override aparecen con enabled=false (default).
+   * Features sin override aparecen con enabled=defaultEnabled del catálogo
+   * (no necesariamente false).
    */
   async listForCompany(companyId: string): Promise<TenantFeatureView[]> {
     const { data, error } = await this.supabase
@@ -178,10 +196,24 @@ export class TenantFeatureService {
   /**
    * Atajo on-demand: ¿está habilitada esta feature para esta company?
    * Los consumidores (workers, controllers) llaman esto en runtime.
+   *
+   * Resolución:
+   *   1. Si hay row en tenant_features → respeta `enabled` del override.
+   *   2. Si NO hay row → cae al `defaultEnabled` del catálogo.
+   *   3. Si la key no está en el catálogo → loguea warning y retorna false
+   *      (defensive — keys inventadas no deberían pasar el upsert pero
+   *      por si entran via SQL directo).
    */
   async isEnabled(companyId: string, featureKey: string): Promise<boolean> {
+    const catalog = FEATURE_CATALOG.find((c) => c.key === featureKey);
+    if (!catalog) {
+      this.logger.warn(
+        `isEnabled called with unknown feature_key=${featureKey} — returning false`,
+      );
+      return false;
+    }
     const row = await this.findOne(companyId, featureKey);
-    return row?.enabled ?? false;
+    return row ? row.enabled : catalog.defaultEnabled;
   }
 
   private async findOne(
@@ -215,7 +247,9 @@ export class TenantFeatureService {
   ): TenantFeatureView {
     return {
       ...catalog,
-      enabled: row?.enabled ?? false,
+      // Sin override, mostramos el default del catálogo. El admin UI
+      // sigue distinguiendo override real vs default via `hasOverride`.
+      enabled: row?.enabled ?? catalog.defaultEnabled,
       payload: row?.payload ?? null,
       notes: row?.notes ?? null,
       hasOverride: row !== null,
