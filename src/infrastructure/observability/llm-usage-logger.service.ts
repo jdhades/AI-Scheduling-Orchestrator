@@ -212,7 +212,12 @@ export class LLMUsageLogger {
       totalTokens: number;
     }>
   > {
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    // El rango de buckets debe cubrir [hoy-(days-1), hoy] — son `days`
+    // días contando hoy. Si usábamos `days * 86400000` atrás, los buckets
+    // arrancaban en hoy-N y terminaban en ayer; los rows de hoy quedaban
+    // sin bucket → sparkline plano. Con (days - 1) ambos extremos
+    // calzan.
+    const since = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000);
     since.setUTCHours(0, 0, 0, 0);
 
     let query = this.supabase
