@@ -37,32 +37,12 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
     defaultEnabled: true,
   },
   {
-    key: 'schedule_async',
-    label: 'Schedule async generation',
-    description:
-      'Las generaciones de horario corren via pg-boss en background. Sin este flag, se mantiene el path síncrono.',
-    defaultEnabled: true,
-  },
-  {
-    key: 'policy_llm_runtime',
-    label: 'Policy LLM runtime interpreter',
-    description:
-      'Permite que el LLM intervenga en runtime para interpretar policies que no matchean ningún interpreter estructurado.',
-    defaultEnabled: true,
-  },
-  {
     key: 'fairness_postprocess',
     label: 'Fairness post-processing',
     description:
-      'Aplica el segundo pase de fairness después de la generación inicial. Caro pero mejora equidad de carga.',
+      'Reparte la carga entre empleados según su historia (ordena por score acumulado + bloquea turnos pesados a empleados saturados). Off por tenants chicos donde el balanceo genera más ruido que valor: el horario se construye en orden alfabético sin protección de score.',
     defaultEnabled: true,
   },
-  // Removido 2026-05-27: `shift_swaps_self_approve` quedaba como
-  // placeholder de una feature no implementada. El flow real de
-  // auto-approve hoy se controla via `departments.swap_auto_approve`
-  // (decisión del owner del depto, no feature flag global). Si en el
-  // futuro construimos self-approve por matching de skills, el flag
-  // vuelve acá.
   {
     key: 'support_ticket_attachments',
     label: 'Support ticket attachments',
@@ -78,6 +58,23 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
     defaultEnabled: false,
   },
 ];
+
+// Removidos 2026-05-27 (con el user): flags sin caso de uso real,
+// expuestos al admin solo generaban footguns (cualquiera podía
+// apagarlos por error y romper un flow crítico).
+//
+//   - schedule_async       — el path sync legacy ya no se prueba desde
+//                            el sprint async-policies; apagar el async
+//                            deja el frontend esperando un WS que
+//                            nunca llega. Path async = constante de
+//                            arquitectura.
+//   - policy_llm_runtime   — apagar significa que las policies hard
+//                            que no matchean un interpreter quedan sin
+//                            enforcement; compliance issue silencioso.
+//                            El comportamiento correcto es always-on.
+//
+// Si en el futuro aparece un caso real para alguno, vuelve al catálogo
+// con tests dedicados que cubran ambos paths ON/OFF.
 
 export interface TenantFeatureRow {
   id: string;

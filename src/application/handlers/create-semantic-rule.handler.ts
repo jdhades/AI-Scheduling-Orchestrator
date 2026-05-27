@@ -184,6 +184,7 @@ export class CreateSemanticRuleHandler implements ICommandHandler<
         originalText: command.ruleText,
         complexReason:
           structure.complexReason ?? 'La regla no se puede estructurar.',
+        companyId: command.companyId,
       });
       if (suggestions.length > 0) {
         this.logger.log(

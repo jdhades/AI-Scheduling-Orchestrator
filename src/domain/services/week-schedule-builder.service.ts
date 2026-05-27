@@ -172,6 +172,15 @@ export class WeekScheduleBuilder {
      * descuento — comportamiento legacy).
      */
     unpaidMinutesByTemplate?: ReadonlyMap<string, number>;
+    /**
+     * Feature flag fairness_postprocess (default true). Si false, el
+     * builder NO ordena empleados por score acumulado (procesa en el
+     * orden recibido) y NO aplica el FairnessThresholdGuard (cualquier
+     * empleado elegible es candidato a turnos pesados). El snapshot
+     * de fairness igual se persiste — la diff es el comportamiento
+     * de la decisión, no la auditoría.
+     */
+    applyFairness?: boolean;
   }): Promise<BuildWithRetriesResult> {
     const isEs = (params.locale ?? 'en').toLowerCase().startsWith('es');
     // Templates de warning localizables. El builder devuelve strings
@@ -228,6 +237,7 @@ export class WeekScheduleBuilder {
         params.slots,
         policies,
         params.employees,
+        params.companyId,
         params.weekStartsOn,
       );
       const policyWarnings =
@@ -307,6 +317,7 @@ export class WeekScheduleBuilder {
         params.slots,
         policies,
         params.employees,
+        params.companyId,
         params.weekStartsOn,
       );
       const policyHardAsVerify: VerifyViolation[] =
@@ -387,6 +398,7 @@ export class WeekScheduleBuilder {
       params.slots,
       policies,
       params.employees,
+      params.companyId,
       params.weekStartsOn,
     );
     const detCount = detEval.hardViolations.length;
@@ -465,6 +477,7 @@ export class WeekScheduleBuilder {
     slots: VirtualShiftSlot[],
     policies: CompanyPolicy[],
     employees: Employee[],
+    companyId: string,
     weekStartsOn?: 'sunday' | 'monday',
   ): Promise<{
     hardViolations: Array<{
@@ -514,6 +527,7 @@ export class WeekScheduleBuilder {
       shifts: evalShifts,
       employeeMeta,
       weekStartsOn,
+      companyId,
     });
     return {
       hardViolations: result.hardViolations.map(
@@ -552,6 +566,13 @@ export class WeekScheduleBuilder {
     /** Sprint Add-a-break F3 — `templateId → minutos de break unpaid`,
      * descontados al sumar al `hoursWorked`. Default = map vacío. */
     unpaidMinutesByTemplate?: ReadonlyMap<string, number>;
+    /**
+     * Si true (default), ordena empleados por score acumulado antes
+     * de asignar. Si false (feature flag fairness_postprocess OFF en
+     * el tenant), procesa en el orden recibido — útil para equipos
+     * chicos donde el ordering agrega ruido sin beneficio real.
+     */
+    applyFairness?: boolean;
   }): BuilderResult {
     const {
       employees,
@@ -564,6 +585,7 @@ export class WeekScheduleBuilder {
       weekStart,
       companyId,
       unpaidMinutesByTemplate,
+      applyFairness = true,
     } = params;
     const unpaidMap = unpaidMinutesByTemplate ?? new Map<string, number>();
 
@@ -605,11 +627,17 @@ export class WeekScheduleBuilder {
     const restDays: BuilderResult['restDays'] = [];
 
     // ── Orden de empleados: menor score de fairness primero (más descansados).
-    const employeeOrder = [...employees].sort((a, b) => {
-      const sa = liveHistory.get(a.id)?.computeRawScore() ?? 0;
-      const sb = liveHistory.get(b.id)?.computeRawScore() ?? 0;
-      return sa - sb;
-    });
+    // Cuando applyFairness=false (feature flag OFF), procesamos en el
+    // orden recibido — sin priorizar al "más descansado". Esto baja la
+    // protección de carga; queda explícito para tenants chicos donde
+    // el balanceo automático genera más confusión que valor.
+    const employeeOrder = applyFairness
+      ? [...employees].sort((a, b) => {
+          const sa = liveHistory.get(a.id)?.computeRawScore() ?? 0;
+          const sb = liveHistory.get(b.id)?.computeRawScore() ?? 0;
+          return sa - sb;
+        })
+      : [...employees];
 
     for (const emp of employeeOrder) {
       const line = lines.get(emp.id)!;

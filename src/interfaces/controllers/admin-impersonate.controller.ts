@@ -161,9 +161,8 @@ export class AdminImpersonateController {
     let email: string | null = null;
 
     if (authUserId) {
-      const { data: userData } = await this.supabase.auth.admin.getUserById(
-        authUserId,
-      );
+      const { data: userData } =
+        await this.supabase.auth.admin.getUserById(authUserId);
       email = userData.user?.email ?? null;
     } else {
       const employeeEmail = (employee.email as string | null)?.trim() || null;
@@ -179,8 +178,10 @@ export class AdminImpersonateController {
       // y buscamos. Límite 200/página es suficiente para staging; en
       // tenants con 10k+ usuarios habría que cambiar a una query SQL
       // directa contra auth.users.
-      const { data: existingUser } =
-        await this.supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
+      const { data: existingUser } = await this.supabase.auth.admin.listUsers({
+        page: 1,
+        perPage: 200,
+      });
       const candidates = (existingUser?.users ?? []) as Array<{
         id: string;
         email?: string | null;

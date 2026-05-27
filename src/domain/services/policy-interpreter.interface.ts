@@ -50,6 +50,14 @@ export interface PolicyEvaluationContext {
     string,
     { branchId: string | null; departmentId: string | null }
   >;
+  /**
+   * Sprint llm-enforcement (2026-05-27) — necesario para que el
+   * `LLMRuntimeInterpreter` resuelva el LLM per-tenant via
+   * `LlmResolverService`. Los interpreters estructurados lo ignoran.
+   * Optional para no romper tests que construyen contexts mínimos —
+   * el llm_runtime cae a fail-open ([]) si no llega.
+   */
+  companyId?: string;
 }
 
 /** Una violación detectada por un interpreter al evaluar el schedule. */

@@ -1,6 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { LLM_SERVICE, type ILLMService } from './llm.service.interface';
+import { LlmResolverService } from '../../application/services/llm-resolver.service';
 import {
   type ISemanticRuleRephraseService,
   type SemanticRuleRephraseInput,
@@ -14,13 +14,19 @@ import {
  * texto ambiguo + complexReason + el catálogo de matchers del schema
  * y devuelve 2-3 reformulaciones. No pre-verifica (ver doc del
  * interface).
+ *
+ * Post sprint llm-enforcement (2026-05-27): el LLM lo obtenemos via
+ * LlmResolverService — eso aplica provider/model per-tenant + budget +
+ * allowlist. Si el tenant excedió budget o el modelo no está allowed,
+ * la excepción propaga al handler y termina el flow (la sugerencia
+ * queda en lista vacía, comportamiento idéntico al de un LLM fail).
  */
 @Injectable()
 export class LlmSemanticRuleRephraseService implements ISemanticRuleRephraseService {
   private readonly logger = new Logger(LlmSemanticRuleRephraseService.name);
   private static readonly MAX_SUGGESTIONS = 3;
 
-  constructor(@Inject(LLM_SERVICE) private readonly llm: ILLMService) {}
+  constructor(private readonly llmResolver: LlmResolverService) {}
 
   async suggest(
     input: SemanticRuleRephraseInput,
@@ -29,7 +35,10 @@ export class LlmSemanticRuleRephraseService implements ISemanticRuleRephraseServ
 
     let raw: string;
     try {
-      raw = await this.llm.complete(prompt);
+      const llm = await this.llmResolver.forCompany(input.companyId, {
+        operation: 'rule.rephrase_suggest',
+      });
+      raw = await llm.complete(prompt);
     } catch (error) {
       this.logger.warn(
         `LlmSemanticRuleRephraseService: LLM call failed for "${input.originalText.substring(0, 60)}". Error: ${(error as Error).message}`,

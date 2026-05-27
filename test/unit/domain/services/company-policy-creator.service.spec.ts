@@ -4,7 +4,7 @@ import { MinRestDaysPerWeekInterpreter } from '../../../../src/domain/services/p
 import { LLMRuntimeInterpreter } from '../../../../src/domain/services/policy-interpreters/llm-runtime.interpreter';
 import type { ICompanyPolicyRepository } from '../../../../src/domain/repositories/company-policy.repository';
 import type { ILLMService } from '../../../../src/domain/services/llm.service.interface';
-import type { PromptHistoryService } from '../../../../src/infrastructure/observability/prompt-history.service';
+import type { LlmResolverService } from '../../../../src/application/services/llm-resolver.service';
 
 const makeRepo = (): jest.Mocked<ICompanyPolicyRepository> => ({
   save: jest.fn().mockResolvedValue(undefined),
@@ -14,17 +14,25 @@ const makeRepo = (): jest.Mocked<ICompanyPolicyRepository> => ({
   findAllActiveByCompany: jest.fn(),
 });
 
-const makeLlm = (
+/**
+ * Mock del resolver + ILLMService subyacente. El creator pasa todo el
+ * LLM via el resolver post-migration (sprint llm-enforcement); este
+ * helper expone ambos para que los tests puedan assertar sobre el
+ * número de calls al complete del LLM concreto.
+ */
+const makeResolverWithLlm = (
   completeImpl: (prompt: string) => Promise<string> = async () =>
     JSON.stringify({ fullyCovered: true, reason: 'mock default' }),
-): jest.Mocked<ILLMService> =>
-  ({
+): { resolver: LlmResolverService; llm: jest.Mocked<ILLMService> } => {
+  const llm = {
     complete: jest.fn(completeImpl),
-    completeMultimodal: jest.fn(),
-  }) as never;
-
-const makePromptHistory = (): jest.Mocked<PromptHistoryService> =>
-  ({ record: jest.fn() }) as unknown as jest.Mocked<PromptHistoryService>;
+  } as unknown as jest.Mocked<ILLMService>;
+  const resolver = {
+    forCompany: jest.fn().mockResolvedValue(llm),
+    default: jest.fn().mockReturnValue(llm),
+  } as unknown as LlmResolverService;
+  return { resolver, llm };
+};
 
 describe('CompanyPolicyCreator', () => {
   const baseInput = {
@@ -43,12 +51,8 @@ describe('CompanyPolicyCreator', () => {
 
   it('cuando un interpreter matchea: persiste y devuelve {created, mode: matched}', async () => {
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(
-      repo,
-      registry,
-      makeLlm(),
-      makePromptHistory(),
-    );
+    const { resolver } = makeResolverWithLlm();
+    const creator = new CompanyPolicyCreator(repo, registry, resolver);
 
     const result = await creator.create(baseInput);
 
@@ -66,12 +70,8 @@ describe('CompanyPolicyCreator', () => {
 
   it('cuando ningún interpreter matchea: persiste directamente como llm_only (sprint async-policies: sin suggestion loop)', async () => {
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(
-      repo,
-      registry,
-      makeLlm(),
-      makePromptHistory(),
-    );
+    const { resolver } = makeResolverWithLlm();
+    const creator = new CompanyPolicyCreator(repo, registry, resolver);
 
     const result = await creator.create({
       ...baseInput,
@@ -86,7 +86,7 @@ describe('CompanyPolicyCreator', () => {
   });
 
   it('matchea pero el LLM detecta matices perdidos (severity=hard) → fallback a llm_runtime', async () => {
-    const llm = makeLlm(async (prompt) => {
+    const { resolver, llm } = makeResolverWithLlm(async (prompt) => {
       if (prompt.includes('preserve the manager')) {
         return JSON.stringify({
           fullyCovered: false,
@@ -97,15 +97,10 @@ describe('CompanyPolicyCreator', () => {
     });
     const localRegistry = new PolicyInterpreterRegistry([
       new MinRestDaysPerWeekInterpreter(),
-      new LLMRuntimeInterpreter(llm),
+      new LLMRuntimeInterpreter(resolver),
     ]);
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(
-      repo,
-      localRegistry,
-      llm,
-      makePromptHistory(),
-    );
+    const creator = new CompanyPolicyCreator(repo, localRegistry, resolver);
 
     const result = await creator.create({
       ...baseInput,
@@ -124,19 +119,14 @@ describe('CompanyPolicyCreator', () => {
   });
 
   it('matchea y el LLM confirma que la estructura preserva la intención → sigue como matched', async () => {
-    const llm = makeLlm(async () =>
+    const { resolver, llm } = makeResolverWithLlm(async () =>
       JSON.stringify({
         fullyCovered: true,
         reason: 'el texto se reduce a N días por semana',
       }),
     );
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(
-      repo,
-      registry,
-      llm,
-      makePromptHistory(),
-    );
+    const creator = new CompanyPolicyCreator(repo, registry, resolver);
 
     const result = await creator.create({
       ...baseInput,
@@ -152,20 +142,15 @@ describe('CompanyPolicyCreator', () => {
   });
 
   it('texto que el matcher no entiende + severity=hard: cae a llm_runtime con el texto original', async () => {
-    const llm = makeLlm(
+    const { resolver, llm } = makeResolverWithLlm(
       async () => 'Custom shift pattern: 24h on / 48h off rotation.',
     );
     const localRegistry = new PolicyInterpreterRegistry([
       new MinRestDaysPerWeekInterpreter(),
-      new LLMRuntimeInterpreter(llm),
+      new LLMRuntimeInterpreter(resolver),
     ]);
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(
-      repo,
-      localRegistry,
-      llm,
-      makePromptHistory(),
-    );
+    const creator = new CompanyPolicyCreator(repo, localRegistry, resolver);
 
     const result = await creator.create({
       ...baseInput,
@@ -188,12 +173,8 @@ describe('CompanyPolicyCreator', () => {
     // inyecta. Validamos en su lugar que el flujo no requiere mockear
     // ningún rephrase para terminar exitosamente.
     const repo = makeRepo();
-    const creator = new CompanyPolicyCreator(
-      repo,
-      registry,
-      makeLlm(),
-      makePromptHistory(),
-    );
+    const { resolver } = makeResolverWithLlm();
+    const creator = new CompanyPolicyCreator(repo, registry, resolver);
 
     const result = await creator.create({
       ...baseInput,

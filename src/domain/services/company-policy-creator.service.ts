@@ -9,8 +9,7 @@ import {
 } from '../repositories/company-policy.repository';
 import { PolicyInterpreterRegistry } from './policy-interpreter-registry';
 import { PolicySeverity } from '../value-objects/policy-severity.vo';
-import { LLM_SERVICE, type ILLMService } from './llm.service.interface';
-import { PromptHistoryService } from '../../infrastructure/observability/prompt-history.service';
+import { LlmResolverService } from '../../application/services/llm-resolver.service';
 
 /**
  * CompanyPolicyCreator — Domain Service
@@ -57,54 +56,33 @@ export class CompanyPolicyCreator {
     @Inject(COMPANY_POLICY_REPOSITORY)
     private readonly policyRepo: ICompanyPolicyRepository,
     private readonly registry: PolicyInterpreterRegistry,
-    @Inject(LLM_SERVICE)
-    private readonly llm: ILLMService,
-    private readonly promptHistory: PromptHistoryService,
+    private readonly llmResolver: LlmResolverService,
   ) {}
 
   /**
-   * Wrap manual sobre this.llm.complete que persiste cada call al
-   * llm_prompt_history (incluyendo errores). Equivalente al wrapper
-   * de LlmResolverService pero sin depender del application layer
-   * (CompanyPolicyCreator vive en domain/, no puede inyectar el
-   * resolver directamente).
+   * Obtiene el LLM client per-tenant via el resolver. Esto da:
+   *   · selección de provider/model segun companies.llm_provider
+   *   · enforcement de allowlist (LlmProviderNotAllowedException)
+   *   · enforcement de budget mensual (LlmBudgetExceededException)
+   *   · logging automático en llm_prompt_history
+   *
+   * Si el caller tira budget exceeded o not-allowed, propagamos el error
+   * — el endpoint HTTP responde 403 con mensaje claro. NO hay fallback
+   * a env-default: si soporte restringió el tenant, queremos que se
+   * note el bloqueo en vez de gastar la cuenta default.
+   *
+   * (Pragmatic concession: este domain service importa de application/
+   * para no duplicar la lógica del resolver. Ver `LlmResolverService`
+   * comment — la migración a una abstracción ILlmResolver en domain/
+   * queda para cuando aparezca un tercer caller que lo justifique.)
    */
   private async llmCompleteLogged(
     operation: string,
     companyId: string,
     prompt: string,
   ): Promise<string> {
-    const start = Date.now();
-    try {
-      const response = await this.llm.complete(prompt);
-      this.promptHistory.record({
-        companyId,
-        operation,
-        promptText: prompt,
-        responseText: response,
-        modelUsed: null,
-        tokensUsed: null,
-        durationMs: Date.now() - start,
-        success: true,
-        errorMessage: null,
-        jobId: null,
-      });
-      return response;
-    } catch (err) {
-      this.promptHistory.record({
-        companyId,
-        operation,
-        promptText: prompt,
-        responseText: null,
-        modelUsed: null,
-        tokensUsed: null,
-        durationMs: Date.now() - start,
-        success: false,
-        errorMessage: (err as Error).message,
-        jobId: null,
-      });
-      throw err;
-    }
+    const llm = await this.llmResolver.forCompany(companyId, { operation });
+    return llm.complete(prompt);
   }
 
   async create(

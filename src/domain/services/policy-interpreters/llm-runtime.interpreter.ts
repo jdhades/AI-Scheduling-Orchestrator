@@ -1,10 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   type PolicyEvaluationContext,
   type PolicyInterpreter,
   type PolicyViolation,
 } from '../policy-interpreter.interface';
-import { LLM_SERVICE, type ILLMService } from '../llm.service.interface';
+import { LlmResolverService } from '../../../application/services/llm-resolver.service';
 
 /**
  * Catch-all interpreter que delega la evaluación al LLM en runtime.
@@ -54,7 +54,7 @@ export class LLMRuntimeInterpreter implements PolicyInterpreter<LLMRuntimeParams
 
   private readonly logger = new Logger(LLMRuntimeInterpreter.name);
 
-  constructor(@Inject(LLM_SERVICE) private readonly llm: ILLMService) {}
+  constructor(private readonly llmResolver: LlmResolverService) {}
 
   /**
    * NO matchea desde el registry — el catch-all se enchufa explícitamente
@@ -84,11 +84,25 @@ export class LLMRuntimeInterpreter implements PolicyInterpreter<LLMRuntimeParams
       return [];
     }
 
+    if (!ctx.companyId) {
+      // Sin companyId no podemos resolver el LLM per-tenant. Fail-open:
+      // misma semántica que un LLM failure. El caller (PolicyEnforcementService)
+      // ya pasa el companyId siempre; este branch es defensivo para tests
+      // que construyen contexts mínimos.
+      this.logger.warn(
+        'llm_runtime: missing companyId in PolicyEvaluationContext; returning [] (fail-open)',
+      );
+      return [];
+    }
+
     const policyText = params.englishText ?? params.originalText;
     const prompt = this.buildPrompt(policyText, ctx);
     let raw: string;
     try {
-      raw = await this.llm.complete(prompt);
+      const llm = await this.llmResolver.forCompany(ctx.companyId, {
+        operation: 'policy.llm_runtime.evaluate',
+      });
+      raw = await llm.complete(prompt);
     } catch (err) {
       // Fail-open: si el LLM falla no podemos bloquear schedules. Loguear
       // y devolver vacío. La policy igual sigue activa (en el próximo

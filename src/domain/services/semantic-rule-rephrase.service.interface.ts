@@ -23,6 +23,12 @@ export interface SemanticRuleRephraseInput {
   originalText: string;
   /** Razón estructural devuelta por el extractor (RuleStructure.complexReason). */
   complexReason: string;
+  /**
+   * Tenant que dispara la sugerencia. Necesario para que el rephrase
+   * use el LLM provider/model + budget + allowlist del tenant via el
+   * resolver.
+   */
+  companyId: string;
 }
 
 export interface SemanticRuleSuggestion {

@@ -33,6 +33,7 @@ import type { Employee } from '../../domain/aggregates/employee.aggregate';
 import { LLMUsageTracker } from '../../infrastructure/observability/llm-usage-tracker.service';
 import { ScheduleGenerationLockService } from '../../domain/services/schedule-generation-lock.service';
 import { CompanyPreferencesService } from '../services/company-preferences.service';
+import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 import { weekStartOf } from '../../domain/shared/week';
 
 export interface HybridScheduleResult {
@@ -97,6 +98,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
     private readonly llmUsageTracker: LLMUsageTracker,
     private readonly lockService: ScheduleGenerationLockService,
     private readonly companyPreferences: CompanyPreferencesService,
+    private readonly tenantFeatures: TenantFeatureService,
   ) {
     void this.eventBus;
   }
@@ -361,6 +363,15 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       command.companyId,
     );
 
+    // Feature flag fairness_postprocess (default ON). Si el tenant lo
+    // apagó (típicamente equipos chicos donde el balanceo agrega ruido),
+    // pasamos applyFairness=false → el builder no ordena por score ni
+    // bloquea turnos pesados a saturados.
+    const applyFairness = await this.tenantFeatures.isEnabled(
+      command.companyId,
+      'fairness_postprocess',
+    );
+
     const buildResult = await this.weekScheduleBuilder.buildWithRetries({
       employees,
       slots,
@@ -377,6 +388,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       signal: command.signal,
       locale: command.locale,
       unpaidMinutesByTemplate,
+      applyFairness,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría
