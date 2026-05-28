@@ -68,6 +68,11 @@ interface StagingResponse {
     breaks: number;
     timeOff: number;
   };
+  /** Si status='failed', resumen del error para mostrar en la UI. */
+  failureInfo: {
+    phase: 'extract' | 'commit';
+    message: string;
+  } | null;
 }
 
 interface UploadExtractResponse {
@@ -450,6 +455,20 @@ export class ImportsController {
         breaks: d.breaks?.length ?? 0,
         timeOff: d.timeOff?.length ?? 0,
       },
+      failureInfo: this.extractFailureInfo(s),
+    };
+  }
+
+  private extractFailureInfo(
+    s: ImportStaging,
+  ): StagingResponse['failureInfo'] {
+    if (s.status !== 'failed') return null;
+    const report = s.commitReport as
+      | { phase?: 'extract' | 'commit'; error?: string }
+      | null;
+    return {
+      phase: report?.phase ?? 'commit',
+      message: report?.error ?? 'Unknown failure',
     };
   }
 }
