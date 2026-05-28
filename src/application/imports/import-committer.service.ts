@@ -131,6 +131,14 @@ export class ImportCommitterService {
     // Fase 4: shifts → breaks (shift_specific) → availability → timeOff.
     // Orden por FK: breaks dependen del assignment_id de shifts; el resto
     // solo necesita employee_id.
+    // Cache de tiempos del assignment para que commitBreaks no tenga
+    // que volver a SELECTear shift_assignments por cada break (cuello
+    // de botella: 64 shifts × 1 select extra = 64 round-trips evitados).
+    const assignmentTimes = new Map<
+      string,
+      { start: Date; end: Date }
+    >();
+
     await this.commitShifts(
       input,
       report.entities.shifts,
@@ -139,12 +147,14 @@ export class ImportCommitterService {
       idMaps.roles,
       idMaps.locations,
       idMaps.departments,
+      assignmentTimes,
     );
     await this.commitBreaks(
       input,
       report.entities.breaks,
       idMaps.shifts,
       idMaps.roles,
+      assignmentTimes,
     );
     await this.commitAvailability(
       input,
@@ -538,6 +548,7 @@ export class ImportCommitterService {
     roleMap: Map<string, string>,
     locMap: Map<string, string>,
     deptMap: Map<string, string>,
+    assignmentTimes: Map<string, { start: Date; end: Date }>,
   ): Promise<void> {
     const rows = input.payload.data.shifts ?? [];
     const planByExtId = this.planMap(input.preview.entities.shifts);
@@ -614,6 +625,10 @@ export class ImportCommitterService {
           });
         if (error) throw new Error(error.message);
         shiftMap.set(r.externalId, id);
+        assignmentTimes.set(id, {
+          start: new Date(startTs),
+          end: new Date(endTs),
+        });
         out.push({ externalId: r.externalId, outcome: 'created', id });
       } catch (err) {
         out.push({
@@ -696,6 +711,7 @@ export class ImportCommitterService {
     out: CommitRowOutcome[],
     shiftMap: Map<string, string>,
     _roleMap: Map<string, string>,
+    assignmentTimes: Map<string, { start: Date; end: Date }>,
   ): Promise<void> {
     const rows = input.payload.data.breaks ?? [];
     const planByExtId = this.planMap(input.preview.entities.breaks);
@@ -728,8 +744,14 @@ export class ImportCommitterService {
             `shift "${r.shiftExternalId}" not found in committed shifts`,
           );
         }
-        const { startTs, endTs } = await this.computeBreakWindow(
-          assignmentId,
+        const times = assignmentTimes.get(assignmentId);
+        if (!times) {
+          throw new Error(
+            `assignment ${assignmentId} missing in cache — shift commit may have failed`,
+          );
+        }
+        const { startTs, endTs } = this.computeBreakWindow(
+          times,
           r.triggerAfterMinutesWorked,
           r.durationMinutes,
         );
@@ -999,27 +1021,17 @@ export class ImportCommitterService {
   }
 
   /**
-   * Calcula start/end del break dentro de la ventana de un assignment.
+   * Calcula start/end del break dentro de la ventana de un assignment
+   * usando los tiempos que ya teníamos en memoria desde commitShifts.
    * Si no viene triggerAfterMinutesWorked, ponemos el break a mitad
    * del turno como aproximación razonable.
    */
-  private async computeBreakWindow(
-    assignmentId: string,
+  private computeBreakWindow(
+    times: { start: Date; end: Date },
     triggerAfterMinutes: number | undefined,
     durationMinutes: number,
-  ): Promise<{ startTs: string; endTs: string }> {
-    const { data, error } = await this.supabase
-      .from('shift_assignments')
-      .select('actual_start_time, actual_end_time')
-      .eq('id', assignmentId)
-      .single();
-    if (error || !data) {
-      throw new Error(
-        `assignment ${assignmentId} not found for break — ${error?.message ?? 'no row'}`,
-      );
-    }
-    const start = new Date(data.actual_start_time as string);
-    const end = new Date(data.actual_end_time as string);
+  ): { startTs: string; endTs: string } {
+    const { start, end } = times;
     const shiftMinutes = (end.getTime() - start.getTime()) / 60000;
     const offset =
       triggerAfterMinutes ?? Math.max(0, Math.floor(shiftMinutes / 2));
