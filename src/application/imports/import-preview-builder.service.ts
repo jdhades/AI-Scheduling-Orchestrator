@@ -106,8 +106,7 @@ export class ImportPreviewBuilderService {
         payload.data.roles ?? [],
         'roles',
         errorsByExternalId,
-        async (rows) =>
-          this.matchByName(rows, 'company_skills', companyId, 'name'),
+        async (rows) => this.matchRolesByName(rows, companyId),
       ),
       employees: await this.buildEmployees(
         payload,
@@ -287,6 +286,41 @@ export class ImportPreviewBuilderService {
     const byNameLower = new Map<string, { id: string; label: string }>();
     for (const r of res.data ?? []) {
       const n = r[nameCol];
+      if (typeof n === 'string') {
+        byNameLower.set(n.toLowerCase(), { id: r.id, label: n });
+      }
+    }
+    const out = new Map<string, { id: string; label: string }>();
+    for (const r of rows) {
+      const m = r.name ? byNameLower.get(r.name.toLowerCase()) : undefined;
+      if (m) out.set(r.externalId, m);
+    }
+    return out;
+  }
+
+  /**
+   * Match roles: `company_skills` es un link (company_id, skill_id) — el
+   * name vive en `skills`. JOIN explícito vía select embed para devolver
+   * (id, skills.name) por cada link activo del tenant.
+   */
+  private async matchRolesByName(
+    rows: Array<{ externalId: string; name?: string }>,
+    companyId: string,
+  ): Promise<Map<string, { id: string; label: string }>> {
+    const names = rows
+      .map((r) => r.name?.toLowerCase())
+      .filter(Boolean) as string[];
+    if (names.length === 0) return new Map();
+    const { data } = (await this.supabase
+      .from('company_skills')
+      .select('id, skills(name)')
+      .eq('company_id', companyId)
+      .is('deleted_at', null)) as unknown as {
+      data: Array<{ id: string; skills: { name: string } | null }> | null;
+    };
+    const byNameLower = new Map<string, { id: string; label: string }>();
+    for (const r of data ?? []) {
+      const n = r.skills?.name;
       if (typeof n === 'string') {
         byNameLower.set(n.toLowerCase(), { id: r.id, label: n });
       }

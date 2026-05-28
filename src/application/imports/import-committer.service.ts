@@ -291,21 +291,52 @@ export class ImportCommitterService {
         continue;
       }
       try {
-        if (plan === 'will_update') {
-          const matchedId = planByExtId.get(r.externalId)?.matchedId;
-          if (!matchedId) throw new Error('update plan without matchedId');
-          idMap.set(r.externalId, matchedId);
-          // company_skills es el link tabla — no actualizamos nombre del
-          // skill global, solo lo dejamos linkeado.
-          out.push({ externalId: r.externalId, outcome: 'updated', id: matchedId });
+        // company_skills es link `(company_id, skill_id)`. El nombre vive
+        // en `skills` (catálogo global UNIQUE por name). Flow correcto:
+        //   1. Upsert skills(name) → skill_id (idempotente cross-tenant).
+        //   2. Lookup company_skills(company_id, skill_id) — puede no
+        //      existir, existir activo, o estar soft-deleted.
+        //   3. Si no existe → INSERT. Si soft-deleted → revivir. Si
+        //      activo → no-op.
+        const normalized = r.name.trim();
+        const { data: skillRows, error: skillErr } = await this.supabase
+          .from('skills')
+          .upsert({ name: normalized }, { onConflict: 'name' })
+          .select('id')
+          .limit(1);
+        if (skillErr) throw new Error(`skills upsert: ${skillErr.message}`);
+        const skillId = (skillRows ?? [])[0]?.id as string | undefined;
+        if (!skillId) throw new Error('failed to upsert global skill');
+
+        const { data: existing } = await this.supabase
+          .from('company_skills')
+          .select('id, deleted_at')
+          .eq('company_id', input.companyId)
+          .eq('skill_id', skillId)
+          .limit(1)
+          .maybeSingle();
+
+        if (existing) {
+          const linkId = existing.id as string;
+          if (existing.deleted_at !== null) {
+            const { error: reviveErr } = await this.supabase
+              .from('company_skills')
+              .update({ is_active: true, deleted_at: null })
+              .eq('id', linkId);
+            if (reviveErr) throw new Error(`revive: ${reviveErr.message}`);
+          }
+          idMap.set(r.externalId, linkId);
+          out.push({ externalId: r.externalId, outcome: 'updated', id: linkId });
         } else {
           const id = randomUUID();
-          const { error } = await this.supabase.from('company_skills').insert({
-            id,
-            company_id: input.companyId,
-            name: r.name,
-          });
-          if (error) throw new Error(error.message);
+          const { error: insertErr } = await this.supabase
+            .from('company_skills')
+            .insert({
+              id,
+              company_id: input.companyId,
+              skill_id: skillId,
+            });
+          if (insertErr) throw new Error(insertErr.message);
           idMap.set(r.externalId, id);
           out.push({ externalId: r.externalId, outcome: 'created', id });
         }
@@ -329,7 +360,7 @@ export class ImportCommitterService {
     out: CommitRowOutcome[],
     idMap: Map<string, string>,
     deptMap: Map<string, string>,
-    _roleMap: Map<string, string>,
+    roleMap: Map<string, string>,
   ): Promise<void> {
     const rows = input.payload.data.employees ?? [];
     const planByExtId = this.planMap(input.preview.entities.employees);
@@ -344,10 +375,11 @@ export class ImportCommitterService {
         const deptId = r.departmentExternalId
           ? deptMap.get(r.departmentExternalId) ?? null
           : null;
+        let employeeId: string;
         if (plan === 'will_update') {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
           if (!matchedId) throw new Error('update plan without matchedId');
-          idMap.set(r.externalId, matchedId);
+          employeeId = matchedId;
           const { error } = await this.supabase
             .from('employees')
             .update({
@@ -360,11 +392,12 @@ export class ImportCommitterService {
             .eq('id', matchedId)
             .eq('company_id', input.companyId);
           if (error) throw new Error(error.message);
+          idMap.set(r.externalId, matchedId);
           out.push({ externalId: r.externalId, outcome: 'updated', id: matchedId });
         } else {
-          const id = randomUUID();
+          employeeId = randomUUID();
           const { error } = await this.supabase.from('employees').insert({
-            id,
+            id: employeeId,
             company_id: input.companyId,
             name: r.name,
             email: r.email ?? null,
@@ -375,8 +408,38 @@ export class ImportCommitterService {
             role: 'employee',
           });
           if (error) throw new Error(error.message);
-          idMap.set(r.externalId, id);
-          out.push({ externalId: r.externalId, outcome: 'created', id });
+          idMap.set(r.externalId, employeeId);
+          out.push({ externalId: r.externalId, outcome: 'created', id: employeeId });
+        }
+
+        // Linkear roles → employee_skills. El payload trae
+        // `roleExternalIds` que mapean a company_skill IDs en roleMap.
+        // Insertamos con upsert defensivo: si el link ya existe, no-op.
+        if (r.roleExternalIds && r.roleExternalIds.length > 0) {
+          const skillLinks = r.roleExternalIds
+            .map((rid) => roleMap.get(rid))
+            .filter((id): id is string => !!id)
+            .map((companySkillId) => ({
+              employee_id: employeeId,
+              company_skill_id: companySkillId,
+              level: 'beginner' as const,
+            }));
+          if (skillLinks.length > 0) {
+            const { error: linkErr } = await this.supabase
+              .from('employee_skills')
+              .upsert(skillLinks, {
+                onConflict: 'employee_id,company_skill_id',
+                ignoreDuplicates: true,
+              });
+            if (linkErr) {
+              // No falla el employee — solo loguea. El link es "best
+              // effort" en Fase 1; el manager puede agregarlos
+              // manualmente desde /workforce/skills después.
+              this.logger.warn(
+                `Employee ${r.externalId}: failed to link skills — ${linkErr.message}`,
+              );
+            }
+          }
         }
       } catch (err) {
         out.push({
