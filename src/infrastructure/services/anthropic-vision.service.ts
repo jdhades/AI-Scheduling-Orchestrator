@@ -119,12 +119,18 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
     const model = input.modelOverride ?? this.defaultModel;
     const content = this.buildContentBlocks(input);
 
-    const response = await this.client.messages.create({
+    // Streaming obligatorio para responses largos. Con max_tokens=32K
+    // el SDK rechaza messages.create() por el límite de 10 min de los
+    // requests sync; .stream() + finalMessage() devuelve el mismo shape
+    // pero sin bloqueo, y nos deja agregar progress events si en algún
+    // momento queremos surfacearlos al frontend.
+    const stream = this.client.messages.stream({
       model,
       max_tokens: this.maxTokens,
       system: VISION_EXTRACT_SYSTEM_PROMPT,
       messages: [{ role: 'user', content }],
     });
+    const response = await stream.finalMessage();
 
     const rawText = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
