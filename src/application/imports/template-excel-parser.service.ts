@@ -4,9 +4,7 @@ import type {
   ImportPayload,
   ImportSourceMetadata,
 } from '../../domain/imports/import-payload.types';
-import {
-  IMPORT_SCHEMA_VERSION,
-} from '../../domain/imports/import-payload.types';
+import { IMPORT_SCHEMA_VERSION } from '../../domain/imports/import-payload.types';
 import type { TemplateEntity } from './template-excel-builder.service';
 import { TEMPLATE_DEFS } from './template-excel-builder.service';
 
@@ -26,9 +24,7 @@ import { TEMPLATE_DEFS } from './template-excel-builder.service';
  */
 
 export class ParseFatalError extends Error {
-  constructor(
-    public readonly errors: ParseError[],
-  ) {
+  constructor(public readonly errors: ParseError[]) {
     super(`Excel parse failed (${errors.length} errors)`);
     this.name = 'ParseFatalError';
   }
@@ -159,9 +155,9 @@ export class TemplateExcelParserService {
     }
 
     // Construir entities
-    const accum: unknown[] = (payload.data as Record<string, unknown[]>)[
+    const accum: unknown[] = ((payload.data as Record<string, unknown[]>)[
       entity === 'time_off' ? 'timeOff' : entity
-    ] ??= [];
+    ] ??= []);
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -204,7 +200,14 @@ export class TemplateExcelParserService {
   ): unknown | null {
     const get = (key: string): string => {
       const raw = row[headerMap[key]];
-      return raw === undefined || raw === null ? '' : String(raw).trim();
+      if (raw === undefined || raw === null) return '';
+      if (typeof raw === 'string') return raw.trim();
+      if (typeof raw === 'number' || typeof raw === 'boolean')
+        return String(raw);
+      if (raw instanceof Date) return raw.toISOString();
+      // Celdas xlsx no devuelven otros tipos con sheet_to_json default;
+      // fallback defensivo para no romper el parser.
+      return '';
     };
     const getNum = (key: string): number | undefined => {
       const s = get(key);
@@ -330,8 +333,7 @@ export class TemplateExcelParserService {
           crossesMidnight: getBool('crosses_midnight') ?? false,
           locationExternalId: get('location_external_id') || undefined,
           departmentExternalId: get('department_external_id') || undefined,
-          requiredRoleExternalId:
-            get('required_role_external_id') || undefined,
+          requiredRoleExternalId: get('required_role_external_id') || undefined,
           confidence: 1,
         };
       }
