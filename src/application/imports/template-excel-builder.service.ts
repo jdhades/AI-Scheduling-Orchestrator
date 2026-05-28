@@ -38,9 +38,7 @@ export class TemplateExcelBuilderService {
     const wb = XLSX.utils.book_new();
 
     // Sheet "data"
-    const headers = def.columns.map((c) =>
-      c.required ? `${c.key}*` : c.key,
-    );
+    const headers = def.columns.map((c) => (c.required ? `${c.key}*` : c.key));
     const sampleRow = def.columns.map((c) => c.example);
     const dataSheet = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
 
@@ -99,7 +97,12 @@ const TEMPLATES: Record<TemplateEntity, TemplateDef> = {
         format: 'string, unique within this file',
         example: 'emp_001',
       },
-      { key: 'name', required: true, format: 'string', example: 'María García' },
+      {
+        key: 'name',
+        required: true,
+        format: 'string',
+        example: 'María García',
+      },
       {
         key: 'email',
         required: false,

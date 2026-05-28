@@ -9,6 +9,12 @@ export interface IImportStagingRepository {
   findById(id: string, companyId: string): Promise<ImportStaging | null>;
 
   /**
+   * Lookup sin filtro de tenant. Solo para platform_admin (debug).
+   * Devuelve el row independientemente de la company.
+   */
+  findByIdCrossTenant(id: string): Promise<ImportStaging | null>;
+
+  /**
    * Lista del tenant, ordenada por created_at desc. Filtro opcional por
    * status. Pensado para una sección "Mis imports" en la UI.
    */

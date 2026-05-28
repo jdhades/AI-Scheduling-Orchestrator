@@ -113,7 +113,10 @@ export class ImportPreviewBuilderService {
         companyId,
         errorsByExternalId,
       ),
-      shifts: this.buildAllCreate(payload.data.shifts ?? [], errorsByExternalId),
+      shifts: this.buildAllCreate(
+        payload.data.shifts ?? [],
+        errorsByExternalId,
+      ),
       availability: this.buildAllCreate(
         payload.data.availability ?? [],
         errorsByExternalId,
@@ -272,7 +275,9 @@ export class ImportPreviewBuilderService {
     companyId: string,
     nameCol: string = 'name',
   ): Promise<Map<string, { id: string; label: string }>> {
-    const names = rows.map((r) => r.name?.toLowerCase()).filter(Boolean) as string[];
+    const names = rows
+      .map((r) => r.name?.toLowerCase())
+      .filter(Boolean) as string[];
     if (names.length === 0) return new Map();
     // Cast a unknown — Supabase no resuelve el column interpolated en
     // TS y tira ParserError; runtime sí funciona.

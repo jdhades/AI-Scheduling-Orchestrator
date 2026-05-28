@@ -22,6 +22,7 @@ import { EmailService } from '../../infrastructure/notifications/email.service';
 import { QwenLLMService } from '../../infrastructure/services/qwen-llm.service';
 import { GeminiLLMService } from '../../infrastructure/services/gemini-llm.service';
 import { LocalLLMService } from '../../infrastructure/services/local-llm.service';
+import { AnthropicVisionService } from '../../infrastructure/services/anthropic-vision.service';
 
 const VALID_PROVIDERS = [
   'twilio',
@@ -29,6 +30,7 @@ const VALID_PROVIDERS = [
   'qwen',
   'gemini',
   'local_llm',
+  'anthropic',
 ] as const satisfies readonly IntegrationProvider[];
 
 const VALID_ENVS = [
@@ -75,6 +77,7 @@ export class AdminIntegrationsController {
     private readonly qwen: QwenLLMService,
     private readonly gemini: GeminiLLMService,
     private readonly local: LocalLLMService,
+    private readonly anthropic: AnthropicVisionService,
   ) {}
 
   /**
@@ -210,6 +213,8 @@ export class AdminIntegrationsController {
         return this.local.testConnection(
           creds as { baseUrl: string; model?: string },
         );
+      case 'anthropic':
+        return this.anthropic.testConnection(creds as { apiKey: string });
     }
   }
 

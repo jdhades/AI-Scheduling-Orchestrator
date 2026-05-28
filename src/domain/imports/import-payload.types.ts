@@ -24,6 +24,7 @@ export type ImportSource =
   | 'external_agent';
 
 export type ImportStagingStatus =
+  | 'extracting'
   | 'pending_review'
   | 'confirming'
   | 'committed'
@@ -146,10 +147,7 @@ export interface ImportAvailability {
   confidence?: number;
 }
 
-export type BreakScope =
-  | 'policy_global'
-  | 'policy_role'
-  | 'shift_specific';
+export type BreakScope = 'policy_global' | 'policy_role' | 'shift_specific';
 
 export interface ImportBreak {
   externalId: string;
@@ -164,12 +162,7 @@ export interface ImportBreak {
   confidence?: number;
 }
 
-export type TimeOffType =
-  | 'vacation'
-  | 'sick'
-  | 'personal'
-  | 'unpaid'
-  | 'other';
+export type TimeOffType = 'vacation' | 'sick' | 'personal' | 'unpaid' | 'other';
 
 export interface ImportTimeOff {
   externalId: string;

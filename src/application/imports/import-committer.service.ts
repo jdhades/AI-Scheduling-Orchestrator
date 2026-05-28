@@ -174,14 +174,17 @@ export class ImportCommitterService {
     for (const r of rows) {
       const plan = this.resolvePlan(r.externalId, planByExtId, input.decisions);
       if (plan === 'skip') {
-        out.push({ externalId: r.externalId, outcome: 'skipped', reason: 'user_choice' });
+        out.push({
+          externalId: r.externalId,
+          outcome: 'skipped',
+          reason: 'user_choice',
+        });
         continue;
       }
       try {
         if (plan === 'will_update') {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
-          if (!matchedId)
-            throw new Error('update plan without matchedId');
+          if (!matchedId) throw new Error('update plan without matchedId');
           idMap.set(r.externalId, matchedId);
           // Update branch (timezone is the only optional field we touch)
           const { error } = await this.supabase
@@ -190,7 +193,11 @@ export class ImportCommitterService {
             .eq('id', matchedId)
             .eq('company_id', input.companyId);
           if (error) throw new Error(error.message);
-          out.push({ externalId: r.externalId, outcome: 'updated', id: matchedId });
+          out.push({
+            externalId: r.externalId,
+            outcome: 'updated',
+            id: matchedId,
+          });
         } else {
           const id = randomUUID();
           const { error } = await this.supabase.from('branches').insert({
@@ -209,7 +216,9 @@ export class ImportCommitterService {
           outcome: 'failed',
           error: (err as Error).message,
         });
-        this.logger.warn(`Location ${r.externalId} failed: ${(err as Error).message}`);
+        this.logger.warn(
+          `Location ${r.externalId} failed: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -231,12 +240,16 @@ export class ImportCommitterService {
     for (const r of rows) {
       const plan = this.resolvePlan(r.externalId, planByExtId, input.decisions);
       if (plan === 'skip') {
-        out.push({ externalId: r.externalId, outcome: 'skipped', reason: 'user_choice' });
+        out.push({
+          externalId: r.externalId,
+          outcome: 'skipped',
+          reason: 'user_choice',
+        });
         continue;
       }
       try {
         const branchId = r.locationExternalId
-          ? locMap.get(r.locationExternalId) ?? null
+          ? (locMap.get(r.locationExternalId) ?? null)
           : null;
         if (plan === 'will_update') {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
@@ -248,7 +261,11 @@ export class ImportCommitterService {
             .eq('id', matchedId)
             .eq('company_id', input.companyId);
           if (error) throw new Error(error.message);
-          out.push({ externalId: r.externalId, outcome: 'updated', id: matchedId });
+          out.push({
+            externalId: r.externalId,
+            outcome: 'updated',
+            id: matchedId,
+          });
         } else {
           const id = randomUUID();
           const { error } = await this.supabase.from('departments').insert({
@@ -287,7 +304,11 @@ export class ImportCommitterService {
     for (const r of rows) {
       const plan = this.resolvePlan(r.externalId, planByExtId, input.decisions);
       if (plan === 'skip') {
-        out.push({ externalId: r.externalId, outcome: 'skipped', reason: 'user_choice' });
+        out.push({
+          externalId: r.externalId,
+          outcome: 'skipped',
+          reason: 'user_choice',
+        });
         continue;
       }
       try {
@@ -326,7 +347,11 @@ export class ImportCommitterService {
             if (reviveErr) throw new Error(`revive: ${reviveErr.message}`);
           }
           idMap.set(r.externalId, linkId);
-          out.push({ externalId: r.externalId, outcome: 'updated', id: linkId });
+          out.push({
+            externalId: r.externalId,
+            outcome: 'updated',
+            id: linkId,
+          });
         } else {
           const id = randomUUID();
           const { error: insertErr } = await this.supabase
@@ -368,12 +393,16 @@ export class ImportCommitterService {
     for (const r of rows) {
       const plan = this.resolvePlan(r.externalId, planByExtId, input.decisions);
       if (plan === 'skip') {
-        out.push({ externalId: r.externalId, outcome: 'skipped', reason: 'user_choice' });
+        out.push({
+          externalId: r.externalId,
+          outcome: 'skipped',
+          reason: 'user_choice',
+        });
         continue;
       }
       try {
         const deptId = r.departmentExternalId
-          ? deptMap.get(r.departmentExternalId) ?? null
+          ? (deptMap.get(r.departmentExternalId) ?? null)
           : null;
         let employeeId: string;
         if (plan === 'will_update') {
@@ -393,7 +422,11 @@ export class ImportCommitterService {
             .eq('company_id', input.companyId);
           if (error) throw new Error(error.message);
           idMap.set(r.externalId, matchedId);
-          out.push({ externalId: r.externalId, outcome: 'updated', id: matchedId });
+          out.push({
+            externalId: r.externalId,
+            outcome: 'updated',
+            id: matchedId,
+          });
         } else {
           employeeId = randomUUID();
           const { error } = await this.supabase.from('employees').insert({
@@ -409,7 +442,11 @@ export class ImportCommitterService {
           });
           if (error) throw new Error(error.message);
           idMap.set(r.externalId, employeeId);
-          out.push({ externalId: r.externalId, outcome: 'created', id: employeeId });
+          out.push({
+            externalId: r.externalId,
+            outcome: 'created',
+            id: employeeId,
+          });
         }
 
         // Linkear roles → employee_skills. El payload trae

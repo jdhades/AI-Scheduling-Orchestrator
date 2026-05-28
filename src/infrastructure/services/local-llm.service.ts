@@ -58,7 +58,8 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
     this.baseUrl =
       this.config.get<string>('llmLocal.baseUrl') ??
       'http://127.0.0.1:1234/v1/chat/completions';
-    this.defaultModel = this.config.get<string>('llmLocal.model') ?? 'local-model';
+    this.defaultModel =
+      this.config.get<string>('llmLocal.model') ?? 'local-model';
     this.logger.log(
       `LocalLLMService configured from .env → ${this.baseUrl} (model=${this.defaultModel})`,
     );
@@ -99,7 +100,10 @@ export class LocalLLMService implements ILLMService, OnModuleInit {
     }
   }
 
-  async complete(prompt: string, options?: LLMCompleteOptions): Promise<string> {
+  async complete(
+    prompt: string,
+    options?: LLMCompleteOptions,
+  ): Promise<string> {
     const model = options?.model ?? this.defaultModel;
     return withExponentialBackoff(
       () => this.callLocal(prompt, model),

@@ -1,8 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import {
-  IImportStagingRepository,
-} from '../../domain/imports/import-staging.repository';
+import { IImportStagingRepository } from '../../domain/imports/import-staging.repository';
 import { ImportStaging } from '../../domain/imports/import-staging.aggregate';
 import type {
   ImportPayload,
@@ -22,12 +20,13 @@ interface Row {
   created_at: string;
   expires_at: string;
   committed_at: string | null;
+  upload_storage_path: string | null;
+  upload_mime_type: string | null;
+  extract_raw_output: unknown | null;
 }
 
 @Injectable()
-export class SupabaseImportStagingRepository
-  implements IImportStagingRepository
-{
+export class SupabaseImportStagingRepository implements IImportStagingRepository {
   private readonly logger = new Logger(SupabaseImportStagingRepository.name);
 
   constructor(
@@ -47,6 +46,9 @@ export class SupabaseImportStagingRepository
       created_at: staging.createdAt.toISOString(),
       expires_at: staging.expiresAt.toISOString(),
       committed_at: staging.committedAt?.toISOString() ?? null,
+      upload_storage_path: staging.uploadStoragePath,
+      upload_mime_type: staging.uploadMimeType,
+      extract_raw_output: staging.extractRawOutput,
     });
     if (error) {
       throw new Error(`ImportStagingRepository.save failed: ${error.message}`);
@@ -61,7 +63,24 @@ export class SupabaseImportStagingRepository
       .eq('company_id', companyId)
       .maybeSingle();
     if (error) {
-      throw new Error(`ImportStagingRepository.findById failed: ${error.message}`);
+      throw new Error(
+        `ImportStagingRepository.findById failed: ${error.message}`,
+      );
+    }
+    if (!data) return null;
+    return this.mapRow(data as Row);
+  }
+
+  async findByIdCrossTenant(id: string): Promise<ImportStaging | null> {
+    const { data, error } = await this.supabase
+      .from('imports_staging')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      throw new Error(
+        `ImportStagingRepository.findByIdCrossTenant failed: ${error.message}`,
+      );
     }
     if (!data) return null;
     return this.mapRow(data as Row);
@@ -116,6 +135,9 @@ export class SupabaseImportStagingRepository
       createdAt: new Date(r.created_at),
       expiresAt: new Date(r.expires_at),
       committedAt: r.committed_at ? new Date(r.committed_at) : null,
+      uploadStoragePath: r.upload_storage_path,
+      uploadMimeType: r.upload_mime_type,
+      extractRawOutput: r.extract_raw_output,
     });
   }
 }

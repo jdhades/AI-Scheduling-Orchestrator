@@ -63,11 +63,15 @@ import { NotificationsModule } from '../infrastructure/notifications/notificatio
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './controllers/health.controller';
 import { ImportsController } from './controllers/imports.controller';
+import { AdminImportsController } from './controllers/admin-imports.controller';
 import { ImportValidatorService } from '../application/imports/import-validator.service';
 import { ImportPreviewBuilderService } from '../application/imports/import-preview-builder.service';
 import { ImportCommitterService } from '../application/imports/import-committer.service';
 import { TemplateExcelBuilderService } from '../application/imports/template-excel-builder.service';
 import { TemplateExcelParserService } from '../application/imports/template-excel-parser.service';
+import { VisionResolverService } from '../application/imports/vision-resolver.service';
+import { ImportsExtractWorker } from '../application/imports/imports-extract.worker';
+import { ImportStorageService } from '../infrastructure/services/import-storage.service';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
@@ -145,6 +149,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     AdminNotificationsController,
     HealthController,
     ImportsController,
+    AdminImportsController,
   ],
   providers: [
     // Sprint Data Import (Fase 1) — los 3 services del subsistema de
@@ -156,6 +161,10 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ImportCommitterService,
     TemplateExcelBuilderService,
     TemplateExcelParserService,
+    // Fase 3 — vision LLM async para upload libre.
+    VisionResolverService,
+    ImportStorageService,
+    ImportsExtractWorker,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

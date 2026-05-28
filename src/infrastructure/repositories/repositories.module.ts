@@ -41,6 +41,7 @@ import { GeminiEmbeddingService } from '../services/gemini-embedding.service';
 import { QwenLLMService } from '../services/qwen-llm.service';
 import { GeminiLLMService } from '../services/gemini-llm.service';
 import { LocalLLMService } from '../services/local-llm.service';
+import { AnthropicVisionService } from '../services/anthropic-vision.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import { HANDSHAKE_REPOSITORY } from '../../domain/repositories/handshake.repository';
 import { SHIFT_REPOSITORY } from '../../domain/repositories/shift.repository';
@@ -90,6 +91,7 @@ import { TenantModule } from '../tenant/tenant.module';
     QwenLLMService,
     GeminiLLMService,
     LocalLLMService,
+    AnthropicVisionService,
     // LLMUsageTracker + LLMUsageLogger viven en ObservabilityModule
     // (@Global) — único shared singleton para que el ALS funcione.
     {
@@ -199,6 +201,7 @@ import { TenantModule } from '../tenant/tenant.module';
     QwenLLMService,
     GeminiLLMService,
     LocalLLMService,
+    AnthropicVisionService,
     'SHIFT_TEMPLATE_REPOSITORY',
     SHIFT_ASSIGNMENT_REPOSITORY,
     SHIFT_MEMBERSHIP_REPOSITORY,

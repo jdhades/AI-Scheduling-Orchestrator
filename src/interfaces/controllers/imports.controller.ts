@@ -12,10 +12,11 @@ import {
   Param,
   Post,
   Res,
+  UploadedFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { randomUUID } from 'crypto';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
@@ -47,6 +48,8 @@ import {
   TemplateExcelParserService,
   ParseFatalError,
 } from '../../application/imports/template-excel-parser.service';
+import { ImportStorageService } from '../../infrastructure/services/import-storage.service';
+import { LlmJobDispatcher } from '../../application/jobs/llm-job-dispatcher.service';
 
 interface StagingResponse {
   id: string;
@@ -67,6 +70,22 @@ interface StagingResponse {
   };
 }
 
+interface UploadExtractResponse {
+  importId: string;
+  jobId: string;
+  status: ImportStagingStatus;
+}
+
+const UPLOAD_ALLOWED_MIME = [
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+] as const;
+
+const UPLOAD_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+
 /**
  * ImportsController — endpoints del sistema de importación multi-modal
  * (Fase 1, spine). Las 3 vías (upload libre, plantillas Excel, agente
@@ -86,6 +105,8 @@ export class ImportsController {
     private readonly committer: ImportCommitterService,
     private readonly templateBuilder: TemplateExcelBuilderService,
     private readonly templateParser: TemplateExcelParserService,
+    private readonly storage: ImportStorageService,
+    private readonly llmJobDispatcher: LlmJobDispatcher,
   ) {}
 
   // ─── Vía B (Excel) ─────────────────────────────────────────────────
@@ -112,7 +133,9 @@ export class ImportsController {
     @Param('entity') entityParam: string,
     @Res() res: Response,
   ): Promise<void> {
-    if (!ImportsController.TEMPLATE_ENTITIES.has(entityParam as TemplateEntity)) {
+    if (
+      !ImportsController.TEMPLATE_ENTITIES.has(entityParam as TemplateEntity)
+    ) {
       throw new BadRequestException(
         `Unknown template entity "${entityParam}". Expected one of: ${[...ImportsController.TEMPLATE_ENTITIES].join(', ')}`,
       );
@@ -186,6 +209,77 @@ export class ImportsController {
     return this.toResponse(staging);
   }
 
+  // ─── Vía A (upload libre con vision LLM) ───────────────────────────
+
+  /**
+   * POST /imports/upload — multipart con 1 archivo (PDF/PNG/JPG/WEBP).
+   * Sube al bucket privado, crea staging en status='extracting' y
+   * encola el job de extracción. Devuelve `{ importId, jobId }` para
+   * que el frontend escuche el WS y navegue a /imports/:id/preview
+   * cuando termine.
+   */
+  @Post('upload')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: UPLOAD_MAX_BYTES },
+    }),
+  )
+  async upload(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ): Promise<UploadExtractResponse> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    if (!UPLOAD_ALLOWED_MIME.includes(file.mimetype as never)) {
+      throw new BadRequestException(
+        `Unsupported file type "${file.mimetype}". Allowed: ${UPLOAD_ALLOWED_MIME.join(', ')}.`,
+      );
+    }
+    const importId = randomUUID();
+    const storagePath = this.storage.buildPath(
+      companyId,
+      importId,
+      file.mimetype,
+    );
+
+    await this.storage.upload(storagePath, file.buffer, file.mimetype);
+
+    const staging = ImportStaging.createForExtraction({
+      id: importId,
+      companyId,
+      createdBy: user?.employeeId ?? null,
+      storagePath,
+      mimeType: file.mimetype,
+    });
+    await this.repo.save(staging);
+
+    const jobId = await this.llmJobDispatcher.enqueue(
+      'imports_extract',
+      {
+        companyId,
+        actorEmployeeId: user?.employeeId ?? null,
+        importId,
+        storagePath,
+        mimeType: file.mimetype,
+        originalName: file.originalname,
+      },
+      { label: file.originalname },
+    );
+
+    this.logger.log(
+      `Upload received: importId=${importId} jobId=${jobId} mime=${file.mimetype} size=${file.size}`,
+    );
+
+    return {
+      importId,
+      jobId,
+      status: staging.status,
+    };
+  }
+
   /**
    * POST /imports/staging — recibe payload canónico de cualquiera de
    * las 3 vías y lo stagea. Devuelve el id para que el frontend redirija
@@ -204,7 +298,9 @@ export class ImportsController {
       companyId,
       createdBy: user?.employeeId ?? null,
       source: dto.source,
-      payload: dto as unknown as Parameters<typeof ImportStaging.create>[0]['payload'],
+      payload: dto as unknown as Parameters<
+        typeof ImportStaging.create
+      >[0]['payload'],
     });
     await this.repo.save(staging);
     return this.toResponse(staging);
@@ -237,6 +333,15 @@ export class ImportsController {
     if (!staging) throw new NotFoundException('Import not found or expired');
     if (staging.isExpired()) {
       throw new BadRequestException('Import expired — please re-upload');
+    }
+    if (staging.status === 'extracting') {
+      // El worker todavía está corriendo vision sobre el upload. La UI
+      // detecta el 425 y muestra un spinner — re-fetch al recibir el
+      // WS LlmJobCompleted.
+      throw new BadRequestException({
+        message: 'Import is still being extracted by vision LLM',
+        errorCode: 'IMPORT_STILL_EXTRACTING',
+      });
     }
     if (staging.previewCache) {
       return staging.previewCache as PreviewResult;
@@ -291,6 +396,11 @@ export class ImportsController {
         decisions: body.decisions,
       });
       await this.repo.save(confirming.markCommitted(report));
+      // El archivo original ya cumplió su propósito (payload commiteado).
+      // Lo borramos para no pagar storage de algo que nadie va a abrir.
+      if (staging.uploadStoragePath) {
+        await this.storage.delete(staging.uploadStoragePath);
+      }
       return report;
     } catch (err) {
       const errorReport = {
@@ -305,7 +415,7 @@ export class ImportsController {
   /**
    * DELETE /imports/staging/:id — descarta el staging. No borra el row
    * (lo deja como 'discarded' para auditoría) — el cleanup job lo borra
-   * cuando expira.
+   * cuando expira. Si tenía archivo en el bucket privado, se borra ya.
    */
   @Delete('staging/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -315,6 +425,9 @@ export class ImportsController {
   ): Promise<void> {
     const staging = await this.repo.findById(id, companyId);
     if (!staging) throw new NotFoundException('Import not found or expired');
+    if (staging.uploadStoragePath) {
+      await this.storage.delete(staging.uploadStoragePath);
+    }
     await this.repo.save(staging.markDiscarded());
   }
 

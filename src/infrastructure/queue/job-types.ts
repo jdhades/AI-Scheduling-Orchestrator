@@ -68,3 +68,19 @@ export interface CreatePolicyJobPayload {
   };
   effectiveFrom?: string;
 }
+
+/**
+ * Imports Fase 3 (upload libre). El upload llega al controller, sube
+ * el archivo al bucket privado `import-uploads`, crea una row
+ * `imports_staging` con status='extracting' y encola este job. El
+ * worker descarga el archivo, llama al vision extractor del tenant,
+ * setea payload + preview_cache y transiciona a 'pending_review'.
+ */
+export interface ImportsExtractJobPayload {
+  companyId: string;
+  actorEmployeeId: string | null;
+  importId: string;
+  storagePath: string;
+  mimeType: string;
+  originalName: string;
+}

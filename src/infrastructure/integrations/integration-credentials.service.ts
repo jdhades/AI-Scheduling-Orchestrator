@@ -11,7 +11,8 @@ export type IntegrationProvider =
   | 'resend'
   | 'qwen'
   | 'gemini'
-  | 'local_llm';
+  | 'local_llm'
+  | 'anthropic';
 
 export type IntegrationEnvironment = 'test' | 'production';
 

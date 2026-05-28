@@ -108,7 +108,10 @@ export class QwenLLMService implements ILLMService, OnModuleInit {
     }
   }
 
-  async complete(prompt: string, options?: LLMCompleteOptions): Promise<string> {
+  async complete(
+    prompt: string,
+    options?: LLMCompleteOptions,
+  ): Promise<string> {
     if (!this.apiKey) {
       throw new Error('QwenLLMService: QWEN_API_KEY is not configured');
     }

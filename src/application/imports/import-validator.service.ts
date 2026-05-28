@@ -95,10 +95,7 @@ export class ImportValidatorService {
             'The committer will try to match against existing employees in the database.',
         });
       }
-      if (
-        s.requiredRoleExternalId &&
-        !roleIds.has(s.requiredRoleExternalId)
-      ) {
+      if (s.requiredRoleExternalId && !roleIds.has(s.requiredRoleExternalId)) {
         warnings.push({
           severity: 'warn',
           code: 'IMPORT_SHIFT_ROLE_NOT_IN_PAYLOAD',
