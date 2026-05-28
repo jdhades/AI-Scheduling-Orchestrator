@@ -11,7 +11,12 @@ import {
   NotFoundException,
   Param,
   Post,
+  Res,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { randomUUID } from 'crypto';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
@@ -34,6 +39,14 @@ import {
   ImportCommitterService,
   type CommitReport,
 } from '../../application/imports/import-committer.service';
+import {
+  TemplateExcelBuilderService,
+  type TemplateEntity,
+} from '../../application/imports/template-excel-builder.service';
+import {
+  TemplateExcelParserService,
+  ParseFatalError,
+} from '../../application/imports/template-excel-parser.service';
 
 interface StagingResponse {
   id: string;
@@ -71,7 +84,107 @@ export class ImportsController {
     private readonly validator: ImportValidatorService,
     private readonly previewBuilder: ImportPreviewBuilderService,
     private readonly committer: ImportCommitterService,
+    private readonly templateBuilder: TemplateExcelBuilderService,
+    private readonly templateParser: TemplateExcelParserService,
   ) {}
+
+  // ─── Vía B (Excel) ─────────────────────────────────────────────────
+
+  private static readonly TEMPLATE_ENTITIES: ReadonlySet<TemplateEntity> =
+    new Set([
+      'employees',
+      'locations',
+      'departments',
+      'roles',
+      'shifts',
+      'availability',
+      'breaks',
+      'time_off',
+    ]);
+
+  /**
+   * GET /imports/templates/:entity — descarga la plantilla xlsx para
+   * una entidad. Server-side para que el formato se pueda iterar sin
+   * redeploy. Cache-Control: short porque la plantilla puede cambiar.
+   */
+  @Get('templates/:entity')
+  async downloadTemplate(
+    @Param('entity') entityParam: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    if (!ImportsController.TEMPLATE_ENTITIES.has(entityParam as TemplateEntity)) {
+      throw new BadRequestException(
+        `Unknown template entity "${entityParam}". Expected one of: ${[...ImportsController.TEMPLATE_ENTITIES].join(', ')}`,
+      );
+    }
+    const buffer = this.templateBuilder.build(entityParam as TemplateEntity);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${entityParam}.xlsx"`,
+    );
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(buffer);
+  }
+
+  /**
+   * POST /imports/templates/parse — multipart upload de N xlsx, parsea
+   * a ImportPayload y crea staging directamente. Devuelve `{ importId }`
+   * para que el frontend navegue al preview.
+   *
+   * Límite: 8 files × 10 MB cada uno. Validación strict — si cualquier
+   * archivo tiene header missing o tipo inválido, ParseFatalError → 400
+   * con el array de errores por archivo/celda.
+   */
+  @Post('templates/parse')
+  @UseInterceptors(
+    FilesInterceptor('files', 8, {
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB por archivo
+    }),
+  )
+  async parseTemplates(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @UploadedFiles() files: Express.Multer.File[],
+  ): Promise<StagingResponse> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files uploaded');
+    }
+
+    let payload;
+    try {
+      payload = this.templateParser.parse(
+        files.map((f) => ({
+          originalName: f.originalname,
+          buffer: f.buffer,
+        })),
+      );
+    } catch (err) {
+      if (err instanceof ParseFatalError) {
+        // 400 con detalle por celda para que la UI muestre uno por uno.
+        throw new BadRequestException({
+          message: 'Excel parse failed',
+          errorCode: 'IMPORT_EXCEL_PARSE_FAILED',
+          errors: err.errors,
+        });
+      }
+      throw err;
+    }
+
+    const id = randomUUID();
+    const staging = ImportStaging.create({
+      id,
+      companyId,
+      createdBy: user?.employeeId ?? null,
+      source: 'template_excel',
+      payload,
+    });
+    await this.repo.save(staging);
+    return this.toResponse(staging);
+  }
 
   /**
    * POST /imports/staging — recibe payload canónico de cualquiera de

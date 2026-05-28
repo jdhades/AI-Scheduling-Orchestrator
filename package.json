@@ -44,6 +44,7 @@
     "ioredis": "^5.10.0",
     "joi": "^18.0.2",
     "jose": "6.2.3",
+    "multer": "2.0.2",
     "nestjs-i18n": "^10.6.0",
     "nestjs-pino": "^4.6.0",
     "pg": "^8.19.0",
@@ -57,7 +58,8 @@
     "socket.io": "^4.8.3",
     "stripe": "22.1.0",
     "twilio": "^5.13.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -68,6 +70,7 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/joi": "^17.2.3",
+    "@types/multer": "2.0.0",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^11.0.0",

@@ -66,6 +66,8 @@ import { ImportsController } from './controllers/imports.controller';
 import { ImportValidatorService } from '../application/imports/import-validator.service';
 import { ImportPreviewBuilderService } from '../application/imports/import-preview-builder.service';
 import { ImportCommitterService } from '../application/imports/import-committer.service';
+import { TemplateExcelBuilderService } from '../application/imports/template-excel-builder.service';
+import { TemplateExcelParserService } from '../application/imports/template-excel-parser.service';
 
 import { WhatsAppIncidentController } from './controllers/whatsapp-incident.controller';
 
@@ -152,6 +154,8 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ImportValidatorService,
     ImportPreviewBuilderService,
     ImportCommitterService,
+    TemplateExcelBuilderService,
+    TemplateExcelParserService,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto
