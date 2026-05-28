@@ -126,6 +126,24 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
       .join('\n')
       .trim();
 
+    // Diagnóstico crudo: shape completo de los content blocks + stop_reason.
+    // Si Claude devolvió tool_use/thinking/refusal en lugar de text, este
+    // dump nos lo dice. Lo guardamos en el error para que /admin/imports/:id/raw
+    // lo pueda inspeccionar.
+    const diagnostic = {
+      stopReason: response.stop_reason,
+      blockTypes: response.content.map((b) => b.type),
+      blocks: response.content,
+    };
+
+    if (!rawText) {
+      throw new VisionExtractError(
+        `Vision LLM returned no text content (stop_reason=${response.stop_reason ?? 'unknown'}, blocks=[${diagnostic.blockTypes.join(',')}]).`,
+        'no_json',
+        JSON.stringify(diagnostic),
+      );
+    }
+
     const parsed = extractJsonFromOutput(rawText);
     if (parsed === null) {
       throw new VisionExtractError(
