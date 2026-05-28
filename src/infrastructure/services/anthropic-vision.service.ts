@@ -40,7 +40,13 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
   private client: Anthropic | null = null;
   readonly providerName = 'anthropic' as const;
   readonly defaultModel = 'claude-sonnet-4-6';
-  private readonly maxTokens = 8192;
+  /**
+   * Sonnet 4.6 soporta hasta 64K output tokens. 8192 era demasiado
+   * chico — extracciones con 20+ empleados ya se cortaban a la mitad.
+   * 32K cubre archivos típicos (100+ filas) sin pagar margen excesivo
+   * porque Anthropic factura por tokens *generados*, no por el techo.
+   */
+  private readonly maxTokens = 32768;
 
   constructor(
     private readonly config: ConfigService,
@@ -146,6 +152,16 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
 
     const parsed = extractJsonFromOutput(rawText);
     if (parsed === null) {
+      // Si stop_reason='max_tokens' el JSON quedó cortado a la mitad
+      // y nunca cierra. Damos un mensaje específico para que el owner
+      // sepa que hay que dividir el archivo, no es bug del prompt.
+      if (response.stop_reason === 'max_tokens') {
+        throw new VisionExtractError(
+          `Vision LLM output was truncated at ${response.usage.output_tokens} tokens (max=${this.maxTokens}). The file has more data than fits in one response — try splitting it into smaller files.`,
+          'no_json',
+          rawText,
+        );
+      }
       throw new VisionExtractError(
         'Vision LLM returned non-parseable output. See raw output for debugging.',
         'no_json',
