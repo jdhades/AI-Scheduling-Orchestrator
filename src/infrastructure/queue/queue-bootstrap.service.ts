@@ -6,6 +6,7 @@ import {
   JOB_LLM_CREATE_POLICY,
   JOB_LLM_CREATE_RULE,
   JOB_LLM_UPDATE_RULE_TEXT,
+  JOB_IMPORTS_EXTRACT,
 } from './job-names';
 
 /**
@@ -101,6 +102,20 @@ export class QueueBootstrapService implements OnModuleInit {
     }
     this.logger.log(
       `LLM queues ready: ${llmQueues.join(', ')} (standard, retry=0, expire=600s)`,
+    );
+
+    // ─── Imports extract (Fase 3) ────────────────────────────────────
+    // Vision LLM puede tardar 30-90s en archivos grandes; expire 900s
+    // (15 min) para no matar jobs válidos. retry=0 igual que el resto
+    // de LLM jobs — no queremos pagar tokens dos veces.
+    await boss.createQueue(JOB_IMPORTS_EXTRACT, {
+      policy: 'standard',
+      retryLimit: 0,
+      expireInSeconds: 900,
+    });
+    await this.syncQueueConfig(JOB_IMPORTS_EXTRACT, 0, 900);
+    this.logger.log(
+      `Imports extract queue ready: ${JOB_IMPORTS_EXTRACT} (standard, retry=0, expire=900s)`,
     );
   }
 
