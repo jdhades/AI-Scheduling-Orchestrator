@@ -5,7 +5,6 @@ import type {
   ImportPayload,
   ImportShift,
   ImportAvailability,
-  ImportBreak,
   ImportTimeOff,
 } from '../../domain/imports/import-payload.types';
 import type {
@@ -655,7 +654,16 @@ export class ImportCommitterService {
     // Normalize HH:mm → HH:mm:ss for TIME comparison.
     const start = this.normalizeTime(args.startTime);
     const end = this.normalizeTime(args.endTime);
-    const cacheKey = `${args.name}|${args.dayOfWeek}|${start}|${end}`;
+    // Match templates ignorando day_of_week: el grid del roster típicamente
+    // tiene el mismo turno aplicado a varios días, y cada (employee, date)
+    // ya vive en shift_assignments. Sumar day_of_week al match generaría
+    // 7 templates clónicos por cada tipo (Retail Diurno × 7 días = 7 rows
+    // idénticas en /workforce/templates), que es la queja del owner.
+    // day_of_week en shift_templates queda como metadata (NOT NULL del
+    // schema V3, se setea al day_of_week del primer assignment que
+    // genere el template; semánticamente la columna pierde significado
+    // para templates importados).
+    const cacheKey = `${args.name}|${start}|${end}`;
     const cached = cache.get(cacheKey);
     if (cached) return cached;
 
@@ -664,7 +672,6 @@ export class ImportCommitterService {
       .select('id')
       .eq('company_id', args.companyId)
       .eq('name', args.name)
-      .eq('day_of_week', args.dayOfWeek)
       .eq('start_time', start)
       .eq('end_time', end)
       .limit(1)
