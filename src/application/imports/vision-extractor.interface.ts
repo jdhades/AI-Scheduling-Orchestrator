@@ -30,6 +30,11 @@ export interface VisionExtractInput {
   modelOverride: string | null;
   /** Tenant context para usage logging. */
   companyId: string;
+  /**
+   * Locale del owner para escribir `warnings[].message` en su idioma.
+   * 'es' | 'en' — defaults a 'en' si el caller no lo pasa.
+   */
+  locale: 'es' | 'en';
 }
 
 /**

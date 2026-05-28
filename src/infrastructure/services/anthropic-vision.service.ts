@@ -10,7 +10,7 @@ import type {
 import { VisionExtractError } from '../../application/imports/vision-extractor.interface';
 import {
   VISION_EXTRACT_SYSTEM_PROMPT,
-  VISION_EXTRACT_USER_PROMPT,
+  visionExtractUserPrompt,
   extractJsonFromOutput,
 } from '../../application/imports/vision-extract-prompt';
 import type { ImportPayload } from '../../domain/imports/import-payload.types';
@@ -199,6 +199,7 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
   ): Anthropic.MessageParam['content'] {
     const base64 = input.buffer.toString('base64');
     const mediaType = input.mimeType;
+    const userPrompt = visionExtractUserPrompt(input.locale);
 
     if (mediaType === 'application/pdf') {
       return [
@@ -210,7 +211,7 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
             data: base64,
           },
         },
-        { type: 'text', text: VISION_EXTRACT_USER_PROMPT },
+        { type: 'text', text: userPrompt },
       ];
     }
 
@@ -229,7 +230,7 @@ export class AnthropicVisionService implements IVisionExtractor, OnModuleInit {
             data: base64,
           },
         },
-        { type: 'text', text: VISION_EXTRACT_USER_PROMPT },
+        { type: 'text', text: userPrompt },
       ];
     }
 

@@ -83,4 +83,7 @@ export interface ImportsExtractJobPayload {
   storagePath: string;
   mimeType: string;
   originalName: string;
+  /** UI locale del owner — para que warnings[].message del extractor
+   * se devuelvan en su idioma. */
+  locale: 'es' | 'en';
 }

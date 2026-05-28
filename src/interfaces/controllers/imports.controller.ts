@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Inject,
@@ -234,6 +235,7 @@ export class ImportsController {
     @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthContext | undefined,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Headers('accept-language') acceptLanguage: string | undefined,
   ): Promise<UploadExtractResponse> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -249,6 +251,7 @@ export class ImportsController {
       importId,
       file.mimetype,
     );
+    const locale = this.resolveLocale(acceptLanguage);
 
     await this.storage.upload(storagePath, file.buffer, file.mimetype);
 
@@ -270,6 +273,7 @@ export class ImportsController {
         storagePath,
         mimeType: file.mimetype,
         originalName: file.originalname,
+        locale,
       },
       { label: file.originalname },
     );
@@ -470,5 +474,19 @@ export class ImportsController {
       phase: report?.phase ?? 'commit',
       message: report?.error ?? 'Unknown failure',
     };
+  }
+
+  /**
+   * Mapea el header Accept-Language a uno de los 2 locales soportados
+   * por el vision prompt. El frontend ya manda el lang seleccionado
+   * por el user via axios; cualquier otro idioma cae a 'en'.
+   */
+  private resolveLocale(
+    acceptLanguage: string | undefined,
+  ): 'es' | 'en' {
+    if (!acceptLanguage) return 'en';
+    const primary = acceptLanguage.split(',')[0].trim().toLowerCase();
+    if (primary.startsWith('es')) return 'es';
+    return 'en';
   }
 }

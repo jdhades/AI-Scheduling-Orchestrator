@@ -98,6 +98,7 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
         originalName: payload.originalName,
         modelOverride: model,
         companyId,
+        locale: payload.locale,
       });
       const updated = staging.withExtractedPayload(result.payload, result.raw);
       await this.repo.save(updated);
