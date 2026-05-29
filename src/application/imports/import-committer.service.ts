@@ -270,7 +270,18 @@ export class ImportCommitterService {
     locMap: Map<string, string>,
   ): Promise<void> {
     const rows = input.payload.data.departments ?? [];
+    if (rows.length === 0) return;
     const planByExtId = this.planMap(input.preview.entities.departments);
+
+    // departments.branch_id es NOT NULL. Si el payload no trae locations
+    // (típico en archivos chicos: roster sin sucursales), buscamos la
+    // primera branch existente del tenant. Si tampoco hay ninguna,
+    // auto-creamos una "Main" — esto desbloquea el caso pyme de "1
+    // local sin nombre" sin obligar al owner a crear branches primero.
+    const fallbackBranchId = await this.ensureFallbackBranch(
+      input.companyId,
+      locMap.size > 0,
+    );
 
     for (const r of rows) {
       const plan = this.resolvePlan(r.externalId, planByExtId, input.decisions);
@@ -284,8 +295,13 @@ export class ImportCommitterService {
       }
       try {
         const branchId = r.locationExternalId
-          ? (locMap.get(r.locationExternalId) ?? null)
-          : null;
+          ? (locMap.get(r.locationExternalId) ?? fallbackBranchId)
+          : fallbackBranchId;
+        if (!branchId) {
+          throw new Error(
+            'department needs a branch but none could be resolved or created',
+          );
+        }
         if (plan === 'will_update') {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
           if (!matchedId) throw new Error('update plan without matchedId');
@@ -1104,6 +1120,55 @@ export class ImportCommitterService {
         });
       }
     }
+  }
+
+  /**
+   * Resuelve un branch_id "fallback" para inserts de departments cuando
+   * el payload no trae locations. Estrategia:
+   *   1. Si el payload SÍ tiene locations → null (los dept usan locMap).
+   *   2. Si no hay locations en el payload, buscar la primera branch
+   *      existente del tenant (no soft-deleted).
+   *   3. Si tampoco hay → auto-crear una branch "Main" (caso pyme,
+   *      single-location).
+   *
+   * Devuelve el branch_id a usar o null si decidimos no fallback-ear.
+   */
+  private async ensureFallbackBranch(
+    companyId: string,
+    payloadHasLocations: boolean,
+  ): Promise<string | null> {
+    if (payloadHasLocations) {
+      return null;
+    }
+    const { data: existing } = await this.supabase
+      .from('branches')
+      .select('id')
+      .eq('company_id', companyId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      return existing.id as string;
+    }
+    // Sin branches: auto-crear "Main".
+    const id = randomUUID();
+    const { error } = await this.supabase.from('branches').insert({
+      id,
+      company_id: companyId,
+      name: 'Main',
+      timezone: null,
+    });
+    if (error) {
+      this.logger.warn(
+        `Failed to auto-create fallback branch: ${error.message}`,
+      );
+      return null;
+    }
+    this.logger.log(
+      `Auto-created fallback branch "Main" (${id}) for company ${companyId}`,
+    );
+    return id;
   }
 
   // ── Helpers de Fase 4 ─────────────────────────────────────────────
