@@ -214,11 +214,15 @@ export class ScheduleController {
    * DELETE /schedules?weekStart=YYYY-MM-DD
    *
    * Borra todos los shift_assignments de la semana visible. Cascadea a
-   * shift_assignment_breaks via FK ON DELETE CASCADE. NO toca templates
-   * ni memberships (esos son durables y se reusan para Generate).
+   * shift_assignment_breaks via FK ON DELETE CASCADE. NO toca templates.
    *
-   * Requiere capability 'schedule:write' (la misma que valida POST
-   * /generate). Devuelve `{ deleted }` con el conteo borrado.
+   * También borra shift_memberships cuyo `effective_from` cae dentro de
+   * la semana — pensado para limpiar memberships generadas por un
+   * import que entró en esa semana. Memberships viejas (effective_from
+   * fuera del rango) quedan intactas porque pertenecen a otros imports
+   * o configuraciones manuales.
+   *
+   * Requiere capability 'schedule:write'.
    */
   @Delete()
   @Requires('schedule:write')
@@ -226,7 +230,12 @@ export class ScheduleController {
     @Query('weekStart') weekStart: string,
     @CurrentCompany() companyId: string,
     @Query('departmentId') departmentId?: string,
-  ): Promise<{ deleted: number; weekStart: string; weekEnd: string }> {
+  ): Promise<{
+    deleted: number;
+    membershipsDeleted: number;
+    weekStart: string;
+    weekEnd: string;
+  }> {
     // Mismo cómputo de rango que el GET para mantener simetría: weekStart
     // es lunes, weekEnd = +6 días.
     const startDate = new Date(`${weekStart}T00:00:00.000Z`);
@@ -234,26 +243,62 @@ export class ScheduleController {
     endDate.setUTCDate(endDate.getUTCDate() + 6);
     const weekEnd = endDate.toISOString().slice(0, 10);
 
-    let query = this.supabase
+    // 1. Borrar shift_assignments del rango. shift_templates no se toca
+    //    (los reusa Generate y otros imports). Department filter aplica
+    //    via template.department_id (no via assignment, que no tiene esa
+    //    columna en el schema V3).
+    let templateIdsForDept: string[] | null = null;
+    if (departmentId) {
+      const { data: tpls } = await this.supabase
+        .from('shift_templates')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('department_id', departmentId);
+      templateIdsForDept = (tpls ?? []).map((t) => t.id as string);
+      if (templateIdsForDept.length === 0) {
+        return {
+          deleted: 0,
+          membershipsDeleted: 0,
+          weekStart,
+          weekEnd,
+        };
+      }
+    }
+
+    let shiftsQuery = this.supabase
       .from('shift_assignments')
       .delete({ count: 'exact' })
       .eq('company_id', companyId)
       .gte('date', weekStart)
       .lte('date', weekEnd);
-
-    // Si pasa departmentId, filtrar por la columna directa del assignment.
-    // Los assignments importados tienen department_id (FK al row) — si el
-    // owner pide "Limpiar Cocina" no toca Retail.
-    if (departmentId) {
-      query = query.eq('department_id', departmentId);
+    if (templateIdsForDept) {
+      shiftsQuery = shiftsQuery.in('template_id', templateIdsForDept);
+    }
+    const { count: shiftsDeleted, error: shiftsErr } = await shiftsQuery;
+    if (shiftsErr) {
+      throw new Error(`Failed to clear shifts: ${shiftsErr.message}`);
     }
 
-    const { count, error } = await query;
-    if (error) {
-      throw new Error(`Failed to clear schedule week: ${error.message}`);
+    // 2. Borrar memberships cuyo effective_from cae dentro del rango.
+    //    Las creadas por el import de esta semana se identifican porque
+    //    su effective_from es el primer día de los shifts importados.
+    let membersQuery = this.supabase
+      .from('shift_memberships')
+      .delete({ count: 'exact' })
+      .eq('company_id', companyId)
+      .gte('effective_from', weekStart)
+      .lte('effective_from', weekEnd);
+    if (templateIdsForDept) {
+      membersQuery = membersQuery.in('template_id', templateIdsForDept);
     }
+    const { count: membersDeleted, error: membersErr } = await membersQuery;
+    if (membersErr) {
+      throw new Error(`Failed to clear memberships: ${membersErr.message}`);
+    }
+
     return {
-      deleted: count ?? 0,
+      deleted: shiftsDeleted ?? 0,
+      membershipsDeleted: membersDeleted ?? 0,
       weekStart,
       weekEnd,
     };
