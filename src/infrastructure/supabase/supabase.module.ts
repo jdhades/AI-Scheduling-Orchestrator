@@ -22,6 +22,19 @@ import { createClient } from '@supabase/supabase-js';
         createClient(
           config.getOrThrow<string>('SUPABASE_URL'),
           config.getOrThrow<string>('SUPABASE_SERVICE_ROLE_KEY'),
+          {
+            // Backend usa service_role estático: no hay flujo de
+            // session refresh. Sin estas flags, supabase-js intenta
+            // mantener una "session" inexistente y agrega headers que
+            // hacen fallar funciones SECURITY DEFINER con
+            // "JWT issued at future" (PostgREST dispara check pgjwt
+            // sobre el JWT auto-generado por el cliente).
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+              detectSessionInUrl: false,
+            },
+          },
         ),
     },
     // Anon client — para endpoints públicos que necesitan respetar el
@@ -35,6 +48,16 @@ import { createClient } from '@supabase/supabase-js';
         createClient(
           config.getOrThrow<string>('SUPABASE_URL'),
           config.getOrThrow<string>('SUPABASE_ANON_KEY'),
+          {
+            // Mismo razonamiento que SUPABASE_CLIENT — el anon client
+            // del backend se usa para auth flows controlados
+            // (signUp/signIn con email), nunca para mantener sesión.
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+              detectSessionInUrl: false,
+            },
+          },
         ),
     },
   ],
