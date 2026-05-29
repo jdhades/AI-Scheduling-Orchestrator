@@ -565,7 +565,11 @@ export class ImportCommitterService {
     shiftMap: Map<string, string>,
     empMap: Map<string, string>,
     roleMap: Map<string, string>,
-    locMap: Map<string, string>,
+    // locMap: el schema V3 actual no tiene branch_id ni en
+    // shift_assignments ni en shift_templates — el branch se infiere
+    // del employee. Lo dejamos en la firma por si en el futuro sumamos
+    // location-aware templates.
+    _locMap: Map<string, string>,
     deptMap: Map<string, string>,
     assignmentTimes: Map<string, { start: Date; end: Date }>,
     shiftRecords: Array<{
@@ -614,7 +618,9 @@ export class ImportCommitterService {
             startTime: r.startTime,
             endTime: r.endTime,
             requiredRoleExternalId: r.requiredRoleExternalId,
+            departmentExternalId: r.departmentExternalId,
             roleMap,
+            deptMap,
           },
           templateCache,
         );
@@ -625,12 +631,6 @@ export class ImportCommitterService {
           r.endTime,
           r.crossesMidnight,
         );
-        const branchId = r.locationExternalId
-          ? (locMap.get(r.locationExternalId) ?? null)
-          : null;
-        const departmentId = r.departmentExternalId
-          ? (deptMap.get(r.departmentExternalId) ?? null)
-          : null;
 
         const id = randomUUID();
         const { error } = await this.supabase
@@ -644,8 +644,6 @@ export class ImportCommitterService {
             origin: 'override',
             actual_start_time: startTs,
             actual_end_time: endTs,
-            branch_id: branchId,
-            department_id: departmentId,
           });
         if (error) throw new Error(error.message);
         shiftMap.set(r.externalId, id);
@@ -677,7 +675,11 @@ export class ImportCommitterService {
       startTime: string;
       endTime: string;
       requiredRoleExternalId?: string;
+      /** El schema V3 tiene department_id en shift_templates (no en
+       *  shift_assignments). Se usa para el filtro del schedule grid. */
+      departmentExternalId?: string;
       roleMap: Map<string, string>;
+      deptMap: Map<string, string>;
     },
     cache: Map<string, string>,
   ): Promise<string> {
@@ -714,6 +716,9 @@ export class ImportCommitterService {
     const requiredSkillId = args.requiredRoleExternalId
       ? (args.roleMap.get(args.requiredRoleExternalId) ?? null)
       : null;
+    const departmentId = args.departmentExternalId
+      ? (args.deptMap.get(args.departmentExternalId) ?? null)
+      : null;
     const id = randomUUID();
     const { error } = await this.supabase.from('shift_templates').insert({
       id,
@@ -723,6 +728,7 @@ export class ImportCommitterService {
       start_time: start,
       end_time: end,
       required_skill_id: requiredSkillId,
+      department_id: departmentId,
       is_active: true,
     });
     if (error) {
