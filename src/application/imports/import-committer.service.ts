@@ -55,6 +55,11 @@ export interface CommitReport {
     availability: CommitRowOutcome[];
     breaks: CommitRowOutcome[];
     timeOff: CommitRowOutcome[];
+    /**
+     * Fase 5 — magic import: derivadas post-commit, una por par único
+     * (employee, template). El externalId es sintético: "memb:<emp>:<tpl>".
+     */
+    memberships: CommitRowOutcome[];
   };
   totals: {
     created: number;
@@ -93,6 +98,7 @@ export class ImportCommitterService {
         availability: [],
         breaks: [],
         timeOff: [],
+        memberships: [],
       },
       totals: { created: 0, updated: 0, skipped: 0, failed: 0 },
     };
@@ -138,6 +144,14 @@ export class ImportCommitterService {
       { start: Date; end: Date }
     >();
 
+    // Fase 5 (magic import): tracking de (employee, template, date) por cada
+    // shift commiteado. Se agrupa post-shifts para derivar memberships.
+    const shiftRecords: Array<{
+      employeeId: string;
+      templateId: string;
+      date: string;
+    }> = [];
+
     await this.commitShifts(
       input,
       report.entities.shifts,
@@ -147,6 +161,7 @@ export class ImportCommitterService {
       idMaps.locations,
       idMaps.departments,
       assignmentTimes,
+      shiftRecords,
     );
     await this.commitBreaks(
       input,
@@ -164,6 +179,11 @@ export class ImportCommitterService {
       input,
       report.entities.timeOff,
       idMaps.employees,
+    );
+    await this.commitMemberships(
+      input,
+      report.entities.memberships,
+      shiftRecords,
     );
 
     report.finishedAt = new Date().toISOString();
@@ -548,6 +568,11 @@ export class ImportCommitterService {
     locMap: Map<string, string>,
     deptMap: Map<string, string>,
     assignmentTimes: Map<string, { start: Date; end: Date }>,
+    shiftRecords: Array<{
+      employeeId: string;
+      templateId: string;
+      date: string;
+    }>,
   ): Promise<void> {
     const rows = input.payload.data.shifts ?? [];
     const planByExtId = this.planMap(input.preview.entities.shifts);
@@ -627,6 +652,11 @@ export class ImportCommitterService {
         assignmentTimes.set(id, {
           start: new Date(startTs),
           end: new Date(endTs),
+        });
+        shiftRecords.push({
+          employeeId,
+          templateId,
+          date: r.date,
         });
         out.push({ externalId: r.externalId, outcome: 'created', id });
       } catch (err) {
@@ -977,6 +1007,92 @@ export class ImportCommitterService {
       } catch (err) {
         out.push({
           externalId: r.externalId,
+          outcome: 'failed',
+          error: (err as Error).message,
+        });
+      }
+    }
+  }
+
+  /**
+   * Fase 5 (magic import). Después de commit-ear todos los shifts, agrupa
+   * los assignments creados por (employee, template) y genera una
+   * shift_membership por cada par único:
+   *   effective_from = min(date) del grupo
+   *   effective_until = null (open-ended → Generate la usa para semanas
+   *                            futuras)
+   *
+   * Idempotencia: el UNIQUE (employee_id, template_id, effective_from)
+   * de la tabla evita duplicados si reimportás con la misma fecha de
+   * inicio. Si el INSERT falla por conflict, lo marcamos como
+   * skipped/'already_exists' — el owner ya tenía esa membership.
+   */
+  private async commitMemberships(
+    input: { companyId: string },
+    out: CommitRowOutcome[],
+    shiftRecords: Array<{
+      employeeId: string;
+      templateId: string;
+      date: string;
+    }>,
+  ): Promise<void> {
+    if (shiftRecords.length === 0) return;
+
+    const grouped = new Map<
+      string,
+      { employeeId: string; templateId: string; firstDate: string }
+    >();
+    for (const r of shiftRecords) {
+      const key = `${r.employeeId}|${r.templateId}`;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, {
+          employeeId: r.employeeId,
+          templateId: r.templateId,
+          firstDate: r.date,
+        });
+      } else if (r.date < existing.firstDate) {
+        existing.firstDate = r.date;
+      }
+    }
+
+    for (const { employeeId, templateId, firstDate } of grouped.values()) {
+      // externalId sintético — útil para que aparezca en el commit
+      // report con un identificador estable.
+      const externalId = `memb:${employeeId.slice(0, 8)}:${templateId.slice(0, 8)}`;
+      try {
+        const id = randomUUID();
+        const { error } = await this.supabase
+          .from('shift_memberships')
+          .insert({
+            id,
+            company_id: input.companyId,
+            employee_id: employeeId,
+            template_id: templateId,
+            effective_from: firstDate,
+            effective_until: null,
+          });
+        if (error) {
+          // Postgres unique_violation = 23505
+          const code = (error as { code?: string }).code;
+          if (
+            code === '23505' ||
+            error.message.includes('duplicate') ||
+            error.message.includes('unique')
+          ) {
+            out.push({
+              externalId,
+              outcome: 'skipped',
+              reason: 'already_exists',
+            });
+            continue;
+          }
+          throw new Error(error.message);
+        }
+        out.push({ externalId, outcome: 'created', id });
+      } catch (err) {
+        out.push({
+          externalId,
           outcome: 'failed',
           error: (err as Error).message,
         });
