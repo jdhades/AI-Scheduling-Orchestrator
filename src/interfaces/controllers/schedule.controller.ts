@@ -4,13 +4,16 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   HttpStatus,
+  Inject,
   Post,
   Query,
 } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { Throttle } from '@nestjs/throttler';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GenerateHybridScheduleCommand } from '../../application/commands/generate-hybrid-schedule.command';
@@ -56,6 +59,7 @@ export class ScheduleController {
     private readonly queryBus: QueryBus,
     private readonly scheduleDispatcher: ScheduleGenerationDispatcher,
     private readonly companyPreferences: CompanyPreferencesService,
+    @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
   ) {}
 
   /**
@@ -204,5 +208,54 @@ export class ScheduleController {
         employeeId,
       ),
     );
+  }
+
+  /**
+   * DELETE /schedules?weekStart=YYYY-MM-DD
+   *
+   * Borra todos los shift_assignments de la semana visible. Cascadea a
+   * shift_assignment_breaks via FK ON DELETE CASCADE. NO toca templates
+   * ni memberships (esos son durables y se reusan para Generate).
+   *
+   * Requiere capability 'schedule:write' (la misma que valida POST
+   * /generate). Devuelve `{ deleted }` con el conteo borrado.
+   */
+  @Delete()
+  @Requires('schedule:write')
+  async clearScheduleWeek(
+    @Query('weekStart') weekStart: string,
+    @CurrentCompany() companyId: string,
+    @Query('departmentId') departmentId?: string,
+  ): Promise<{ deleted: number; weekStart: string; weekEnd: string }> {
+    // Mismo cómputo de rango que el GET para mantener simetría: weekStart
+    // es lunes, weekEnd = +6 días.
+    const startDate = new Date(`${weekStart}T00:00:00.000Z`);
+    const endDate = new Date(startDate);
+    endDate.setUTCDate(endDate.getUTCDate() + 6);
+    const weekEnd = endDate.toISOString().slice(0, 10);
+
+    let query = this.supabase
+      .from('shift_assignments')
+      .delete({ count: 'exact' })
+      .eq('company_id', companyId)
+      .gte('date', weekStart)
+      .lte('date', weekEnd);
+
+    // Si pasa departmentId, filtrar por la columna directa del assignment.
+    // Los assignments importados tienen department_id (FK al row) — si el
+    // owner pide "Limpiar Cocina" no toca Retail.
+    if (departmentId) {
+      query = query.eq('department_id', departmentId);
+    }
+
+    const { count, error } = await query;
+    if (error) {
+      throw new Error(`Failed to clear schedule week: ${error.message}`);
+    }
+    return {
+      deleted: count ?? 0,
+      weekStart,
+      weekEnd,
+    };
   }
 }
