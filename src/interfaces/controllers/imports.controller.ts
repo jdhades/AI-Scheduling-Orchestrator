@@ -334,6 +334,20 @@ export class ImportsController {
   }
 
   /**
+   * GET /imports/staging — lista los últimos imports de la company,
+   * ordenados por created_at DESC. Limit 20 por default. Cubre la
+   * sección "Historial" del UI para que el owner pueda volver al
+   * preview de un import committed y revertirlo dentro de la ventana.
+   */
+  @Get('staging')
+  async list(
+    @CurrentCompany() companyId: string,
+  ): Promise<StagingResponse[]> {
+    const rows = await this.repo.listByCompany(companyId, { limit: 20 });
+    return rows.map((s) => this.toResponse(s));
+  }
+
+  /**
    * GET /imports/staging/:id/preview — devuelve el plan completo
    * (will_create/update/skip por entidad + warnings + unresolved). Cachea
    * en `preview_cache` para no recalcular en cada visita.
