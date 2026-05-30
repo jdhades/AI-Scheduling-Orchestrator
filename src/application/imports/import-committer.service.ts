@@ -41,6 +41,33 @@ export interface CommitRowOutcome {
   reason?: string;
 }
 
+/**
+ * Snapshot de filas existentes que el commit estaba por modificar.
+ * Persiste en imports_staging.pre_commit_snapshot. Lo lee
+ * ImportReverterService para restaurar valores previos al revertir.
+ *
+ * Solo guardamos los rows UPDATEADOS (los CREATED se identifican via
+ * los ids en commit_report.entities.*). Para entidades de Fase 4
+ * (shifts/availability/breaks/timeOff/memberships), el commit es
+ * siempre 'will_create' — no hay snapshot que guardar; el revert las
+ * borra directamente por id.
+ */
+export interface PreCommitSnapshot {
+  /** Pre-update rows de branches que se actualizaron. */
+  updatedBranches: Array<Record<string, unknown>>;
+  /** Pre-update rows de departments. */
+  updatedDepartments: Array<Record<string, unknown>>;
+  /** Pre-update rows de company_skills (revival de soft-deleted). */
+  updatedCompanySkills: Array<Record<string, unknown>>;
+  /** Pre-update rows de employees. */
+  updatedEmployees: Array<Record<string, unknown>>;
+}
+
+export interface CommitResult {
+  report: CommitReport;
+  snapshot: PreCommitSnapshot;
+}
+
 export interface CommitReport {
   /** ID del staging que se commiteó. */
   importId: string;
@@ -83,8 +110,14 @@ export class ImportCommitterService {
     payload: ImportPayload;
     preview: PreviewResult;
     decisions?: Record<string, 'create' | 'update' | 'skip'>;
-  }): Promise<CommitReport> {
+  }): Promise<CommitResult> {
     const startedAt = new Date().toISOString();
+    const snapshot: PreCommitSnapshot = {
+      updatedBranches: [],
+      updatedDepartments: [],
+      updatedCompanySkills: [],
+      updatedEmployees: [],
+    };
     const report: CommitReport = {
       importId: input.importId,
       startedAt,
@@ -117,20 +150,28 @@ export class ImportCommitterService {
       input,
       report.entities.locations,
       idMaps.locations,
+      snapshot,
     );
     await this.commitDepartments(
       input,
       report.entities.departments,
       idMaps.departments,
       idMaps.locations,
+      snapshot,
     );
-    await this.commitRoles(input, report.entities.roles, idMaps.roles);
+    await this.commitRoles(
+      input,
+      report.entities.roles,
+      idMaps.roles,
+      snapshot,
+    );
     await this.commitEmployees(
       input,
       report.entities.employees,
       idMaps.employees,
       idMaps.departments,
       idMaps.roles,
+      snapshot,
     );
 
     // Fase 4: shifts → breaks (shift_specific) → availability → timeOff.
@@ -188,7 +229,7 @@ export class ImportCommitterService {
 
     report.finishedAt = new Date().toISOString();
     report.totals = this.computeTotals(report.entities);
-    return report;
+    return { report, snapshot };
   }
 
   // ── Entidades implementadas en Fase 1 ─────────────────────────────
@@ -202,6 +243,7 @@ export class ImportCommitterService {
     },
     out: CommitRowOutcome[],
     idMap: Map<string, string>,
+    snapshot: PreCommitSnapshot,
   ): Promise<void> {
     const rows = input.payload.data.locations ?? [];
     const planByExtId = this.planMap(input.preview.entities.locations);
@@ -221,6 +263,13 @@ export class ImportCommitterService {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
           if (!matchedId) throw new Error('update plan without matchedId');
           idMap.set(r.externalId, matchedId);
+          // Snapshot pre-update para que revert pueda restaurar.
+          const { data: pre } = await this.supabase
+            .from('branches')
+            .select('id, name, timezone')
+            .eq('id', matchedId)
+            .maybeSingle();
+          if (pre) snapshot.updatedBranches.push(pre);
           // Update branch (timezone is the only optional field we touch)
           const { error } = await this.supabase
             .from('branches')
@@ -268,6 +317,7 @@ export class ImportCommitterService {
     out: CommitRowOutcome[],
     idMap: Map<string, string>,
     locMap: Map<string, string>,
+    snapshot: PreCommitSnapshot,
   ): Promise<void> {
     const rows = input.payload.data.departments ?? [];
     if (rows.length === 0) return;
@@ -306,6 +356,12 @@ export class ImportCommitterService {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
           if (!matchedId) throw new Error('update plan without matchedId');
           idMap.set(r.externalId, matchedId);
+          const { data: pre } = await this.supabase
+            .from('departments')
+            .select('id, name, branch_id')
+            .eq('id', matchedId)
+            .maybeSingle();
+          if (pre) snapshot.updatedDepartments.push(pre);
           const { error } = await this.supabase
             .from('departments')
             .update({ name: r.name, branch_id: branchId })
@@ -348,6 +404,7 @@ export class ImportCommitterService {
     },
     out: CommitRowOutcome[],
     idMap: Map<string, string>,
+    snapshot: PreCommitSnapshot,
   ): Promise<void> {
     const rows = input.payload.data.roles ?? [];
     const planByExtId = this.planMap(input.preview.entities.roles);
@@ -391,6 +448,13 @@ export class ImportCommitterService {
         if (existing) {
           const linkId = existing.id as string;
           if (existing.deleted_at !== null) {
+            // Snapshot del soft-deleted antes del revival para que
+            // revert pueda volver a marcarlo deleted_at.
+            snapshot.updatedCompanySkills.push({
+              id: linkId,
+              is_active: false,
+              deleted_at: existing.deleted_at,
+            });
             const { error: reviveErr } = await this.supabase
               .from('company_skills')
               .update({ is_active: true, deleted_at: null })
@@ -437,6 +501,7 @@ export class ImportCommitterService {
     idMap: Map<string, string>,
     deptMap: Map<string, string>,
     roleMap: Map<string, string>,
+    snapshot: PreCommitSnapshot,
   ): Promise<void> {
     const rows = input.payload.data.employees ?? [];
     const planByExtId = this.planMap(input.preview.entities.employees);
@@ -460,6 +525,15 @@ export class ImportCommitterService {
           const matchedId = planByExtId.get(r.externalId)?.matchedId;
           if (!matchedId) throw new Error('update plan without matchedId');
           employeeId = matchedId;
+          // Snapshot del employee pre-update para que revert pueda restaurarlo.
+          const { data: pre } = await this.supabase
+            .from('employees')
+            .select(
+              'id, name, email, phone_number, experience_months, department_id',
+            )
+            .eq('id', matchedId)
+            .maybeSingle();
+          if (pre) snapshot.updatedEmployees.push(pre);
           const { error } = await this.supabase
             .from('employees')
             .update({

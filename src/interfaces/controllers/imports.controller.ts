@@ -42,6 +42,10 @@ import {
   type CommitReport,
 } from '../../application/imports/import-committer.service';
 import {
+  ImportReverterService,
+  type RevertReport,
+} from '../../application/imports/import-reverter.service';
+import {
   TemplateExcelBuilderService,
   type TemplateEntity,
 } from '../../application/imports/template-excel-builder.service';
@@ -109,6 +113,7 @@ export class ImportsController {
     private readonly validator: ImportValidatorService,
     private readonly previewBuilder: ImportPreviewBuilderService,
     private readonly committer: ImportCommitterService,
+    private readonly reverter: ImportReverterService,
     private readonly templateBuilder: TemplateExcelBuilderService,
     private readonly templateParser: TemplateExcelParserService,
     private readonly storage: ImportStorageService,
@@ -397,14 +402,19 @@ export class ImportsController {
     await this.repo.save(confirming);
 
     try {
-      const report = await this.committer.commit({
+      const { report, snapshot } = await this.committer.commit({
         importId: id,
         companyId,
         payload: staging.payload,
         preview,
         decisions: body.decisions,
       });
-      await this.repo.save(confirming.markCommitted(report));
+      // Persistir snapshot pre-commit antes de marcar committed, para
+      // que POST /revert lo encuentre.
+      const committed = confirming
+        .withPreCommitSnapshot(snapshot)
+        .markCommitted(report);
+      await this.repo.save(committed);
       // El archivo original ya cumplió su propósito (payload commiteado).
       // Lo borramos para no pagar storage de algo que nadie va a abrir.
       if (staging.uploadStoragePath) {
@@ -419,6 +429,45 @@ export class ImportsController {
       await this.repo.save(confirming.markFailed(errorReport));
       throw err;
     }
+  }
+
+  /**
+   * POST /imports/staging/:id/revert — deshace un commit reciente.
+   *
+   * Restaura los valores previos guardados en pre_commit_snapshot y
+   * borra las entidades creadas por este import. NO toca templates ni
+   * branches (durables, pueden estar compartidos). Window de 7 días
+   * post-commit — más allá no permitimos para evitar destruir cambios
+   * manuales del owner.
+   */
+  @Post('staging/:id/revert')
+  async revert(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+  ): Promise<RevertReport> {
+    const staging = await this.repo.findById(id, companyId);
+    if (!staging) throw new NotFoundException('Import not found or expired');
+    if (staging.status !== 'committed') {
+      throw new BadRequestException(
+        `Cannot revert import in status "${staging.status}"`,
+      );
+    }
+    if (!staging.committedAt) {
+      throw new BadRequestException(
+        'Import has no committed_at timestamp — cannot determine revert window',
+      );
+    }
+    const ageMs = Date.now() - staging.committedAt.getTime();
+    const WINDOW_MS = 7 * 24 * 3600 * 1000;
+    if (ageMs > WINDOW_MS) {
+      throw new BadRequestException(
+        'Revert window of 7 days has expired — manual cleanup required',
+      );
+    }
+
+    const report = await this.reverter.revert(staging);
+    await this.repo.save(staging.markReverted());
+    return report;
   }
 
   /**

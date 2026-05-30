@@ -23,6 +23,8 @@ interface Row {
   upload_storage_path: string | null;
   upload_mime_type: string | null;
   extract_raw_output: unknown | null;
+  pre_commit_snapshot: unknown | null;
+  reverted_at: string | null;
 }
 
 @Injectable()
@@ -49,6 +51,8 @@ export class SupabaseImportStagingRepository implements IImportStagingRepository
       upload_storage_path: staging.uploadStoragePath,
       upload_mime_type: staging.uploadMimeType,
       extract_raw_output: staging.extractRawOutput,
+      pre_commit_snapshot: staging.preCommitSnapshot,
+      reverted_at: staging.revertedAt?.toISOString() ?? null,
     });
     if (error) {
       throw new Error(`ImportStagingRepository.save failed: ${error.message}`);
@@ -138,6 +142,8 @@ export class SupabaseImportStagingRepository implements IImportStagingRepository
       uploadStoragePath: r.upload_storage_path,
       uploadMimeType: r.upload_mime_type,
       extractRawOutput: r.extract_raw_output,
+      preCommitSnapshot: r.pre_commit_snapshot,
+      revertedAt: r.reverted_at ? new Date(r.reverted_at) : null,
     });
   }
 }

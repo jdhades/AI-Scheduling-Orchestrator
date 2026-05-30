@@ -27,6 +27,12 @@ export interface ImportStagingProps {
   uploadMimeType: string | null;
   /** Raw output del vision LLM (solo accesible vía /admin/imports/:id/raw). */
   extractRawOutput: unknown | null;
+  /** Snapshot de filas existentes que el commit estaba por updatear.
+   *  Usado por POST /revert para restaurar valores previos. IDs de
+   *  filas creadas vienen de commit_report — no se duplican acá. */
+  preCommitSnapshot: unknown | null;
+  /** Timestamp del revert, null si nunca se revirtió. */
+  revertedAt: Date | null;
 }
 
 export class ImportStaging {
@@ -63,6 +69,8 @@ export class ImportStaging {
       uploadStoragePath: null,
       uploadMimeType: null,
       extractRawOutput: null,
+      preCommitSnapshot: null,
+      revertedAt: null,
     });
   }
 
@@ -103,6 +111,8 @@ export class ImportStaging {
       uploadStoragePath: input.storagePath,
       uploadMimeType: input.mimeType,
       extractRawOutput: null,
+      preCommitSnapshot: null,
+      revertedAt: null,
     });
   }
 
@@ -149,6 +159,12 @@ export class ImportStaging {
   get extractRawOutput(): unknown | null {
     return this.props.extractRawOutput;
   }
+  get preCommitSnapshot(): unknown | null {
+    return this.props.preCommitSnapshot;
+  }
+  get revertedAt(): Date | null {
+    return this.props.revertedAt;
+  }
 
   isExpired(now: Date = new Date()): boolean {
     return this.props.expiresAt.getTime() < now.getTime();
@@ -157,6 +173,31 @@ export class ImportStaging {
   // ── Transitions ────────────────────────────────────────────────────
   withPreviewCache(preview: unknown): ImportStaging {
     return new ImportStaging({ ...this.props, previewCache: preview });
+  }
+
+  /**
+   * Setea el snapshot pre-commit. Llamado por el committer antes de
+   * mutar entidades existentes para preservar sus valores originales.
+   */
+  withPreCommitSnapshot(snapshot: unknown): ImportStaging {
+    return new ImportStaging({ ...this.props, preCommitSnapshot: snapshot });
+  }
+
+  /**
+   * Marca como revertido. Solo válido si status='committed'. El
+   * ReverterService valida la ventana de revert (e.g., 7 días).
+   */
+  markReverted(): ImportStaging {
+    if (this.props.status !== 'committed') {
+      throw new Error(
+        `Cannot revert import in status ${this.props.status} (id=${this.props.id})`,
+      );
+    }
+    return new ImportStaging({
+      ...this.props,
+      status: 'reverted',
+      revertedAt: new Date(),
+    });
   }
 
   /**

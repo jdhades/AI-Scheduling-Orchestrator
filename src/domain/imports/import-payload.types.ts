@@ -29,7 +29,8 @@ export type ImportStagingStatus =
   | 'confirming'
   | 'committed'
   | 'failed'
-  | 'discarded';
+  | 'discarded'
+  | 'reverted';
 
 export interface ImportSourceMetadata {
   extractedAt: string; // ISO 8601 datetime

@@ -67,6 +67,7 @@ import { AdminImportsController } from './controllers/admin-imports.controller';
 import { ImportValidatorService } from '../application/imports/import-validator.service';
 import { ImportPreviewBuilderService } from '../application/imports/import-preview-builder.service';
 import { ImportCommitterService } from '../application/imports/import-committer.service';
+import { ImportReverterService } from '../application/imports/import-reverter.service';
 import { TemplateExcelBuilderService } from '../application/imports/template-excel-builder.service';
 import { TemplateExcelParserService } from '../application/imports/template-excel-parser.service';
 import { VisionResolverService } from '../application/imports/vision-resolver.service';
@@ -159,6 +160,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ImportValidatorService,
     ImportPreviewBuilderService,
     ImportCommitterService,
+    ImportReverterService,
     TemplateExcelBuilderService,
     TemplateExcelParserService,
     // Fase 3 — vision LLM async para upload libre.
