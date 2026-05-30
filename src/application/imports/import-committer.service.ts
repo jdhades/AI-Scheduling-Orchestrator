@@ -61,6 +61,10 @@ export interface PreCommitSnapshot {
   updatedCompanySkills: Array<Record<string, unknown>>;
   /** Pre-update rows de employees. */
   updatedEmployees: Array<Record<string, unknown>>;
+  /** IDs de shift_templates que ESTE commit creó nuevos (no las que
+   *  matcheó existentes). Revert intenta borrarlos si ya no quedan
+   *  assignments referenciándolos. */
+  createdTemplateIds: string[];
 }
 
 export interface CommitResult {
@@ -117,6 +121,7 @@ export class ImportCommitterService {
       updatedDepartments: [],
       updatedCompanySkills: [],
       updatedEmployees: [],
+      createdTemplateIds: [],
     };
     const report: CommitReport = {
       importId: input.importId,
@@ -202,6 +207,7 @@ export class ImportCommitterService {
       idMaps.locations,
       idMaps.departments,
       assignmentTimes,
+      snapshot,
       shiftRecords,
     );
     await this.commitBreaks(
@@ -662,6 +668,7 @@ export class ImportCommitterService {
     _locMap: Map<string, string>,
     deptMap: Map<string, string>,
     assignmentTimes: Map<string, { start: Date; end: Date }>,
+    snapshot: PreCommitSnapshot,
     shiftRecords: Array<{
       employeeId: string;
       templateId: string;
@@ -713,6 +720,7 @@ export class ImportCommitterService {
             deptMap,
           },
           templateCache,
+          snapshot,
         );
 
         const { startTs, endTs } = this.computeAssignmentTimes(
@@ -772,6 +780,7 @@ export class ImportCommitterService {
       deptMap: Map<string, string>;
     },
     cache: Map<string, string>,
+    snapshot: PreCommitSnapshot,
   ): Promise<string> {
     // Normalize HH:mm → HH:mm:ss for TIME comparison.
     const start = this.normalizeTime(args.startTime);
@@ -821,6 +830,11 @@ export class ImportCommitterService {
       department_id: departmentId,
       is_active: true,
     });
+    // Track templates creados por este commit para que revert los
+    // pueda borrar si quedan huérfanos (sin assignments).
+    if (!error) {
+      snapshot.createdTemplateIds.push(id);
+    }
     if (error) {
       throw new Error(`shift_template insert: ${error.message}`);
     }

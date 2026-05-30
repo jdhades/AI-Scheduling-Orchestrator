@@ -60,6 +60,7 @@ export interface RevertReport {
     departmentsDeleted: number;
     departmentsRestored: number;
     branchesRestored: number;
+    templatesDeleted: number;
   };
 }
 
@@ -83,6 +84,7 @@ export class ImportReverterService {
       updatedDepartments: [],
       updatedCompanySkills: [],
       updatedEmployees: [],
+      createdTemplateIds: [],
     };
 
     const createdIdsOf = (entity: keyof CommitReport['entities']) =>
@@ -104,6 +106,7 @@ export class ImportReverterService {
       departmentsDeleted: 0,
       departmentsRestored: 0,
       branchesRestored: 0,
+      templatesDeleted: 0,
     };
 
     // 1-2. Breaks + shift_assignments (Fase 4)
@@ -130,6 +133,38 @@ export class ImportReverterService {
         .delete({ count: 'exact' })
         .in('id', membershipIds);
       details.membershipsDeleted = count ?? 0;
+    }
+
+    // 3b. Templates creados por este import — solo borrar los huérfanos
+    //     (ya sin assignments NI memberships referenciándolos, porque
+    //     los pasos 2 y 3 los borraron). Otros imports o config manual
+    //     pueden haber empezado a usar el template; en ese caso queda.
+    if (snapshot.createdTemplateIds.length > 0) {
+      for (const tplId of snapshot.createdTemplateIds) {
+        const [{ data: assignRefs }, { data: membRefs }] = await Promise.all([
+          this.supabase
+            .from('shift_assignments')
+            .select('id')
+            .eq('template_id', tplId)
+            .limit(1),
+          this.supabase
+            .from('shift_memberships')
+            .select('id')
+            .eq('template_id', tplId)
+            .limit(1),
+        ]);
+        if (
+          (assignRefs && assignRefs.length > 0) ||
+          (membRefs && membRefs.length > 0)
+        ) {
+          continue;
+        }
+        const { error } = await this.supabase
+          .from('shift_templates')
+          .delete()
+          .eq('id', tplId);
+        if (!error) details.templatesDeleted++;
+      }
     }
 
     // 4. Availability — solo guardamos el id de la primera row de cada
