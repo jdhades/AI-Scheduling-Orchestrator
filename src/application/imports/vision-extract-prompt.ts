@@ -27,28 +27,32 @@ Strict rules:
 3. **confidence 0..1 per entity.** 0.95+ when literally present, 0.7-0.9 when reasonably inferred, <0.6 when uncertain.
 4. **Cross-references via externalId.** If an employee has role "Cashier", create an ImportRole with externalId "r1" and reference it from the employee with roleExternalIds: ["r1"]. Same pattern for branches and departments.
 5. **Roles vs Departments vs Shift labels — three distinct concepts.**
-   - **Role** (= job category, maps to \`roles[]\`): describes what an employee can DO — "Cajero", "Vendedor", "Encargado", "Cocinero", "Guardia", "Repostería", "Pasteles". Extract roles when **any** of these is true:
-     a. The file has an explicit role/job-title/puesto column.
-     b. The file is an **hourly grid** (columns are HOURS like "7:00 a.m.", "8:00 a.m.", "9:00 a.m.", ...) AND each non-empty cell contains a TASK or SPECIALTY name instead of a time-range label. In that case, every distinct task name in the grid is a role; the employee performing that task during the cells inherits the role.
-     **Do NOT invent roles from shift labels like "Diurno"/"Night"** — those are shift types (see below). If no role data is found via (a) or (b), leave \`roles[]\` empty.
-   - **Department** (= organizational unit, maps to \`departments[]\`): an org section like "Retail", "Seguridad", "Cocina", "Cajas", "Logística". Often appears as a prefix in shift labels ("Retail Diurno", "Seguridad 24h"), as a section header grouping employees, or as a file-level header (e.g., "Departamento: Panadería" in the top of the document). When you find any of these, extract the prefix/header as a Department and reference it from each affected employee/shift via \`departmentExternalId\`.
-   - **Shift label** (= time pattern, maps to \`templateName\` inside \`shifts[]\`): describes WHEN someone works — "Diurno", "Tarde", "Nocturno", "Day", "Evening", "Night", "Morning", "Late", "24h". Goes inside an ImportShift, not as its own entity. If the cell shows "Retail Diurno", \`templateName\` is the full label "Retail Diurno" (keep it as it appears), and the department reference is separately "Retail".
+   - **Role** (= job category, maps to \`roles[]\`): WHAT an employee does — their job title or specialty (e.g. "Cashier", "Nurse"). Extract roles when **any** of these is true:
+     a. The file has an explicit role / job-title column (any language).
+     b. The file is an **hourly grid** (columns are HOURS, one per hour) AND each non-empty cell contains a TASK or SPECIALTY name instead of a time-range label. Every distinct task name then becomes a role; employees performing that task inherit it.
+     Do NOT infer roles from shift labels that describe WHEN someone works — those are shift types (see below). If neither (a) nor (b) yields role data, leave \`roles[]\` empty.
+   - **Department** (= organizational unit, maps to \`departments[]\`): an organizational grouping that scopes a set of employees (e.g. "Kitchen", "Sales floor"). Scan in this priority order:
+     1. **File-level metadata** at the top of the document — a labelled field whose value names an organizational unit. If present, every employee and shift in the file inherits that department.
+     2. **Section headings** in the body that group employees into named sub-rosters.
+     3. **Prefixes in shift labels** where the same prefix repeats across cells (signaling the org unit the shift belongs to).
+     If none of these yield a department, leave \`departments[]\` empty. Don't infer one from the document title or company name alone.
+   - **Shift label** (= time pattern, maps to \`templateName\` inside \`shifts[]\`): WHEN someone works — a time-of-day archetype (e.g. "Morning shift", "Night shift") or an explicit time range. Goes inside an ImportShift, not as its own entity. If the cell contains a "{department-prefix} {time-archetype}" label, set \`templateName\` to the full label as it appears in the file, and extract the prefix separately as the department.
 6. **Grids → shifts[].** Identify the grid layout first, then extract accordingly:
 
-   **6a. Day-column grids** (typical week roster): employees on rows, **DAY columns** ("Lun", "Mar", "Mon", "Tue", or dated "Lun 7 May"...). Each non-empty cell holds a shift label or hours. EACH non-empty cell is one ImportShift with: employeeExternalId (from the row), date (resolved from the day column header), startTime / endTime (from the label's time range OR the cell's literal hours), crossesMidnight (true if endTime ≤ startTime), templateName equal to the shift label, and departmentExternalId if the label has a department-like prefix. Infer start/end from a legend if needed — note any inference in warnings.
+   **6a. Day-column grids** (typical week roster): employees on rows, columns are days of the week (named or dated). Each non-empty cell holds a shift label or a time range. EACH non-empty cell is one ImportShift with: employeeExternalId (from the row), date (resolved from the day column header), startTime / endTime (from the label's time range, the cell's literal hours, or a legend), crossesMidnight (true if endTime ≤ startTime), templateName equal to the shift label, and departmentExternalId if the label has a department-like prefix. Note any inference in warnings.
 
-   **6b. Hour-column grids with task-name cells** (e.g., bakery/restaurant rosters per day): employees on rows, **HOUR columns** ("7:00 a.m.", "8:00 a.m.", "9:00 a.m.", ..., one column per hour). Cells contain TASK or SPECIALTY names like "Repostería", "Pasteles", "Atención al público" instead of time labels. There is usually ONE table per day (multiple tables for a week). Extraction:
+   **6b. Hour-column grids with task-name cells**: employees on rows, columns are HOURS (one column per hour). Cells contain TASK or SPECIALTY names instead of time-range labels. Typically ONE table per day (a multi-day file repeats the table per date). Extraction:
      - Group contiguous non-empty cells with the SAME task per employee per day → ONE ImportShift per block.
-     - startTime = the hour of the first cell in the block (e.g., "7:00 a.m." → "07:00").
-     - endTime = startTime + (number of cells × 1 hour). E.g., 6 cells of "Repostería" starting 7am → endTime "13:00".
-     - templateName = the task name (e.g., "Repostería"). requiredRoleExternalId = the externalId of the role with that name (extracted via rule 5 part b).
+     - startTime = the hour of the first cell in the block.
+     - endTime = startTime + (number of cells × 1 hour).
+     - templateName = the task name. requiredRoleExternalId = the externalId of the role with that name (extracted via rule 5 part b).
      - If an employee has multiple distinct task blocks in the same day, emit ONE ImportShift per block.
-     - The date comes from the table header (e.g., "Lun, 7 de mayo de 2035" → 2035-05-07).
+     - The date comes from the table header.
 
-   **6c. Merging overnight shifts** (applies to 6a only): if the SAME shift label for the SAME employee spans TWO consecutive day cells where the first ends at "23:59" and the second starts at "00:00", that is ONE continuous shift crossing midnight, NOT two. Emit ONE ImportShift with date = first day, startTime = start of the first block, endTime = end of the second block, crossesMidnight = true. Do NOT emit a separate shift for the tail cell. Example: "Seguridad 24h" shown as "08:00–23:59" on Monday + "00:00–08:00" on Tuesday for the same employee → ONE shift on Monday 08:00 → Tuesday 08:00 with crossesMidnight=true.
+   **6c. Merging overnight shifts** (applies to 6a only): if the SAME shift label for the SAME employee spans TWO consecutive day cells where the first ends at "23:59" and the second starts at "00:00", that is ONE continuous shift crossing midnight, NOT two. Emit ONE ImportShift with date = first day, startTime = start of the first block, endTime = end of the second block, crossesMidnight = true. Do NOT emit a separate shift for the tail cell.
 7. **Dates in ISO YYYY-MM-DD.** Times in HH:mm 24h. If the file uses week numbers without a year, infer the year from context (other clues in the file) or default to the current year and emit a warning explaining the assumption.
 8. **Phones in E.164** ("+15551234567"). If you cannot normalize, put it in warnings and omit the field.
-9. **Warnings** for ambiguous data: "invalid email for Juan Pérez", "overlapping schedule for e3", etc. severity ∈ {info, warn, error}.
+9. **Warnings** for ambiguous data — describe the issue plainly (e.g. "invalid email for {employee name}", "overlapping schedule for {externalId}"). severity ∈ {info, warn, error}.
 10. **Pure JSON between <json>...</json>**. No markdown, no code fences, no commentary outside the tags.
 11. **\`warnings[].message\` must be written in the user's UI language**. The user prompt tells you the locale ('es' or 'en'). Everything else (codes, ids, names of people/branches that come from the file) stays in its original form.
 
