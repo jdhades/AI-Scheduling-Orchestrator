@@ -207,7 +207,9 @@ export class ImportPreviewBuilderService {
    * Si la entidad no tiene diff útil (ej. roles, que solo revive
    * soft-deleted), pasarle un callback que devuelva [].
    */
-  private async buildSimple<T extends { externalId: string; name?: string; confidence?: number }>(
+  private async buildSimple<
+    T extends { externalId: string; name?: string; confidence?: number },
+  >(
     rows: T[],
     entityKey: string,
     errorIds: Set<string>,
@@ -256,9 +258,19 @@ export class ImportPreviewBuilderService {
     before: unknown,
     after: unknown,
   ): FieldChange | null {
-    const beforeStr =
-      before == null || before === '' ? null : String(before);
-    const afterStr = after == null || after === '' ? null : String(after);
+    const normalize = (v: unknown): string | null => {
+      if (v == null || v === '') return null;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (v instanceof Date) return v.toISOString();
+      // Cualquier otro shape (objeto raro de Supabase) → null
+      // defensivo. Los campos diffeables del schema son siempre
+      // primitivos; si llega un objeto, lo ignoramos en lugar de
+      // mostrar "[object Object]".
+      return null;
+    };
+    const beforeStr = normalize(before);
+    const afterStr = normalize(after);
     if (beforeStr === afterStr) return null;
     return {
       field,
