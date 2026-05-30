@@ -26,12 +26,30 @@ import type {
 
 export type PreviewPlan = 'will_create' | 'will_update' | 'skip' | 'unresolved';
 
+/**
+ * Cambio puntual a un campo de una entidad existente que el commit va
+ * a modificar. Solo se popula en rows con plan='will_update'.
+ *   - `before`: valor actual en DB (formato human-readable cuando
+ *     el campo es FK — ej. nombre del depto en vez de UUID).
+ *   - `after`: valor que el import va a setear.
+ *   - `destructive`: el commit pisa un valor existente con uno
+ *     diferente (no es solo agregar un campo previamente null).
+ */
+export interface FieldChange {
+  field: string;
+  before: string | null;
+  after: string | null;
+  destructive: boolean;
+}
+
 export interface PreviewRow {
   externalId: string;
   plan: PreviewPlan;
   matchedId?: string;
   matchedLabel?: string;
   confidence?: number;
+  /** Cambios campo por campo si plan='will_update'. */
+  changes?: FieldChange[];
   /**
    * Si la entidad está en el payload pero alguna validación cross-entity
    * la marcó (ej. email duplicado), severity ≥ 'error' significa que
@@ -94,19 +112,35 @@ export class ImportPreviewBuilderService {
         payload.data.locations ?? [],
         'locations',
         errorsByExternalId,
-        async (rows) => this.matchByName(rows, 'branches', companyId),
+        async (rows) =>
+          this.matchByName(rows, 'branches', companyId, ['timezone']),
+        (importRow, existing) =>
+          [
+            this.fieldChange('name', existing.name, importRow.name),
+            this.fieldChange(
+              'timezone',
+              existing.timezone,
+              importRow.timezone ?? null,
+            ),
+          ].filter((c): c is FieldChange => c !== null),
       ),
       departments: await this.buildSimple(
         payload.data.departments ?? [],
         'departments',
         errorsByExternalId,
         async (rows) => this.matchByName(rows, 'departments', companyId),
+        (importRow, existing) =>
+          [this.fieldChange('name', existing.name, importRow.name)].filter(
+            (c): c is FieldChange => c !== null,
+          ),
       ),
       roles: await this.buildSimple(
         payload.data.roles ?? [],
         'roles',
         errorsByExternalId,
         async (rows) => this.matchRolesByName(rows, companyId),
+        // Roles solo se reviven (no field-level update via import).
+        () => [],
       ),
       employees: await this.buildEmployees(
         payload,
@@ -166,14 +200,26 @@ export class ImportPreviewBuilderService {
     }));
   }
 
-  /** Build genérico con un matcher inyectado por entidad. */
-  private async buildSimple(
-    rows: Array<{ externalId: string; name?: string; confidence?: number }>,
+  /**
+   * Build genérico con un matcher inyectado por entidad. El parámetro
+   * `computeChanges` recibe el row del payload + el row existente en
+   * DB (raw) y devuelve los FieldChange[] para mostrar diff en preview.
+   * Si la entidad no tiene diff útil (ej. roles, que solo revive
+   * soft-deleted), pasarle un callback que devuelva [].
+   */
+  private async buildSimple<T extends { externalId: string; name?: string; confidence?: number }>(
+    rows: T[],
     entityKey: string,
     errorIds: Set<string>,
     matcher: (
-      rows: Array<{ externalId: string; name?: string }>,
-    ) => Promise<Map<string, { id: string; label: string }>>,
+      rows: T[],
+    ) => Promise<
+      Map<string, { id: string; label: string; raw: Record<string, unknown> }>
+    >,
+    computeChanges: (
+      importRow: T,
+      existingRaw: Record<string, unknown>,
+    ) => FieldChange[],
   ): Promise<PreviewRow[]> {
     if (rows.length === 0) return [];
     const matches = await matcher(rows);
@@ -187,6 +233,7 @@ export class ImportPreviewBuilderService {
           matchedId: m.id,
           matchedLabel: m.label,
           confidence: r.confidence,
+          changes: computeChanges(r, m.raw),
           blockedByError: blocked,
         };
       }
@@ -197,6 +244,28 @@ export class ImportPreviewBuilderService {
         blockedByError: blocked,
       };
     });
+  }
+
+  /**
+   * Helper genérico para computar un FieldChange dado import vs DB.
+   * Normaliza '' y undefined a null. Marca destructive si el valor
+   * existente NO era null y el nuevo es distinto (o nullea).
+   */
+  private fieldChange(
+    field: string,
+    before: unknown,
+    after: unknown,
+  ): FieldChange | null {
+    const beforeStr =
+      before == null || before === '' ? null : String(before);
+    const afterStr = after == null || after === '' ? null : String(after);
+    if (beforeStr === afterStr) return null;
+    return {
+      field,
+      before: beforeStr,
+      after: afterStr,
+      destructive: beforeStr !== null && beforeStr !== afterStr,
+    };
   }
 
   private async buildEmployees(
@@ -210,37 +279,38 @@ export class ImportPreviewBuilderService {
     const emails = rows.map((r) => r.email).filter(Boolean) as string[];
     const phones = rows.map((r) => r.phone).filter(Boolean) as string[];
 
-    const byEmail = new Map<string, { id: string; label: string }>();
-    const byPhone = new Map<string, { id: string; label: string }>();
+    type EmployeeRaw = {
+      id: string;
+      name: string;
+      email: string | null;
+      phone_number: string | null;
+      experience_months: number | null;
+    };
+
+    const byEmail = new Map<string, EmployeeRaw>();
+    const byPhone = new Map<string, EmployeeRaw>();
+    const fields = 'id, name, email, phone_number, experience_months';
 
     if (emails.length > 0) {
       const { data } = await this.supabase
         .from('employees')
-        .select('id, name, email')
+        .select(fields)
         .eq('company_id', companyId)
         .in('email', emails)
         .is('deleted_at', null);
-      for (const r of (data ?? []) as Array<{
-        id: string;
-        name: string;
-        email: string;
-      }>) {
-        byEmail.set(r.email.toLowerCase(), { id: r.id, label: r.name });
+      for (const r of (data ?? []) as EmployeeRaw[]) {
+        if (r.email) byEmail.set(r.email.toLowerCase(), r);
       }
     }
     if (phones.length > 0) {
       const { data } = await this.supabase
         .from('employees')
-        .select('id, name, phone_number')
+        .select(fields)
         .eq('company_id', companyId)
         .in('phone_number', phones)
         .is('deleted_at', null);
-      for (const r of (data ?? []) as Array<{
-        id: string;
-        name: string;
-        phone_number: string;
-      }>) {
-        byPhone.set(r.phone_number, { id: r.id, label: r.name });
+      for (const r of (data ?? []) as EmployeeRaw[]) {
+        if (r.phone_number) byPhone.set(r.phone_number, r);
       }
     }
 
@@ -250,12 +320,23 @@ export class ImportPreviewBuilderService {
         (r.email ? byEmail.get(r.email.toLowerCase()) : undefined) ??
         (r.phone ? byPhone.get(r.phone) : undefined);
       if (m) {
+        const changes = [
+          this.fieldChange('name', m.name, r.name),
+          this.fieldChange('email', m.email, r.email ?? null),
+          this.fieldChange('phone', m.phone_number, r.phone ?? null),
+          this.fieldChange(
+            'experience_months',
+            m.experience_months,
+            r.experienceMonths ?? null,
+          ),
+        ].filter((c): c is FieldChange => c !== null);
         return {
           externalId: r.externalId,
           plan: 'will_update',
           matchedId: m.id,
-          matchedLabel: m.label,
+          matchedLabel: m.name,
           confidence: r.confidence,
+          changes,
           blockedByError: blocked,
         };
       }
@@ -268,34 +349,52 @@ export class ImportPreviewBuilderService {
     });
   }
 
-  /** Match por nombre case-insensitive contra tabla. */
+  /**
+   * Match por nombre case-insensitive contra tabla. Devuelve el row
+   * completo via `raw` para que el caller pueda computar diff de
+   * campo por campo en el preview.
+   */
   private async matchByName(
     rows: Array<{ externalId: string; name?: string }>,
     table: 'branches' | 'departments' | 'company_skills',
     companyId: string,
+    extraCols: string[] = [],
     nameCol: string = 'name',
-  ): Promise<Map<string, { id: string; label: string }>> {
+  ): Promise<
+    Map<string, { id: string; label: string; raw: Record<string, unknown> }>
+  > {
     const names = rows
       .map((r) => r.name?.toLowerCase())
       .filter(Boolean) as string[];
     if (names.length === 0) return new Map();
+    const cols = ['id', nameCol, ...extraCols].join(', ');
     // Cast a unknown — Supabase no resuelve el column interpolated en
     // TS y tira ParserError; runtime sí funciona.
     const res = (await this.supabase
       .from(table)
-      .select(`id, ${nameCol}`)
+      .select(cols)
       .eq('company_id', companyId)
       .is('deleted_at', null)) as unknown as {
-      data: Array<Record<string, string>> | null;
+      data: Array<Record<string, unknown>> | null;
     };
-    const byNameLower = new Map<string, { id: string; label: string }>();
+    const byNameLower = new Map<
+      string,
+      { id: string; label: string; raw: Record<string, unknown> }
+    >();
     for (const r of res.data ?? []) {
       const n = r[nameCol];
       if (typeof n === 'string') {
-        byNameLower.set(n.toLowerCase(), { id: r.id, label: n });
+        byNameLower.set(n.toLowerCase(), {
+          id: r.id as string,
+          label: n,
+          raw: r,
+        });
       }
     }
-    const out = new Map<string, { id: string; label: string }>();
+    const out = new Map<
+      string,
+      { id: string; label: string; raw: Record<string, unknown> }
+    >();
     for (const r of rows) {
       const m = r.name ? byNameLower.get(r.name.toLowerCase()) : undefined;
       if (m) out.set(r.externalId, m);
@@ -311,7 +410,9 @@ export class ImportPreviewBuilderService {
   private async matchRolesByName(
     rows: Array<{ externalId: string; name?: string }>,
     companyId: string,
-  ): Promise<Map<string, { id: string; label: string }>> {
+  ): Promise<
+    Map<string, { id: string; label: string; raw: Record<string, unknown> }>
+  > {
     const names = rows
       .map((r) => r.name?.toLowerCase())
       .filter(Boolean) as string[];
@@ -323,14 +424,24 @@ export class ImportPreviewBuilderService {
       .is('deleted_at', null)) as unknown as {
       data: Array<{ id: string; skills: { name: string } | null }> | null;
     };
-    const byNameLower = new Map<string, { id: string; label: string }>();
+    const byNameLower = new Map<
+      string,
+      { id: string; label: string; raw: Record<string, unknown> }
+    >();
     for (const r of data ?? []) {
       const n = r.skills?.name;
       if (typeof n === 'string') {
-        byNameLower.set(n.toLowerCase(), { id: r.id, label: n });
+        byNameLower.set(n.toLowerCase(), {
+          id: r.id,
+          label: n,
+          raw: { id: r.id, name: n },
+        });
       }
     }
-    const out = new Map<string, { id: string; label: string }>();
+    const out = new Map<
+      string,
+      { id: string; label: string; raw: Record<string, unknown> }
+    >();
     for (const r of rows) {
       const m = r.name ? byNameLower.get(r.name.toLowerCase()) : undefined;
       if (m) out.set(r.externalId, m);
