@@ -122,22 +122,37 @@ export class QueueBootstrapService implements OnModuleInit {
   /**
    * Update directo a `pgboss.queue` para forzar retry_limit /
    * expire_seconds aún si la queue ya existía con valores distintos.
-   * pg-boss no expone esto en su API pública.
+   * pg-boss v12+ no expone `boss.db` como API pública — el acceso
+   * falla con "Cannot read properties of undefined".
+   *
+   * Comportamiento: si `boss.db?.executeSql` no está disponible,
+   * silenciamos el skip (debug log). Para deploys frescos (queues
+   * recién creadas con createQueue), no hace falta ningún update
+   * porque ya tienen los valores correctos. La función solo importa
+   * para deploys viejos con configs distintas — esos casos se han
+   * vuelto raros y aceptamos el silencio en lugar de loguear warn
+   * en cada boot.
    */
   private async syncQueueConfig(
     name: string,
     retryLimit: number,
     expireSeconds: number,
   ): Promise<void> {
-    try {
-      const boss = this.pgBoss.getInstance() as unknown as {
-        db: {
-          executeSql: (
-            sql: string,
-            params: unknown[],
-          ) => Promise<{ rowCount: number }>;
-        };
+    const boss = this.pgBoss.getInstance() as unknown as {
+      db?: {
+        executeSql?: (
+          sql: string,
+          params: unknown[],
+        ) => Promise<{ rowCount: number }>;
       };
+    };
+    if (!boss.db?.executeSql) {
+      this.logger.debug(
+        `syncQueueConfig(${name}): boss.db.executeSql unavailable (pg-boss v12+), skipping`,
+      );
+      return;
+    }
+    try {
       await boss.db.executeSql(
         `UPDATE pgboss.queue SET retry_limit = $1, expire_seconds = $2 WHERE name = $3`,
         [retryLimit, expireSeconds, name],

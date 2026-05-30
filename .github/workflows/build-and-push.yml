@@ -121,8 +121,11 @@ jobs:
             COMMIT=${{ steps.vars.outputs.sha7 }}
           # Cache de capas en GitHub Actions cache. Acelera rebuilds
           # cuando solo cambia el src/, manteniendo node_modules en cache.
+          # mode=min exporta solo las capas finales (no intermedias) →
+          # upload típico 30s-2min en lugar de 30+ min de mode=max.
+          # Para builds incrementales (90% de los casos) sirve igual.
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
           # Provenance attestation: deshabilitamos para evitar capas
           # extras de attestation manifests en el registry. Volvemos a
           # habilitar cuando sumemos firma + verificación en deploy.
