@@ -5,7 +5,6 @@ import {
   OnApplicationBootstrap,
 } from '@nestjs/common';
 import type { Job } from 'pg-boss';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
 import { JOB_IMPORTS_EXTRACT } from '../../infrastructure/queue/job-names';
 import type { ImportsExtractJobPayload } from '../../infrastructure/queue/job-types';
@@ -17,7 +16,7 @@ import {
   type IImportStagingRepository,
 } from '../../domain/imports/import-staging.repository';
 import { ImportStorageService } from '../../infrastructure/services/import-storage.service';
-import type { ImportPayload } from '../../domain/imports/import-payload.types';
+import { ImportDateSnapperService } from './import-date-snapper.service';
 
 /**
  * ImportsExtractWorker
@@ -45,7 +44,7 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
     private readonly storage: ImportStorageService,
     @Inject(IMPORT_STAGING_REPOSITORY)
     private readonly repo: IImportStagingRepository,
-    @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    private readonly snapper: ImportDateSnapperService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -103,12 +102,9 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
         companyId,
         locale: payload.locale,
       });
-      // Snap to current week: el owner casi siempre sube un roster
-      // "ejemplo" con fechas arbitrarias (mayo 2035 en plantilla típica).
-      // Remapeamos las fechas para que la primera semana del payload
-      // arranque en el lunes/domingo de la semana actual del tenant.
-      // Multi-semana se preserva: w2 del archivo → semana siguiente, etc.
-      const snappedPayload = await this.snapDatesToCurrentWeek(
+      // Snap to current week (con threshold) — extraído a un service
+      // compartido para que stage/parseTemplates también lo usen.
+      const snappedPayload = await this.snapper.snapIfNeeded(
         result.payload,
         companyId,
       );
@@ -157,130 +153,4 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
     }
   }
 
-  /**
-   * Mapea las fechas del payload al "ahora" del tenant.
-   *
-   * Algoritmo:
-   *   1. Mirar la fecha mínima entre shifts + timeOff.
-   *   2. Calcular el weekStart de esa fecha según `companies.week_starts_on`.
-   *   3. Computar offset = (weekStartActualTenant - weekStartDelPayload).
-   *   4. Sumar ese offset (en días) a todas las fechas del payload
-   *      (shifts.date, timeOff.startDate, timeOff.endDate).
-   *
-   * Multi-semana se preserva: si el payload tiene Lun W1 y Lun W2, el
-   * shift result va a quedar en Lun semanaActual y Lun semanaActual+1.
-   * No tocamos availability porque solo guarda dayOfWeek, no date.
-   */
-  private async snapDatesToCurrentWeek(
-    payload: ImportPayload,
-    companyId: string,
-  ): Promise<ImportPayload> {
-    const shifts = payload.data.shifts ?? [];
-    const timeOff = payload.data.timeOff ?? [];
-    if (shifts.length === 0 && timeOff.length === 0) {
-      return payload;
-    }
-
-    const allDates: string[] = [
-      ...shifts.map((s) => s.date),
-      ...timeOff.flatMap((t) => [t.startDate, t.endDate]),
-    ].filter(
-      (d): d is string =>
-        typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d),
-    );
-    if (allDates.length === 0) {
-      return payload;
-    }
-
-    const sortedDates = [...allDates].sort();
-    const originalFrom = sortedDates[0];
-    const originalTo = sortedDates[sortedDates.length - 1];
-    const weekStartsOn = await this.getCompanyWeekStartsOn(companyId);
-
-    const sourceWeekStart = this.weekStartOf(
-      new Date(`${originalFrom}T00:00:00Z`),
-      weekStartsOn,
-    );
-    const targetWeekStart = this.weekStartOf(new Date(), weekStartsOn);
-    const offsetDays = Math.round(
-      (targetWeekStart.getTime() - sourceWeekStart.getTime()) /
-        (24 * 3600 * 1000),
-    );
-
-    const sourceMetadata: ImportPayload['sourceMetadata'] = {
-      ...payload.sourceMetadata,
-      originalDateRange: { from: originalFrom, to: originalTo },
-    };
-
-    if (offsetDays === 0) {
-      // Ya está en la semana actual — solo seteamos los rangos para
-      // que el preview pueda mostrar la fecha al owner. snappedDateRange
-      // = originalDateRange.
-      sourceMetadata.snappedDateRange = {
-        from: originalFrom,
-        to: originalTo,
-      };
-      return { ...payload, sourceMetadata };
-    }
-
-    this.logger.log(
-      `Snap dates: ${originalFrom} (source week ${this.toIso(sourceWeekStart)}) → target week ${this.toIso(targetWeekStart)}, offset=${offsetDays}d`,
-    );
-
-    const shiftedShifts = shifts.map((s) => ({
-      ...s,
-      date: this.shiftIsoDate(s.date, offsetDays),
-    }));
-    const shiftedTimeOff = timeOff.map((t) => ({
-      ...t,
-      startDate: this.shiftIsoDate(t.startDate, offsetDays),
-      endDate: this.shiftIsoDate(t.endDate, offsetDays),
-    }));
-
-    sourceMetadata.snappedDateRange = {
-      from: this.shiftIsoDate(originalFrom, offsetDays),
-      to: this.shiftIsoDate(originalTo, offsetDays),
-    };
-
-    return {
-      ...payload,
-      sourceMetadata,
-      data: {
-        ...payload.data,
-        shifts: shiftedShifts,
-        timeOff: shiftedTimeOff,
-      },
-    };
-  }
-
-  private async getCompanyWeekStartsOn(
-    companyId: string,
-  ): Promise<'sunday' | 'monday'> {
-    const { data } = await this.supabase
-      .from('companies')
-      .select('week_starts_on')
-      .eq('id', companyId)
-      .maybeSingle();
-    const value = (data?.week_starts_on as string | undefined) ?? 'monday';
-    return value === 'sunday' ? 'sunday' : 'monday';
-  }
-
-  private weekStartOf(d: Date, weekStartsOn: 'sunday' | 'monday'): Date {
-    const day = d.getUTCDay(); // 0 = Sun, 1 = Mon
-    const offset = weekStartsOn === 'sunday' ? day : (day + 6) % 7;
-    const start = new Date(d);
-    start.setUTCHours(0, 0, 0, 0);
-    start.setUTCDate(start.getUTCDate() - offset);
-    return start;
-  }
-
-  private shiftIsoDate(iso: string, offsetDays: number): string {
-    const d = new Date(`${iso}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + offsetDays);
-    return this.toIso(d);
-  }
-
-  private toIso(d: Date): string {
-    return d.toISOString().slice(0, 10);
-  }
 }

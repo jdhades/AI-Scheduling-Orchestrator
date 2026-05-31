@@ -57,6 +57,7 @@ import {
 import { ImportStorageService } from '../../infrastructure/services/import-storage.service';
 import { LlmJobDispatcher } from '../../application/jobs/llm-job-dispatcher.service';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
+import { ImportDateSnapperService } from '../../application/imports/import-date-snapper.service';
 
 interface StagingResponse {
   id: string;
@@ -126,6 +127,7 @@ export class ImportsController {
     private readonly storage: ImportStorageService,
     private readonly llmJobDispatcher: LlmJobDispatcher,
     private readonly tenantFeatures: TenantFeatureService,
+    private readonly snapper: ImportDateSnapperService,
   ) {}
 
   /**
@@ -262,13 +264,14 @@ export class ImportsController {
       throw err;
     }
 
+    const snapped = await this.snapper.snapIfNeeded(payload, companyId);
     const id = randomUUID();
     const staging = ImportStaging.create({
       id,
       companyId,
       createdBy: user?.employeeId ?? null,
       source: 'template_excel',
-      payload,
+      payload: snapped,
     });
     await this.repo.save(staging);
     return this.toResponse(staging);
@@ -362,15 +365,17 @@ export class ImportsController {
     @Body() dto: ImportPayloadDto,
   ): Promise<StagingResponse> {
     await this.assertNoBlockingImport(companyId);
+    const rawPayload = dto as unknown as Parameters<
+      typeof ImportStaging.create
+    >[0]['payload'];
+    const snapped = await this.snapper.snapIfNeeded(rawPayload, companyId);
     const id = randomUUID();
     const staging = ImportStaging.create({
       id,
       companyId,
       createdBy: user?.employeeId ?? null,
       source: dto.source,
-      payload: dto as unknown as Parameters<
-        typeof ImportStaging.create
-      >[0]['payload'],
+      payload: snapped,
     });
     await this.repo.save(staging);
     return this.toResponse(staging);
