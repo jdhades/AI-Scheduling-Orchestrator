@@ -337,6 +337,220 @@ export class AdminDashboardController {
       (data ?? []).map((r) => [r.id as string, (r.name as string) ?? '—']),
     );
   }
+
+  /**
+   * GET /admin/dashboard/solver-stats?days=30
+   *
+   * Agregado sobre `schedule_generation_runs` para mostrar el "health"
+   * del scheduler engine en el dashboard:
+   *   - total runs en la ventana
+   *   - % failed / % cancelled
+   *   - avg duration (ms) — sentinel de regression
+   *   - avg unfilled_count — sentinel de coverage gaps
+   *   - avg llm_total_tokens — costo medio por run
+   *
+   * Solo cuenta runs con assignments_count NOT NULL (skip pre-LLM
+   * cancels que distorsionan las medias).
+   */
+  @Get('solver-stats')
+  async solverStats(
+    @Query('days') daysRaw?: string,
+  ): Promise<SolverStatsResponse> {
+    const days = Math.max(1, Math.min(365, Number(daysRaw) || 30));
+    const since = new Date(
+      Date.now() - days * 24 * 3600_000,
+    ).toISOString();
+
+    const { data, error } = await this.supabase
+      .from('schedule_generation_runs')
+      .select(
+        'status, duration_ms, assignments_count, unfilled_count, llm_total_tokens',
+      )
+      .gte('created_at', since);
+
+    if (error) {
+      return {
+        days,
+        totalRuns: 0,
+        completedCount: 0,
+        failedCount: 0,
+        cancelledCount: 0,
+        failureRate: 0,
+        avgDurationMs: null,
+        avgUnfilled: null,
+        avgLlmTokens: null,
+      };
+    }
+
+    type Row = {
+      status: 'completed' | 'failed' | 'cancelled';
+      duration_ms: number;
+      assignments_count: number | null;
+      unfilled_count: number | null;
+      llm_total_tokens: number | null;
+    };
+    const rows = (data ?? []) as Row[];
+    const total = rows.length;
+    let completed = 0;
+    let failed = 0;
+    let cancelled = 0;
+    let durSum = 0;
+    let durN = 0;
+    let unfSum = 0;
+    let unfN = 0;
+    let tokSum = 0;
+    let tokN = 0;
+    for (const r of rows) {
+      if (r.status === 'completed') completed++;
+      else if (r.status === 'failed') failed++;
+      else if (r.status === 'cancelled') cancelled++;
+      if (r.assignments_count !== null) {
+        durSum += r.duration_ms;
+        durN++;
+        if (r.unfilled_count !== null) {
+          unfSum += r.unfilled_count;
+          unfN++;
+        }
+        if (r.llm_total_tokens !== null) {
+          tokSum += r.llm_total_tokens;
+          tokN++;
+        }
+      }
+    }
+
+    return {
+      days,
+      totalRuns: total,
+      completedCount: completed,
+      failedCount: failed,
+      cancelledCount: cancelled,
+      failureRate: total > 0 ? failed / total : 0,
+      avgDurationMs: durN > 0 ? Math.round(durSum / durN) : null,
+      avgUnfilled: unfN > 0 ? Math.round((unfSum / unfN) * 10) / 10 : null,
+      avgLlmTokens: tokN > 0 ? Math.round(tokSum / tokN) : null,
+    };
+  }
+
+  /**
+   * GET /admin/dashboard/tenant-activity?days=30
+   *
+   * Métricas de actividad del producto:
+   *   - recentSignups: tenants creados en la ventana
+   *   - activeTenantsBySource: cuántos por `created_via`
+   *     (self_signup / invitation / cli_seed)
+   *   - inactiveTenants: count de tenants SIN `login_success` en
+   *     `auth_audit_log` durante la ventana — churn signal.
+   *   - signupsByDay: bucket diario para sparkline
+   */
+  @Get('tenant-activity')
+  async tenantActivity(
+    @Query('days') daysRaw?: string,
+  ): Promise<TenantActivityResponse> {
+    const days = Math.max(1, Math.min(365, Number(daysRaw) || 30));
+    const since = new Date(
+      Date.now() - days * 24 * 3600_000,
+    ).toISOString();
+
+    const [allTenantsRes, recentSignupsRes, activeLoginsRes] =
+      await Promise.all([
+        this.supabase
+          .from('companies')
+          .select('id, created_via, created_at'),
+        this.supabase
+          .from('companies')
+          .select('id, name, created_via, created_at')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        this.supabase
+          .from('auth_audit_log')
+          .select('company_id')
+          .eq('event', 'login_success')
+          .gte('created_at', since),
+      ]);
+
+    type Tenant = {
+      id: string;
+      created_via: string | null;
+      created_at: string;
+    };
+    type Signup = {
+      id: string;
+      name: string | null;
+      created_via: string | null;
+      created_at: string;
+    };
+    const allTenants = (allTenantsRes.data ?? []) as Tenant[];
+    const signups = (recentSignupsRes.data ?? []) as Signup[];
+    const activeIds = new Set(
+      ((activeLoginsRes.data ?? []) as Array<{ company_id: string }>).map(
+        (r) => r.company_id,
+      ),
+    );
+
+    // Activity breakdown by source
+    const bySource: Record<string, number> = {};
+    for (const t of allTenants) {
+      const src = t.created_via ?? 'unknown';
+      bySource[src] = (bySource[src] ?? 0) + 1;
+    }
+
+    // Signups grouped by day for sparkline
+    const byDay = new Map<string, number>();
+    for (const s of signups) {
+      const day = s.created_at.slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    }
+    const signupsByDay = Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }));
+
+    return {
+      days,
+      recentSignups: {
+        count: signups.length,
+        rows: signups.map((s) => ({
+          id: s.id,
+          name: s.name ?? '—',
+          createdVia: s.created_via ?? 'unknown',
+          createdAt: s.created_at,
+        })),
+      },
+      activeTenantsBySource: bySource,
+      inactiveTenants: allTenants.filter((t) => !activeIds.has(t.id)).length,
+      totalTenants: allTenants.length,
+      signupsByDay,
+    };
+  }
+}
+
+export interface SolverStatsResponse {
+  days: number;
+  totalRuns: number;
+  completedCount: number;
+  failedCount: number;
+  cancelledCount: number;
+  failureRate: number;
+  avgDurationMs: number | null;
+  avgUnfilled: number | null;
+  avgLlmTokens: number | null;
+}
+
+export interface TenantActivityResponse {
+  days: number;
+  recentSignups: {
+    count: number;
+    rows: Array<{
+      id: string;
+      name: string;
+      createdVia: string;
+      createdAt: string;
+    }>;
+  };
+  activeTenantsBySource: Record<string, number>;
+  inactiveTenants: number;
+  totalTenants: number;
+  signupsByDay: Array<{ date: string; count: number }>;
 }
 
 function uniq(arr: Array<string | null | undefined>): string[] {
