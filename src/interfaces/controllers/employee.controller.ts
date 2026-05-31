@@ -20,7 +20,6 @@ import {
   Patch,
   Post,
   Query,
-  Headers,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { RegisterEmployeeCommand } from '../../application/commands/register-employee.command';
@@ -262,7 +261,7 @@ export class EmployeeController {
   @HttpCode(HttpStatus.CREATED)
   async register(
     @Body() dto: RegisterEmployeeDto,
-    @Headers('x-company-id') companyId: string,
+    @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthContext | undefined,
   ): Promise<{ employeeId: string; invitationSent?: boolean }> {
     const phone = PhoneNumber.create(dto.phone);
@@ -410,7 +409,7 @@ export class EmployeeController {
   @Get(':id')
   async getById(
     @Param('id') employeeId: string,
-    @Headers('x-company-id') companyId: string,
+    @CurrentCompany() companyId: string,
   ): Promise<unknown> {
     return this.queryBus.execute(
       new GetEmployeeByIdQuery(employeeId, companyId),
@@ -448,7 +447,7 @@ export class EmployeeController {
   async update(
     @Param('id') employeeId: string,
     @Body() dto: UpdateEmployeeDto,
-    @Headers('x-company-id') companyId: string,
+    @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const before = (await this.queryBus
@@ -519,7 +518,7 @@ export class EmployeeController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
     @Param('id') employeeId: string,
-    @Headers('x-company-id') companyId: string,
+    @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const before = (await this.queryBus

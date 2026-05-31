@@ -1,81 +1,82 @@
 import { UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TenantMiddleware } from '../../../src/infrastructure/tenant/tenant.middleware';
 import { TenantContext } from '../../../src/infrastructure/tenant/tenant.context';
 
 /**
  * 🧪 UNIT TEST: TenantMiddleware
  *
- * Verifica que el middleware extrae correctamente el company_id
- * del header o del JWT, y que rechaza requests sin tenant.
+ * El middleware ya no acepta X-Company-Id como autoridad — solo JWT en
+ * prod. En dev/test deja pasar con warning para no romper tests legacy.
  */
 describe('TenantMiddleware', () => {
-  let middleware: TenantMiddleware;
-  let tenantContext: TenantContext;
-
   const mockRes = {} as any;
   const mockNext = jest.fn();
 
+  const makeMiddleware = (env: string): TenantMiddleware => {
+    const config = {
+      get: (k: string) => (k === 'APP_ENV' ? env : undefined),
+    } as unknown as ConfigService;
+    return new TenantMiddleware(config);
+  };
+
   beforeEach(() => {
-    tenantContext = new TenantContext();
-    middleware = new TenantMiddleware(tenantContext);
     mockNext.mockClear();
   });
 
-  describe('X-Company-Id header', () => {
-    it('should set tenantId from X-Company-Id header', () => {
+  describe('JWT Bearer present', () => {
+    it('passes through — guard se encarga del JWT y de @CurrentCompany', () => {
+      const mw = makeMiddleware('production');
+      const req = {
+        headers: { authorization: 'Bearer abc.def.ghi' },
+      } as any;
+
+      mw.use(req, mockRes, mockNext);
+
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('production', () => {
+    it('rechaza request sin JWT aunque traiga X-Company-Id', () => {
+      const mw = makeMiddleware('production');
       const req = {
         headers: { 'x-company-id': 'company-123' },
       } as any;
 
-      middleware.use(req, mockRes, mockNext);
-
-      expect(tenantContext.get()).toBe('company-123');
-      expect(mockNext).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('JWT claims fallback', () => {
-    it('should set tenantId from JWT user.company_id when header is absent', () => {
-      const req = {
-        headers: {},
-        user: { company_id: 'company-jwt-456' },
-      } as any;
-
-      middleware.use(req, mockRes, mockNext);
-
-      expect(tenantContext.get()).toBe('company-jwt-456');
-      expect(mockNext).toHaveBeenCalledTimes(1);
-    });
-
-    it('should prefer JWT claims over X-Company-Id header when both present', () => {
-      const req = {
-        headers: { 'x-company-id': 'company-header' },
-        user: { company_id: 'company-jwt' },
-      } as any;
-
-      middleware.use(req, mockRes, mockNext);
-
-      expect(tenantContext.get()).toBe('company-jwt');
-    });
-  });
-
-  describe('missing tenant', () => {
-    it('should throw UnauthorizedException when no tenant identifier found', () => {
-      const req = { headers: {} } as any;
-
-      expect(() => middleware.use(req, mockRes, mockNext)).toThrow(
+      expect(() => mw.use(req, mockRes, mockNext)).toThrow(
         UnauthorizedException,
       );
       expect(mockNext).not.toHaveBeenCalled();
     });
 
-    it('should throw when header is empty string', () => {
+    it('rechaza request sin JWT y sin header', () => {
+      const mw = makeMiddleware('staging');
+      const req = { headers: {} } as any;
+
+      expect(() => mw.use(req, mockRes, mockNext)).toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  describe('development fallback', () => {
+    it('deja pasar request con X-Company-Id (sin JWT) con warning', () => {
+      const mw = makeMiddleware('development');
       const req = {
-        headers: { 'x-company-id': '' },
+        headers: { 'x-company-id': 'company-dev' },
       } as any;
 
-      // Empty string is falsy → treated as missing → should throw
-      expect(() => middleware.use(req, mockRes, mockNext)).toThrow(
+      mw.use(req, mockRes, mockNext);
+
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('rechaza request sin JWT y sin header incluso en dev', () => {
+      const mw = makeMiddleware('development');
+      const req = { headers: {} } as any;
+
+      expect(() => mw.use(req, mockRes, mockNext)).toThrow(
         UnauthorizedException,
       );
     });

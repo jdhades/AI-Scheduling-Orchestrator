@@ -51,7 +51,7 @@ describe('SupabaseEmployeeRepository (integration)', () => {
 
     tenantContext = new TenantContext();
     tenantContext.set(TEST_COMPANY_ID);
-    repo = new SupabaseEmployeeRepository(supabase, tenantContext);
+    repo = new SupabaseEmployeeRepository(supabase);
   });
 
   afterAll(async () => {

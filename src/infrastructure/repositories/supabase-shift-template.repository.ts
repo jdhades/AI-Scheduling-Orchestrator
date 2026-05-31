@@ -7,13 +7,11 @@ import {
 import { ShiftTemplate } from '../../domain/aggregates/shift-template.aggregate';
 import { DemandWeight } from '../../domain/value-objects/demand-weight.vo';
 import { UndesirableWeight } from '../../domain/value-objects/undesirable-weight.vo';
-import { TenantContext } from '../tenant/tenant.context';
 
 @Injectable()
 export class SupabaseShiftTemplateRepository implements IShiftTemplateRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
-    private readonly tenantContext: TenantContext,
   ) {}
 
   async findAllByCompany(companyId: string): Promise<ShiftTemplate[]> {

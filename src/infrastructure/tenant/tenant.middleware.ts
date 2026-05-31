@@ -1,59 +1,71 @@
 import {
   Injectable,
+  Logger,
   NestMiddleware,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
-import { TenantContext } from './tenant.context';
 
 /**
  * TenantMiddleware
  *
- * Extrae el company_id del request y lo inyecta en TenantContext.
+ * Garantiza que las rutas autenticadas llegan al SupabaseAuthGuard con
+ * un JWT válido. NO inyecta nada en TenantContext desde el header
+ * `X-Company-Id` en producción — confiar en ese header sería permitir
+ * cross-tenant attacks (cualquier authed user podría mandar el header
+ * del tenant de otra empresa).
  *
- * Estrategias soportadas (en orden de prioridad):
- *  1. Header X-Company-Id  → para llamadas internas / API keys
- *  2. JWT claim company_id → para llamadas autenticadas de usuarios
+ * El companyId siempre se deriva del JWT validado por el guard y se
+ * expone via `@CurrentCompany()` en cada controller. El TenantContext
+ * (scope REQUEST) queda para casos donde un consumer downstream sin
+ * acceso al request HTTP necesita el companyId — se popula
+ * explícitamente desde el controller, no acá.
  *
- * 💡 Multi-tenant: TODOS los endpoints que accedan a datos de negocio
- *    deben pasar por este middleware. Se aplica globalmente en AppModule.
- *
- * 💡 Por qué no usar el JWT de Supabase directamente:
- *    El backend usa service_role key (bypasa RLS por defecto).
- *    El middleware es nuestra primera línea de tenant isolation.
- *    La RLS en PostgreSQL es la segunda línea (defensa en profundidad).
+ * En desarrollo/test mantenemos el fallback al header con warning para
+ * no romper tests legacy que no autenticaban contra Supabase.
  */
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  constructor(private readonly tenantContext: TenantContext) {}
+  private readonly logger = new Logger(TenantMiddleware.name);
+  private readonly isProd: boolean;
+
+  constructor(config: ConfigService) {
+    const env = (
+      config.get<string>('APP_ENV') ??
+      config.get<string>('NODE_ENV') ??
+      'development'
+    ).toLowerCase();
+    this.isProd = env === 'production' || env === 'staging';
+  }
 
   use(req: Request, _res: Response, next: NextFunction): void {
-    // Estrategia 1: header explícito (para llamadas internas/tests + DEV bypass)
-    const headerTenantId = req.headers['x-company-id'] as string | undefined;
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      // JWT presente — el SupabaseAuthGuard valida y popula
+      // req.auth.companyId. Los controllers usan @CurrentCompany() del
+      // JWT, no necesitamos tocar TenantContext acá.
+      return next();
+    }
 
-    // Estrategia 2: JWT claims (si AuthGuard ya corrió y populó req.auth)
-    // Express middleware se ejecuta ANTES que los NestJS guards, así que
-    // típicamente req.auth está undefined acá. Lo dejamos como fallback
-    // por si algún día se invierte el orden.
-    const jwtTenantId =
-      ((req as any).auth?.companyId as string | undefined) ??
-      ((req as any).user?.company_id as string | undefined);
-
-    const tenantId = jwtTenantId ?? headerTenantId;
-
-    if (tenantId) {
-      this.tenantContext.set(tenantId);
-    } else if (req.headers.authorization?.startsWith('Bearer ')) {
-      // Hay JWT presente — el SupabaseAuthGuard lo va a validar y
-      // populará req.auth.companyId. El TenantContext lo seteará otro
-      // componente (futuro: interceptor post-guard); mientras tanto los
-      // controllers consumen el companyId via @CurrentCompany() del JWT.
-      // No throw — dejamos pasar y el guard decide.
-    } else {
+    if (this.isProd) {
       throw new UnauthorizedException(
-        'Missing tenant identifier: provide X-Company-Id header or a valid JWT with company_id',
+        'Missing JWT: provide a valid Authorization Bearer token',
       );
     }
-    next();
+
+    // Dev/test: aceptamos X-Company-Id como fallback con warning para
+    // no romper tests legacy. NO setea TenantContext — los controllers
+    // siguen usando @CurrentCompany() (que viene del guard con bypass
+    // si DEV_AUTH_BYPASS=true) y el resto se mantiene igual.
+    if (req.headers['x-company-id']) {
+      this.logger.warn(
+        '[DEV] Request without JWT but with X-Company-Id — only allowed outside prod',
+      );
+      return next();
+    }
+
+    throw new UnauthorizedException(
+      'Missing tenant identifier: provide a valid JWT',
+    );
   }
 }

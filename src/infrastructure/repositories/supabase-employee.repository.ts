@@ -12,15 +12,12 @@ import {
   EmployeePreference,
   PreferenceType,
 } from '../../domain/value-objects/employee-preference.vo';
-import { TenantContext } from '../tenant/tenant.context';
-
 const DEFAULT_EXPERIENCE_RANGES = { junior: 6, intermediate: 24, senior: 999 };
 
 @Injectable()
 export class SupabaseEmployeeRepository implements IEmployeeRepository {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
-    private readonly tenantContext: TenantContext,
   ) {}
 
   async save(employee: Employee): Promise<void> {
@@ -116,12 +113,15 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
   }
 
   async markWhatsappVerified(employeeId: string): Promise<void> {
-    const companyId = this.tenantContext.get();
+    // Sin filtro por company_id: este método se llama desde el handler
+    // del HandshakeVerifiedEvent, que se origina en el webhook de
+    // WhatsApp (sin JWT, sin TenantContext). El `employeeId` viene del
+    // handshake aggregate (interno del sistema), no de input del usuario,
+    // así que confiamos en el UUID único globalmente.
     const { error } = await this.supabase
       .from('employees')
       .update({ whatsapp_verified: true })
-      .eq('id', employeeId)
-      .eq('company_id', companyId);
+      .eq('id', employeeId);
 
     if (error)
       throw new Error(
