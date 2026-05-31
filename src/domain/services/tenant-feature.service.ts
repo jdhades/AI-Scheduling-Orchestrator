@@ -57,6 +57,13 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
       'Habilita la pestaña de chat con IA dentro del panel de ayuda (HelpPanel). Off por default — el backend del chat todavía no está implementado, así que cuando se active hay que tener la knowledge base + el agente listos. Las pestañas Guías y Soporte funcionan sin este flag.',
     defaultEnabled: false,
   },
+  {
+    key: 'imports_allow_multiple',
+    label: 'Imports — allow multiple committed imports',
+    description:
+      'Default OFF: el sistema rechaza un nuevo import si la company tiene un import committed que todavía no fue revertido y está dentro de la ventana de revert (7 días). El owner debe revertir el anterior o esperar a que expire. Encender este flag SOLO para tenants de testing — en producción genera empleados/turnos duplicados.',
+    defaultEnabled: false,
+  },
 ];
 
 // Removidos 2026-05-27 (con el user): flags sin caso de uso real,

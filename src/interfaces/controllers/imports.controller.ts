@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -55,6 +56,7 @@ import {
 } from '../../application/imports/template-excel-parser.service';
 import { ImportStorageService } from '../../infrastructure/services/import-storage.service';
 import { LlmJobDispatcher } from '../../application/jobs/llm-job-dispatcher.service';
+import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 
 interface StagingResponse {
   id: string;
@@ -118,7 +120,53 @@ export class ImportsController {
     private readonly templateParser: TemplateExcelParserService,
     private readonly storage: ImportStorageService,
     private readonly llmJobDispatcher: LlmJobDispatcher,
+    private readonly tenantFeatures: TenantFeatureService,
   ) {}
+
+  /**
+   * Guard: rechaza nuevo import si la company tiene un import committed
+   * dentro de la ventana de revert (7 días) y todavía NO fue revertido.
+   *
+   * Política: un import por company a la vez. Si el owner se equivocó,
+   * que revierta el anterior antes de re-importar; sino genera
+   * duplicados (employees por email/phone que no matchea, templates
+   * clónicos, memberships extras, etc.).
+   *
+   * Bypass: flag tenant `imports_allow_multiple` (default OFF). Se
+   * prende desde /admin/tenant-features para tenants de testing.
+   */
+  private async assertNoBlockingImport(companyId: string): Promise<void> {
+    const bypass = await this.tenantFeatures.isEnabled(
+      companyId,
+      'imports_allow_multiple',
+    );
+    if (bypass) return;
+
+    const REVERT_WINDOW_MS = 7 * 24 * 3600 * 1000;
+    const cutoff = new Date(Date.now() - REVERT_WINDOW_MS).toISOString();
+
+    const recent = await this.repo.listByCompany(companyId, {
+      status: ['committed'],
+      limit: 1,
+    });
+    const blocking = recent.find(
+      (r) =>
+        r.committedAt !== null &&
+        r.committedAt.toISOString() > cutoff,
+    );
+    if (blocking) {
+      throw new ConflictException({
+        message:
+          'This company has a committed import that has not been reverted yet. Revert it first, or wait until the revert window expires.',
+        errorCode: 'IMPORT_ALREADY_COMMITTED',
+        blockingImportId: blocking.id,
+        blockingCommittedAt: blocking.committedAt?.toISOString(),
+        revertWindowExpiresAt: new Date(
+          (blocking.committedAt as Date).getTime() + REVERT_WINDOW_MS,
+        ).toISOString(),
+      });
+    }
+  }
 
   // ─── Vía B (Excel) ─────────────────────────────────────────────────
 
@@ -187,6 +235,7 @@ export class ImportsController {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
     }
+    await this.assertNoBlockingImport(companyId);
 
     let payload;
     try {
@@ -245,6 +294,7 @@ export class ImportsController {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
+    await this.assertNoBlockingImport(companyId);
     if (!UPLOAD_ALLOWED_MIME.includes(file.mimetype as never)) {
       throw new BadRequestException(
         `Unsupported file type "${file.mimetype}". Allowed: ${UPLOAD_ALLOWED_MIME.join(', ')}.`,
@@ -306,6 +356,7 @@ export class ImportsController {
     @CurrentUser() user: AuthContext | undefined,
     @Body() dto: ImportPayloadDto,
   ): Promise<StagingResponse> {
+    await this.assertNoBlockingImport(companyId);
     const id = randomUUID();
     const staging = ImportStaging.create({
       id,
@@ -340,9 +391,7 @@ export class ImportsController {
    * preview de un import committed y revertirlo dentro de la ventana.
    */
   @Get('staging')
-  async list(
-    @CurrentCompany() companyId: string,
-  ): Promise<StagingResponse[]> {
+  async list(@CurrentCompany() companyId: string): Promise<StagingResponse[]> {
     const rows = await this.repo.listByCompany(companyId, { limit: 20 });
     return rows.map((s) => this.toResponse(s));
   }
@@ -526,13 +575,12 @@ export class ImportsController {
     };
   }
 
-  private extractFailureInfo(
-    s: ImportStaging,
-  ): StagingResponse['failureInfo'] {
+  private extractFailureInfo(s: ImportStaging): StagingResponse['failureInfo'] {
     if (s.status !== 'failed') return null;
-    const report = s.commitReport as
-      | { phase?: 'extract' | 'commit'; error?: string }
-      | null;
+    const report = s.commitReport as {
+      phase?: 'extract' | 'commit';
+      error?: string;
+    } | null;
     return {
       phase: report?.phase ?? 'commit',
       message: report?.error ?? 'Unknown failure',
@@ -544,9 +592,7 @@ export class ImportsController {
    * por el vision prompt. El frontend ya manda el lang seleccionado
    * por el user via axios; cualquier otro idioma cae a 'en'.
    */
-  private resolveLocale(
-    acceptLanguage: string | undefined,
-  ): 'es' | 'en' {
+  private resolveLocale(acceptLanguage: string | undefined): 'es' | 'en' {
     if (!acceptLanguage) return 'en';
     const primary = acceptLanguage.split(',')[0].trim().toLowerCase();
     if (primary.startsWith('es')) return 'es';
