@@ -80,6 +80,11 @@ interface StagingResponse {
     phase: 'extract' | 'commit';
     message: string;
   } | null;
+  /** Rango de fechas del archivo original (pre-snap-to-current-week). */
+  originalDateRange: { from: string; to: string } | null;
+  /** Rango de fechas después del snap. Igual al original si no hubo
+   *  remapeo (Excel templates / paste JSON no remapean). */
+  snappedDateRange: { from: string; to: string } | null;
 }
 
 interface UploadExtractResponse {
@@ -572,6 +577,8 @@ export class ImportsController {
         timeOff: d.timeOff?.length ?? 0,
       },
       failureInfo: this.extractFailureInfo(s),
+      originalDateRange: s.payload.sourceMetadata.originalDateRange ?? null,
+      snappedDateRange: s.payload.sourceMetadata.snappedDateRange ?? null,
     };
   }
 

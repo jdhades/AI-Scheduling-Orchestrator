@@ -38,6 +38,19 @@ export interface ImportSourceMetadata {
   agentVersion?: string;
   confidence?: number; // 0..1, confianza global del lote
   notes?: string;
+  /**
+   * Fechas mínima y máxima EN EL ARCHIVO ORIGINAL (pre-snap).
+   * Útil cuando el owner sube un archivo con fechas históricas o
+   * arbitrarias y el sistema las remapea a la semana actual: el
+   * preview muestra ambas para que el contexto no se pierda.
+   */
+  originalDateRange?: { from: string; to: string };
+  /**
+   * Fechas mínima y máxima DESPUÉS del snap-to-current-week. Igual
+   * al originalDateRange si no hubo remapeo (Excel templates / paste
+   * JSON no remapean; solo el upload con vision LLM).
+   */
+  snappedDateRange?: { from: string; to: string };
 }
 
 export interface ImportPayload {

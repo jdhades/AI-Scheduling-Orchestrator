@@ -183,17 +183,22 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
 
     const allDates: string[] = [
       ...shifts.map((s) => s.date),
-      ...timeOff.map((t) => t.startDate),
-    ].filter((d): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d));
+      ...timeOff.flatMap((t) => [t.startDate, t.endDate]),
+    ].filter(
+      (d): d is string =>
+        typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d),
+    );
     if (allDates.length === 0) {
       return payload;
     }
 
-    const minDate = allDates.sort()[0];
+    const sortedDates = [...allDates].sort();
+    const originalFrom = sortedDates[0];
+    const originalTo = sortedDates[sortedDates.length - 1];
     const weekStartsOn = await this.getCompanyWeekStartsOn(companyId);
 
     const sourceWeekStart = this.weekStartOf(
-      new Date(`${minDate}T00:00:00Z`),
+      new Date(`${originalFrom}T00:00:00Z`),
       weekStartsOn,
     );
     const targetWeekStart = this.weekStartOf(new Date(), weekStartsOn);
@@ -202,13 +207,24 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
         (24 * 3600 * 1000),
     );
 
+    const sourceMetadata: ImportPayload['sourceMetadata'] = {
+      ...payload.sourceMetadata,
+      originalDateRange: { from: originalFrom, to: originalTo },
+    };
+
     if (offsetDays === 0) {
-      // Ya está en la semana actual — nada que hacer.
-      return payload;
+      // Ya está en la semana actual — solo seteamos los rangos para
+      // que el preview pueda mostrar la fecha al owner. snappedDateRange
+      // = originalDateRange.
+      sourceMetadata.snappedDateRange = {
+        from: originalFrom,
+        to: originalTo,
+      };
+      return { ...payload, sourceMetadata };
     }
 
     this.logger.log(
-      `Snap dates: ${minDate} (source week ${this.toIso(sourceWeekStart)}) → target week ${this.toIso(targetWeekStart)}, offset=${offsetDays}d`,
+      `Snap dates: ${originalFrom} (source week ${this.toIso(sourceWeekStart)}) → target week ${this.toIso(targetWeekStart)}, offset=${offsetDays}d`,
     );
 
     const shiftedShifts = shifts.map((s) => ({
@@ -221,8 +237,14 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
       endDate: this.shiftIsoDate(t.endDate, offsetDays),
     }));
 
+    sourceMetadata.snappedDateRange = {
+      from: this.shiftIsoDate(originalFrom, offsetDays),
+      to: this.shiftIsoDate(originalTo, offsetDays),
+    };
+
     return {
       ...payload,
+      sourceMetadata,
       data: {
         ...payload.data,
         shifts: shiftedShifts,
