@@ -66,6 +66,10 @@ export interface PreCommitSnapshot {
    *  matcheó existentes). Revert intenta borrarlos si ya no quedan
    *  assignments referenciándolos. */
   createdTemplateIds: string[];
+  /** IDs de branches que ESTE commit creó (no las que matcheó). El
+   *  revert las hard-deletea si quedaron huérfanas (sin depts ni
+   *  employees apuntándolas). */
+  createdBranchIds: string[];
 }
 
 export interface CommitResult {
@@ -131,6 +135,7 @@ export class ImportCommitterService {
       updatedCompanySkills: [],
       updatedEmployees: [],
       createdTemplateIds: [],
+      createdBranchIds: [],
     };
     const report: CommitReport = {
       importId: input.importId,
@@ -294,6 +299,25 @@ export class ImportCommitterService {
             id: matchedId,
           });
         } else {
+          // Defensa anti-duplicado: el preview-builder pudo no matchear
+          // (race con un import previo, naming ligeramente distinto que
+          // ya quedó en BD). Antes de insertar, lookup case-insensitive
+          // — si hay una branch existente con el mismo nombre, la
+          // reusamos como will_update implícito.
+          const existing = await this.findExistingByName(
+            'branches',
+            input.companyId,
+            r.name,
+          );
+          if (existing) {
+            idMap.set(r.externalId, existing);
+            out.push({
+              externalId: r.externalId,
+              outcome: 'updated',
+              id: existing,
+            });
+            continue;
+          }
           const id = randomUUID();
           const { error } = await this.supabase.from('branches').insert({
             id,
@@ -303,6 +327,7 @@ export class ImportCommitterService {
           });
           if (error) throw new Error(error.message);
           idMap.set(r.externalId, id);
+          snapshot.createdBranchIds.push(id);
           out.push({ externalId: r.externalId, outcome: 'created', id });
         }
       } catch (err) {
@@ -385,6 +410,21 @@ export class ImportCommitterService {
             id: matchedId,
           });
         } else {
+          // Defensa anti-duplicado (mismo motivo que en commitLocations).
+          const existing = await this.findExistingByName(
+            'departments',
+            input.companyId,
+            r.name,
+          );
+          if (existing) {
+            idMap.set(r.externalId, existing);
+            out.push({
+              externalId: r.externalId,
+              outcome: 'updated',
+              id: existing,
+            });
+            continue;
+          }
           const id = randomUUID();
           const { error } = await this.supabase.from('departments').insert({
             id,
@@ -1259,6 +1299,32 @@ export class ImportCommitterService {
       `Auto-created fallback branch "Main" (${id}) for company ${companyId}`,
     );
     return id;
+  }
+
+  /**
+   * Defensa anti-duplicado para tablas con (company_id, name). Lookup
+   * case-insensitive: si el preview-builder no matcheó (race con un
+   * import previo, naming ligeramente distinto, etc.) y el commit
+   * está por insertar una row que ya existe en BD, devolvemos el id
+   * existente para que el caller reuse en vez de crear duplicada.
+   */
+  private async findExistingByName(
+    table: 'branches' | 'departments',
+    companyId: string,
+    name: string,
+  ): Promise<string | null> {
+    const { data } = (await this.supabase
+      .from(table)
+      .select('id, name')
+      .eq('company_id', companyId)
+      .is('deleted_at', null)) as unknown as {
+      data: Array<{ id: string; name: string | null }> | null;
+    };
+    const wanted = name.toLowerCase();
+    for (const r of data ?? []) {
+      if (r.name && r.name.toLowerCase() === wanted) return r.id;
+    }
+    return null;
   }
 
   // ── Helpers de Fase 4 ─────────────────────────────────────────────

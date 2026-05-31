@@ -60,6 +60,7 @@ export interface RevertReport {
     departmentsDeleted: number;
     departmentsRestored: number;
     branchesRestored: number;
+    branchesDeleted: number;
     templatesDeleted: number;
   };
 }
@@ -85,6 +86,7 @@ export class ImportReverterService {
       updatedCompanySkills: [],
       updatedEmployees: [],
       createdTemplateIds: [],
+      createdBranchIds: [],
     };
 
     const createdIdsOf = (entity: keyof CommitReport['entities']) =>
@@ -106,6 +108,7 @@ export class ImportReverterService {
       departmentsDeleted: 0,
       departmentsRestored: 0,
       branchesRestored: 0,
+      branchesDeleted: 0,
       templatesDeleted: 0,
     };
 
@@ -266,15 +269,34 @@ export class ImportReverterService {
       if (!error) details.departmentsRestored++;
     }
 
-    // 10. branches: solo restore (no creamos branches via import excepto
-    // la fallback "Main", que se preserva intencionalmente — puede
-    // tener otros recursos enganchados).
+    // 10a. branches restore (rows que el import modificó).
     for (const row of snapshot.updatedBranches) {
       const { error } = await this.supabase
         .from('branches')
         .update({ name: row.name, timezone: row.timezone })
         .eq('id', row.id);
       if (!error) details.branchesRestored++;
+    }
+
+    // 10b. branches creadas por este import: hard-delete solo si quedaron
+    //      huérfanas (sin departments ni employees apuntando). Esto evita
+    //      dejar duplicadas "Panadería" / etc. cuando la LLM extrae el
+    //      nombre del negocio como location. Si tiene depts/employees
+    //      enganchados (caso legítimo donde el revert dejó algo atrás),
+    //      la branch se preserva.
+    const createdBranchIds = (snapshot.createdBranchIds ?? []) as string[];
+    for (const branchId of createdBranchIds) {
+      const { count: deptCount } = await this.supabase
+        .from('departments')
+        .select('id', { count: 'exact', head: true })
+        .eq('branch_id', branchId)
+        .is('deleted_at', null);
+      if ((deptCount ?? 0) > 0) continue;
+      const { error } = await this.supabase
+        .from('branches')
+        .delete()
+        .eq('id', branchId);
+      if (!error) details.branchesDeleted++;
     }
 
     this.logger.log(
