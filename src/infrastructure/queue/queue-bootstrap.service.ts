@@ -71,13 +71,6 @@ export class QueueBootstrapService implements OnModuleInit {
       deadLetter: JOB_SCHEDULE_GENERATE_DEAD,
     });
 
-    // pg-boss v12 — `createQueue` es idempotente y NO actualiza
-    // retry_limit / expire_seconds si la queue ya existe; su API
-    // pública `updateQueue` solo soporta `deadLetter`. Para deploys
-    // existentes con config vieja, sincronizamos vía SQL directo.
-    // Idempotente — si los valores ya matchean, el UPDATE es no-op.
-    await this.syncQueueConfig(JOB_SCHEDULE_GENERATE, 0, 600);
-
     this.logger.log(
       `Queues ready: ${JOB_SCHEDULE_GENERATE} (exclusive, retry=0, expire=600s, dead→${JOB_SCHEDULE_GENERATE_DEAD})`,
     );
@@ -98,7 +91,6 @@ export class QueueBootstrapService implements OnModuleInit {
         retryLimit: 0,
         expireInSeconds: 600,
       });
-      await this.syncQueueConfig(queue, 0, 600);
     }
     this.logger.log(
       `LLM queues ready: ${llmQueues.join(', ')} (standard, retry=0, expire=600s)`,
@@ -113,54 +105,8 @@ export class QueueBootstrapService implements OnModuleInit {
       retryLimit: 0,
       expireInSeconds: 900,
     });
-    await this.syncQueueConfig(JOB_IMPORTS_EXTRACT, 0, 900);
     this.logger.log(
       `Imports extract queue ready: ${JOB_IMPORTS_EXTRACT} (standard, retry=0, expire=900s)`,
     );
-  }
-
-  /**
-   * Update directo a `pgboss.queue` para forzar retry_limit /
-   * expire_seconds aún si la queue ya existía con valores distintos.
-   * pg-boss v12+ no expone `boss.db` como API pública — el acceso
-   * falla con "Cannot read properties of undefined".
-   *
-   * Comportamiento: si `boss.db?.executeSql` no está disponible,
-   * silenciamos el skip (debug log). Para deploys frescos (queues
-   * recién creadas con createQueue), no hace falta ningún update
-   * porque ya tienen los valores correctos. La función solo importa
-   * para deploys viejos con configs distintas — esos casos se han
-   * vuelto raros y aceptamos el silencio en lugar de loguear warn
-   * en cada boot.
-   */
-  private async syncQueueConfig(
-    name: string,
-    retryLimit: number,
-    expireSeconds: number,
-  ): Promise<void> {
-    const boss = this.pgBoss.getInstance() as unknown as {
-      db?: {
-        executeSql?: (
-          sql: string,
-          params: unknown[],
-        ) => Promise<{ rowCount: number }>;
-      };
-    };
-    if (!boss.db?.executeSql) {
-      this.logger.debug(
-        `syncQueueConfig(${name}): boss.db.executeSql unavailable (pg-boss v12+), skipping`,
-      );
-      return;
-    }
-    try {
-      await boss.db.executeSql(
-        `UPDATE pgboss.queue SET retry_limit = $1, expire_seconds = $2 WHERE name = $3`,
-        [retryLimit, expireSeconds, name],
-      );
-    } catch (err) {
-      this.logger.warn(
-        `Failed to sync queue config for ${name}: ${(err as Error).message}`,
-      );
-    }
   }
 }
