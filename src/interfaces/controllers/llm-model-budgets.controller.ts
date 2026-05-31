@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   Controller,
@@ -49,11 +50,13 @@ export class LLMModelBudgetsController {
   constructor(private readonly budgetService: LLMModelBudgetService) {}
 
   @Get()
+  @Requires('settings:manage')
   async list(@CurrentCompany() companyId: string): Promise<LLMModelBudget[]> {
     return this.budgetService.listForCompany(companyId);
   }
 
   @Put()
+  @Requires('settings:manage')
   async upsert(
     @CurrentCompany() companyId: string,
     @Body() dto: UpsertBudgetDto,
@@ -73,6 +76,7 @@ export class LLMModelBudgetsController {
   }
 
   @Delete(':id')
+  @Requires('settings:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
     @Param('id') id: string,

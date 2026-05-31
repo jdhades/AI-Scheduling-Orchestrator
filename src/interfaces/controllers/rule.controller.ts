@@ -1,5 +1,6 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   Body,
@@ -103,6 +104,7 @@ export class RuleController {
    * o clients que prefieren bloquear.
    */
   @Post()
+  @Requires('policies:write')
   @HttpCode(HttpStatus.ACCEPTED)
   async create(
     @Body() dto: CreateSemanticRuleDto,
@@ -164,6 +166,7 @@ export class RuleController {
    * Filtro opcional por tipo: restriction | preference | requirement
    */
   @Get()
+  @Requires('policies:read')
   async findAll(
     @CurrentCompany() companyId: string,
     @Query('ruleType') ruleType?: 'restriction' | 'preference' | 'requirement',
@@ -180,6 +183,7 @@ export class RuleController {
    * 404 si no existe, pertenece a otra empresa, o fue soft-deleted.
    */
   @Get(':id')
+  @Requires('policies:read')
   async getById(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
@@ -195,6 +199,7 @@ export class RuleController {
    * cambiar el texto usar PATCH /rules/semantic/:id/text.
    */
   @Patch(':id')
+  @Requires('policies:write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async updateMetadata(
     @Param('id') id: string,
@@ -255,6 +260,7 @@ export class RuleController {
    * ("esto reprocesa la regla con IA") antes de llamar.
    */
   @Patch(':id/text')
+  @Requires('policies:write')
   @HttpCode(HttpStatus.ACCEPTED)
   async updateText(
     @Param('id') id: string,
@@ -317,6 +323,7 @@ export class RuleController {
    * Retorna 404 si la regla no existe o pertenece a otra empresa.
    */
   @Delete(':id')
+  @Requires('policies:write')
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,

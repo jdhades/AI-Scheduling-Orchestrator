@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   Body,
   Controller,
@@ -69,6 +70,7 @@ export class IncidentsController {
   ) {}
 
   @Post()
+  @Requires('incidents:manage')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() dto: CreateIncidentDto,
@@ -125,6 +127,7 @@ export class IncidentsController {
    * Aplicable desde cualquier estado excepto RESOLVED o REJECTED.
    */
   @Post(':id/reject')
+  @Requires('incidents:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async reject(
     @Param('id') id: string,
@@ -141,6 +144,7 @@ export class IncidentsController {
    * Requiere estado REPLACEMENT_ASSIGNED | VALIDATED | REPAIR_IN_PROGRESS.
    */
   @Post(':id/resolve')
+  @Requires('incidents:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resolve(
     @Param('id') id: string,

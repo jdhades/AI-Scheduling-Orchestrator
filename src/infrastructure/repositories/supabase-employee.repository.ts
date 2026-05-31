@@ -57,17 +57,33 @@ export class SupabaseEmployeeRepository implements IEmployeeRepository {
     let query = this.supabase
       .from('employees')
       .select('*')
-      .eq('phone_number', phone);
+      .eq('phone_number', phone)
+      .is('deleted_at', null);
 
-    // Wildcard '*' = search across all companies (used by WhatsApp webhook)
+    // Wildcard '*' = search across all companies (used by WhatsApp webhook).
+    // El schema permite el mismo phone en companies distintas (unique
+    // index es (company_id, phone_number) parcial). Si dos tenants tienen
+    // empleados activos con el mismo número, NO atribuimos al primero —
+    // devolvemos null y dejamos que el webhook responda "unregistered".
+    // Eso evita procesar mensajes contra el tenant equivocado.
     if (companyId !== '*') {
       query = query.eq('company_id', companyId);
     }
 
-    const { data, error } = await query.single();
-
+    const { data, error } = await query;
     if (error || !data) return null;
-    return this.toDomain(data);
+    if (data.length === 0) return null;
+    if (data.length > 1) {
+      // Más de un tenant comparte este phone activo. Defensiva: reject
+      // explícito antes que atribución incorrecta. Si esto pasa con
+      // tráfico real, considerar:
+      //   1. UNIQUE constraint global en phone_number (breaking si
+      //      empresas legítimamente comparten números)
+      //   2. Twilio number per-tenant + resolver por to_number
+      //   3. Código de empresa en el primer mensaje (handshake explícito)
+      return null;
+    }
+    return this.toDomain(data[0]);
   }
 
   async findAllByCompany(

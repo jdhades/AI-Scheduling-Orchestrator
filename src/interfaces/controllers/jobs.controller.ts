@@ -1,4 +1,5 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import {
   ConflictException,
   Controller,
@@ -122,6 +123,7 @@ export class JobsController {
   }
 
   @Post(':id/cancel')
+  @Requires('schedule:generate')
   @HttpCode(HttpStatus.NO_CONTENT)
   async cancel(
     @Param('id') id: string,

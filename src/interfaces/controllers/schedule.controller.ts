@@ -69,6 +69,7 @@ export class ScheduleController {
    * (`WeekScheduleBuilder`) + el LLM como proveedor de líneas.
    */
   @Post('generate')
+  @Requires('schedule:generate')
   @HttpCode(HttpStatus.OK)
   // 3/min/IP — la generación cuesta tokens LLM reales. Manager
   // normal dispara 1-2 veces por día; protege contra accidental

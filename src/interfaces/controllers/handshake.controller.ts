@@ -15,6 +15,7 @@ import {
   InitiateHandshakeDto,
   VerifyHandshakeDto,
 } from '../dtos/handshake.dto';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 
 /**
  * HandshakeController — Interfaces Layer
@@ -36,6 +37,7 @@ export class HandshakeController {
    * El token TTL es de 15 minutos por defecto.
    */
   @Post(':id/handshake')
+  @Requires('employees:write')
   @HttpCode(HttpStatus.ACCEPTED)
   async initiate(
     @Param('id') employeeId: string,
