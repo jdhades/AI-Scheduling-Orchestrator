@@ -31,6 +31,12 @@ import {
   TASK_REPOSITORY,
   type ITaskRepository,
 } from '../../domain/repositories/task.repository';
+import {
+  ENTITY_AUDIT_SERVICE,
+  type IEntityAuditService,
+  computeChangeSet,
+  snapshotAsChangeSet,
+} from '../../domain/audit/entity-audit.service';
 
 // ─── DTOs ─────────────────────────────────────────────────────────────
 
@@ -139,13 +145,27 @@ const targetFromDto = (dto: CreateTaskDto): TaskTarget => {
 export class TasksController {
   constructor(
     @Inject(TASK_REPOSITORY) private readonly tasks: ITaskRepository,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  /** Snapshot serializable usado por el audit log. */
+  private auditSnapshot(t: Task): Record<string, unknown> {
+    return {
+      title: t.title,
+      description: t.description,
+      isDone: t.isDone,
+      target: t.target,
+      completedByEmployeeId: t.completedByEmployeeId,
+    };
+  }
 
   @Post('tasks')
   @Requires('schedule:write')
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateTaskDto,
   ): Promise<TaskResponse> {
     const target = targetFromDto(dto);
@@ -157,6 +177,15 @@ export class TasksController {
       target,
     });
     await this.tasks.save(task);
+    await this.audit.log({
+      companyId,
+      entityType: 'task',
+      entityId: task.id,
+      action: 'create',
+      changes: snapshotAsChangeSet(this.auditSnapshot(task), 'create'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
     return toDto(task);
   }
 
@@ -195,10 +224,11 @@ export class TasksController {
     const nextDescription =
       dto.description !== undefined ? dto.description : existing.description;
 
+    let next: Task;
     if (dto.isDone === true && !existing.isDone) {
       const completedBy = user?.employeeId ?? null;
       const done = existing.markDone(completedBy);
-      const updated = Task.fromPersistence({
+      next = Task.fromPersistence({
         id: done.id,
         companyId: done.companyId,
         title: nextTitle,
@@ -209,12 +239,8 @@ export class TasksController {
         completedByEmployeeId: done.completedByEmployeeId,
         createdAt: done.createdAt,
       });
-      await this.tasks.save(updated);
-      return toDto(updated);
-    }
-
-    if (dto.isDone === false && existing.isDone) {
-      const reopened = Task.fromPersistence({
+    } else if (dto.isDone === false && existing.isDone) {
+      next = Task.fromPersistence({
         id: existing.id,
         companyId: existing.companyId,
         title: nextTitle,
@@ -225,23 +251,38 @@ export class TasksController {
         completedByEmployeeId: null,
         createdAt: existing.createdAt,
       });
-      await this.tasks.save(reopened);
-      return toDto(reopened);
+    } else {
+      next = Task.fromPersistence({
+        id: existing.id,
+        companyId: existing.companyId,
+        title: nextTitle,
+        description: nextDescription,
+        isDone: existing.isDone,
+        target: existing.target,
+        completedAt: existing.completedAt,
+        completedByEmployeeId: existing.completedByEmployeeId,
+        createdAt: existing.createdAt,
+      });
     }
 
-    const edited = Task.fromPersistence({
-      id: existing.id,
-      companyId: existing.companyId,
-      title: nextTitle,
-      description: nextDescription,
-      isDone: existing.isDone,
-      target: existing.target,
-      completedAt: existing.completedAt,
-      completedByEmployeeId: existing.completedByEmployeeId,
-      createdAt: existing.createdAt,
-    });
-    await this.tasks.save(edited);
-    return toDto(edited);
+    await this.tasks.save(next);
+    const changes = computeChangeSet(
+      this.auditSnapshot(existing),
+      this.auditSnapshot(next),
+      ['title', 'description', 'isDone', 'completedByEmployeeId'],
+    );
+    if (Object.keys(changes).length > 0) {
+      await this.audit.log({
+        companyId,
+        entityType: 'task',
+        entityId: id,
+        action: 'update',
+        changes,
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    }
+    return toDto(next);
   }
 
   @Delete('tasks/:id')
@@ -250,10 +291,20 @@ export class TasksController {
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const existing = await this.tasks.findById(id, companyId);
     if (!existing) throw new NotFoundException(`Task ${id} not found`);
     await this.tasks.deleteById(id, companyId);
+    await this.audit.log({
+      companyId,
+      entityType: 'task',
+      entityId: id,
+      action: 'delete',
+      changes: snapshotAsChangeSet(this.auditSnapshot(existing), 'delete'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
   }
 
   // ─── Listados por target ────────────────────────────────────────────

@@ -10,7 +10,10 @@ export type EntityType =
   | 'shift_template'
   | 'employee'
   | 'company_policy'
-  | 'rule';
+  | 'rule'
+  | 'task'
+  | 'shift_assignment_break'
+  | 'shift_membership';
 
 export type AuditAction = 'create' | 'update' | 'delete';
 

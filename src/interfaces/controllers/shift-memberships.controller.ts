@@ -20,6 +20,13 @@ import {
   type IShiftMembershipRepository,
 } from '../../domain/repositories/shift-membership.repository';
 import { ShiftMembership } from '../../domain/aggregates/shift-membership.aggregate';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import {
+  ENTITY_AUDIT_SERVICE,
+  type IEntityAuditService,
+  snapshotAsChangeSet,
+} from '../../domain/audit/entity-audit.service';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -57,7 +64,18 @@ export class ShiftMembershipsController {
   constructor(
     @Inject(SHIFT_MEMBERSHIP_REPOSITORY)
     private readonly membershipRepo: IShiftMembershipRepository,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  private auditSnapshot(m: ShiftMembership): Record<string, unknown> {
+    return {
+      employeeId: m.employeeId,
+      templateId: m.templateId,
+      effectiveFrom: m.effectiveFrom,
+      effectiveUntil: m.effectiveUntil,
+    };
+  }
 
   @Get()
   async list(
@@ -89,6 +107,7 @@ export class ShiftMembershipsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateShiftMembershipDto,
   ): Promise<object> {
     const membership = ShiftMembership.create({
@@ -100,6 +119,15 @@ export class ShiftMembershipsController {
       effectiveUntil: dto.effectiveUntil ?? null,
     });
     await this.membershipRepo.save(membership);
+    await this.audit.log({
+      companyId,
+      entityType: 'shift_membership',
+      entityId: membership.id,
+      action: 'create',
+      changes: snapshotAsChangeSet(this.auditSnapshot(membership), 'create'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
     return this.toDto(membership);
   }
 
@@ -109,11 +137,21 @@ export class ShiftMembershipsController {
   async remove(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const existing = await this.membershipRepo.findById(id, companyId);
     if (!existing)
       throw new NotFoundException(`ShiftMembership ${id} not found`);
     await this.membershipRepo.delete(id, companyId);
+    await this.audit.log({
+      companyId,
+      entityType: 'shift_membership',
+      entityId: id,
+      action: 'delete',
+      changes: snapshotAsChangeSet(this.auditSnapshot(existing), 'delete'),
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
   }
 
   private toDto(m: ShiftMembership): object {

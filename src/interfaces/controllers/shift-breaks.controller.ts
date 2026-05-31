@@ -39,6 +39,14 @@ import {
 } from '../../domain/repositories/shift-template-break.repository';
 import { ShiftTemplateBreak } from '../../domain/aggregates/shift-template-break.aggregate';
 import type { ShiftAssignmentBreak } from '../../domain/aggregates/shift-assignment-break.aggregate';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
+import {
+  ENTITY_AUDIT_SERVICE,
+  type IEntityAuditService,
+  computeChangeSet,
+  snapshotAsChangeSet,
+} from '../../domain/audit/entity-audit.service';
 
 // ─── DTOs ─────────────────────────────────────────────────────────────
 
@@ -183,7 +191,20 @@ export class ShiftBreaksController {
     private readonly assignmentBreakRepo: IShiftAssignmentBreakRepository,
     @Inject(SHIFT_TEMPLATE_BREAK_REPOSITORY)
     private readonly templateBreakRepo: IShiftTemplateBreakRepository,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
+
+  /** Snapshot serializable de un assignment break. */
+  private auditSnapshotBreak(b: ShiftAssignmentBreak): Record<string, unknown> {
+    return {
+      assignmentId: b.assignmentId,
+      startTime: b.startTime.toISOString(),
+      endTime: b.endTime.toISOString(),
+      isPaid: b.isPaid,
+      reason: b.reason,
+    };
+  }
 
   // ─── Assignment-level breaks ───────────────────────────────────────
 
@@ -205,6 +226,7 @@ export class ShiftBreaksController {
   async createAssignmentBreak(
     @Param('assignmentId') assignmentId: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: CreateAssignmentBreakDto,
   ): Promise<AssignmentBreakResponse> {
     try {
@@ -215,6 +237,18 @@ export class ShiftBreaksController {
         endTime: new Date(dto.endTime),
         isPaid: dto.isPaid,
         reason: dto.reason ?? null,
+      });
+      await this.audit.log({
+        companyId,
+        entityType: 'shift_assignment_break',
+        entityId: created.id,
+        action: 'create',
+        changes: snapshotAsChangeSet(
+          this.auditSnapshotBreak(created),
+          'create',
+        ),
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
       });
       return toAssignmentBreakDto(created);
     } catch (err) {
@@ -227,8 +261,10 @@ export class ShiftBreaksController {
   async updateAssignmentBreak(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
     @Body() dto: UpdateAssignmentBreakDto,
   ): Promise<AssignmentBreakResponse> {
+    const before = await this.assignmentBreakRepo.findById(id, companyId);
     try {
       const updated = await this.breakManager.updateBreak({
         breakId: id,
@@ -238,6 +274,24 @@ export class ShiftBreaksController {
         isPaid: dto.isPaid,
         reason: dto.reason,
       });
+      if (before) {
+        const changes = computeChangeSet(
+          this.auditSnapshotBreak(before),
+          this.auditSnapshotBreak(updated),
+          ['startTime', 'endTime', 'isPaid', 'reason'],
+        );
+        if (Object.keys(changes).length > 0) {
+          await this.audit.log({
+            companyId,
+            entityType: 'shift_assignment_break',
+            entityId: id,
+            action: 'update',
+            changes,
+            actorUserId: user?.userId ?? null,
+            actorEmployeeId: user?.employeeId ?? null,
+          });
+        }
+      }
       return toAssignmentBreakDto(updated);
     } catch (err) {
       throw handleBreakConflict(err);
@@ -250,9 +304,25 @@ export class ShiftBreaksController {
   async deleteAssignmentBreak(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
+    const before = await this.assignmentBreakRepo.findById(id, companyId);
     try {
       await this.breakManager.deleteBreak(id, companyId);
+      if (before) {
+        await this.audit.log({
+          companyId,
+          entityType: 'shift_assignment_break',
+          entityId: id,
+          action: 'delete',
+          changes: snapshotAsChangeSet(
+            this.auditSnapshotBreak(before),
+            'delete',
+          ),
+          actorUserId: user?.userId ?? null,
+          actorEmployeeId: user?.employeeId ?? null,
+        });
+      }
     } catch (err) {
       throw handleBreakConflict(err);
     }
