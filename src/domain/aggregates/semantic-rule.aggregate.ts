@@ -2,6 +2,7 @@ import { RulePriority } from '../value-objects/rule-priority.vo';
 import { RuleType } from '../value-objects/rule-type.vo';
 import { RuleEmbedding } from '../value-objects/rule-embedding.vo';
 import type { RuleStructure } from '../value-objects/rule-structure.vo';
+import { MIN_FREE_TEXT_LENGTH } from '../constants/text-rules';
 
 export interface SemanticRulePersistenceRow {
   id: string;
@@ -37,7 +38,7 @@ export interface SemanticRulePersistenceRow {
  *   → deactivate()                 → soft-deleted, excluida de recuperación RAG
  */
 export class SemanticRuleAggregate {
-  private static readonly MIN_TEXT_LENGTH = 10;
+  private static readonly MIN_TEXT_LENGTH = MIN_FREE_TEXT_LENGTH;
   private static readonly MAX_TEXT_LENGTH = 1000;
 
   private constructor(

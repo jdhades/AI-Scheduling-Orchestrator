@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { PolicySeverity } from '../value-objects/policy-severity.vo';
+import { MIN_FREE_TEXT_LENGTH } from '../constants/text-rules';
 
 /**
  * Scope al que aplica la policy. Phase 14.1 — antes era implícito
@@ -104,7 +105,7 @@ function validateScope(scope: PolicyScope): void {
 }
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MIN_TEXT_LENGTH = 10;
+const MIN_TEXT_LENGTH = MIN_FREE_TEXT_LENGTH;
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 

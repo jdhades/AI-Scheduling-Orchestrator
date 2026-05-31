@@ -113,6 +113,10 @@ const TEMPLATES: Record<TemplateEntity, TemplateDef> = {
         key: 'phone',
         required: false,
         format: 'E.164 (+15551234567)',
+        // TODO(hardcode): example fijo a +54 (AR) — usable en cualquier
+        // región porque el formato E.164 es el mismo; el +54 es solo el
+        // país que ve el owner al copiar. Sacarlo cuando exista
+        // `companies.country_code` para derivar prefix por tenant.
         example: '+5491134567890',
       },
       {
