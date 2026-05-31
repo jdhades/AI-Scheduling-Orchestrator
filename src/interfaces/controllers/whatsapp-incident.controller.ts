@@ -69,8 +69,11 @@ export class WhatsAppIncidentController {
     try {
       const rawBody = req.body as Record<string, string>;
 
-      // 0. Validate Twilio signature (skip in test/development env)
-      const skipValidation = this.env === 'test' || this.env === 'development';
+      // 0. Validate Twilio signature. Skip ONLY in NODE_ENV=test (jest
+      //    fixtures sin firma real). Development se chequea igual que
+      //    prod — si la env de Twilio no está configurada en dev se
+      //    debe usar ngrok + un Twilio sandbox real, no skip silencioso.
+      const skipValidation = process.env.NODE_ENV === 'test';
       if (!skipValidation) {
         const url = this.webhookUrl || `https://${host}/webhooks/twilio`;
         const isValid = Twilio.validateRequest(

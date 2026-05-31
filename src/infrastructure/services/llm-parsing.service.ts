@@ -1,6 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { GoogleGenAI } from '@google/genai'; // Assuming this is how we imported it previously based on structure
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
+import { GoogleGenAI } from '@google/genai';
 import { ConflictResolutionEngine } from '../../domain/services/conflict-resolution.engine';
+import {
+  IntegrationCredentialsService,
+  INTEGRATION_UPDATED_EVENT,
+  type IntegrationUpdatedPayload,
+} from '../integrations/integration-credentials.service';
 
 export interface MedicalCertificateData {
   patient_name: string;
@@ -11,19 +18,62 @@ export interface MedicalCertificateData {
 }
 
 @Injectable()
-export class LlmParsingService {
+export class LlmParsingService implements OnModuleInit {
   private readonly logger = new Logger(LlmParsingService.name);
-  // Assuming a configured Gemini instance via typical factory/provider approach
-  private readonly gemini: GoogleGenAI;
+  private gemini: GoogleGenAI | null = null;
 
-  constructor() {
-    this.gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  constructor(
+    private readonly config: ConfigService,
+    private readonly integrations: IntegrationCredentialsService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.reload();
+  }
+
+  async reload(): Promise<void> {
+    const cfg = await this.integrations.get('gemini');
+    let apiKey: string | undefined;
+    if (cfg && cfg.enabled) {
+      apiKey = (cfg.credentials as { apiKey?: string }).apiKey;
+      if (apiKey) {
+        this.logger.log(
+          `LlmParsingService: gemini key loaded from integration_credentials (env=${this.integrations.activeEnv}).`,
+        );
+      }
+    }
+    if (!apiKey) {
+      apiKey = this.config.get<string>('GEMINI_API_KEY');
+      if (apiKey) {
+        this.logger.log('LlmParsingService: gemini key from .env (fallback).');
+      }
+    }
+    this.gemini = apiKey ? new GoogleGenAI({ apiKey }) : null;
+    if (!this.gemini) {
+      this.logger.warn(
+        'LlmParsingService: gemini key not configured — parseMedicalCertificate will throw.',
+      );
+    }
+  }
+
+  @OnEvent(INTEGRATION_UPDATED_EVENT)
+  async onIntegrationUpdated(
+    payload: IntegrationUpdatedPayload,
+  ): Promise<void> {
+    if (payload.provider !== 'gemini') return;
+    await this.reload();
   }
 
   async parseMedicalCertificate(
     rawText: string,
   ): Promise<MedicalCertificateData> {
     this.logger.log('Parsing raw OCR text into JSON via Gemini 1.5 Pro');
+    if (!this.gemini) {
+      throw new Error(
+        'LlmParsingService: Gemini not configured. Set up the gemini ' +
+          'integration in /admin/integrations or GEMINI_API_KEY env.',
+      );
+    }
 
     const prompt = `
       Extract structured data from this medical certificate.

@@ -101,10 +101,11 @@ describe('CoverageService', () => {
     );
     const monday = report.days.find((d) => d.dayOfWeek === 1)!;
 
-    expect(monday.cells.find((c) => c.hour === 8)!.required).toBe(0);
+    // El rango se deriva del template (9-13) — horas fuera no aparecen.
+    expect(monday.cells.find((c) => c.hour === 8)).toBeUndefined();
     expect(monday.cells.find((c) => c.hour === 9)!.required).toBe(3);
     expect(monday.cells.find((c) => c.hour === 12)!.required).toBe(3);
-    expect(monday.cells.find((c) => c.hour === 13)!.required).toBe(0); // exclusive end
+    expect(monday.cells.find((c) => c.hour === 13)).toBeUndefined(); // exclusive end → no celda
   });
 
   it('cuenta assignments del template como asignados en sus horas', async () => {
@@ -131,7 +132,7 @@ describe('CoverageService', () => {
 
     expect(monday.cells.find((c) => c.hour === 10)!.assigned).toBe(2);
     expect(monday.cells.find((c) => c.hour === 10)!.required).toBe(3);
-    expect(monday.cells.find((c) => c.hour === 13)!.assigned).toBe(0); // fuera del rango
+    expect(monday.cells.find((c) => c.hour === 13)).toBeUndefined(); // fuera del rango template
   });
 
   it('templates inactivos se ignoran', async () => {

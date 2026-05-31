@@ -46,11 +46,38 @@ export interface CoverageReport {
  */
 @Injectable()
 export class CoverageService {
-  // TODO(hardcode): rango horario 08-21 fijo — algunos negocios operan
-  // fuera (gastronomía nocturna, salud 24/7). Cómo sacarlo: agregar
-  // `companies.business_hours_start/end` o derivar de min/max(templates).
-  // v1 fijo para alinear con la UI legacy del CoverageHeatmap.
-  static readonly HOURS_RANGE = Array.from({ length: 14 }, (_, i) => 8 + i);
+  /** Fallback cuando un tenant no tiene templates activos (onboarding,
+   *  cuenta vacía). Cubre el horario comercial estándar diurno. */
+  private static readonly FALLBACK_HOURS_RANGE = Array.from(
+    { length: 14 },
+    (_, i) => 8 + i,
+  );
+
+  /**
+   * Computa el rango de horas a mostrar derivándolo de min/max de los
+   * templates activos. Soluciona el TODO(hardcode) histórico de "08-21
+   * fijo no sirve a gastronomía nocturna ni salud 24/7": el rango se
+   * adapta automáticamente al negocio.
+   *
+   * Ignora templates overnight (endTime ≤ startTime) para v1 — esos
+   * casos se reportan con un comentario en la grilla.
+   */
+  private hoursRangeForTemplates(templates: ShiftTemplate[]): number[] {
+    let minHour = 24;
+    let maxHour = 0;
+    let any = false;
+    for (const tpl of templates) {
+      const startH = Number(tpl.startTime.slice(0, 2));
+      const endH = Number(tpl.endTime.slice(0, 2));
+      if (endH <= startH) continue;
+      if (Number.isNaN(startH) || Number.isNaN(endH)) continue;
+      any = true;
+      if (startH < minHour) minHour = startH;
+      if (endH > maxHour) maxHour = endH;
+    }
+    if (!any) return CoverageService.FALLBACK_HOURS_RANGE;
+    return Array.from({ length: maxHour - minHour }, (_, i) => minHour + i);
+  }
 
   constructor(
     @Inject(SHIFT_ASSIGNMENT_REPOSITORY)
@@ -82,7 +109,7 @@ export class CoverageService {
       ),
     ]);
     const activeTemplates = templates.filter((t) => t.isActive);
-    const templateById = new Map(activeTemplates.map((t) => [t.id, t]));
+    const hoursRange = this.hoursRangeForTemplates(activeTemplates);
 
     // Index assignments por fecha → templateId → count.
     const assignedByDateTpl = new Map<string, Map<string, number>>();
@@ -107,7 +134,7 @@ export class CoverageService {
       );
       const perTpl = assignedByDateTpl.get(dateIso) ?? new Map();
 
-      const cells: CoverageCell[] = CoverageService.HOURS_RANGE.map((hour) => {
+      const cells: CoverageCell[] = hoursRange.map((hour) => {
         let required = 0;
         let assigned = 0;
         for (const tpl of matchingTemplates) {
@@ -126,7 +153,7 @@ export class CoverageService {
 
     return {
       weekStart: anchorIso,
-      hours: CoverageService.HOURS_RANGE,
+      hours: hoursRange,
       days,
     };
   }

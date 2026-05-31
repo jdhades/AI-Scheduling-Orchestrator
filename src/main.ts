@@ -106,6 +106,21 @@ async function bootstrap() {
     );
   }
 
+  // WebSocket CORS: el @WebSocketGateway decorator evalúa la config al
+  // cargar el module, así que el origin se setea desde FRONTEND_URL al
+  // arranque. Sin FRONTEND_URL en prod, el gateway cae a wildcard ('*')
+  // y cualquier origin podría conectar. Hard-fail acá replica el guard
+  // de HTTP CORS más abajo.
+  if (isProdLike && !process.env.FRONTEND_URL) {
+    console.error(
+      '🚨 FRONTEND_URL not set in production environment. ' +
+        'The WebSocket gateway would fall back to a wildcard CORS origin, ' +
+        'allowing any origin to open a WS connection. Set FRONTEND_URL ' +
+        '(e.g. https://app.example.com) before booting.',
+    );
+    process.exit(1);
+  }
+
   // Traduce errores de Postgres / no-HTTP a respuestas con `errorCode`
   // estable que el frontend resuelve via i18n.
   app.useGlobalFilters(new PostgresExceptionFilter());

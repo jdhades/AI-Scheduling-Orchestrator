@@ -1,12 +1,26 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
+import { createHash } from 'crypto';
 import { Resend } from 'resend';
 import {
   IntegrationCredentialsService,
   INTEGRATION_UPDATED_EVENT,
   type IntegrationUpdatedPayload,
 } from '../integrations/integration-credentials.service';
+
+/**
+ * Hash truncado del email para logs: permite correlación operacional
+ * (mismo destinatario re-aparece como mismo hash) sin filtrar la
+ * dirección al log central. Conserva el dominio para diagnóstico
+ * ("emails a @gmail.com están fallando").
+ */
+const redactEmail = (raw: string): string => {
+  const at = raw.lastIndexOf('@');
+  const domain = at >= 0 ? raw.slice(at) : '';
+  const hash = createHash('sha256').update(raw).digest('hex').slice(0, 8);
+  return `email:${hash}${domain}`;
+};
 
 /**
  * EmailService — wrapper transactional sobre Resend.
@@ -173,8 +187,11 @@ export class EmailService implements OnModuleInit {
       `Accept the invitation here: ${acceptUrl}\n\n` +
       `The link expires in 7 days.`;
 
+    const recipientForLog = redactEmail(params.to);
     if (!this.resend) {
-      this.logger.log(`[LOG-ONLY] Invitation to ${params.to} → ${acceptUrl}`);
+      this.logger.log(
+        `[LOG-ONLY] Invitation to ${recipientForLog} → ${acceptUrl}`,
+      );
       return;
     }
 
@@ -188,16 +205,16 @@ export class EmailService implements OnModuleInit {
       });
       if (error) {
         this.logger.error(
-          `Resend error sending invitation to ${params.to}: ${error.message}`,
+          `Resend error sending invitation to ${recipientForLog}: ${error.message}`,
         );
         throw new Error(error.message);
       }
       this.logger.log(
-        `Invitation sent to ${params.to} (resend id=${data?.id ?? 'unknown'})`,
+        `Invitation sent to ${recipientForLog} (resend id=${data?.id ?? 'unknown'})`,
       );
     } catch (err) {
       this.logger.error(
-        `Failed to send invitation to ${params.to}: ${(err as Error).message}`,
+        `Failed to send invitation to ${recipientForLog}: ${(err as Error).message}`,
       );
       throw err;
     }
