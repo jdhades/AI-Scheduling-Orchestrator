@@ -34,6 +34,7 @@ import type { ImportStagingStatus } from '../../domain/imports/import-payload.ty
 import { ImportPayloadDto } from '../dtos/imports/import-payload.dto';
 import { ConfirmImportDto } from '../dtos/imports/confirm-import.dto';
 import { ImportValidatorService } from '../../application/imports/import-validator.service';
+import { ImportReferenceResolverService } from '../../application/imports/import-reference-resolver.service';
 import {
   ImportPreviewBuilderService,
   type PreviewResult,
@@ -119,6 +120,7 @@ export class ImportsController {
     @Inject(IMPORT_STAGING_REPOSITORY)
     private readonly repo: IImportStagingRepository,
     private readonly validator: ImportValidatorService,
+    private readonly refResolver: ImportReferenceResolverService,
     private readonly previewBuilder: ImportPreviewBuilderService,
     private readonly committer: ImportCommitterService,
     private readonly reverter: ImportReverterService,
@@ -433,7 +435,11 @@ export class ImportsController {
     if (staging.previewCache) {
       return staging.previewCache as PreviewResult;
     }
-    const extraWarnings = this.validator.validate(staging.payload);
+    const resolved = await this.refResolver.resolveExternal(
+      staging.payload,
+      companyId,
+    );
+    const extraWarnings = this.validator.validate(staging.payload, resolved);
     const preview = await this.previewBuilder.build(
       staging.payload,
       companyId,
@@ -460,11 +466,15 @@ export class ImportsController {
         `Cannot confirm import in status "${staging.status}"`,
       );
     }
+    const resolved = await this.refResolver.resolveExternal(
+      staging.payload,
+      companyId,
+    );
     // Asegurar que el preview esté cacheado — sino el plan default
     // (will_create vs will_update) no está calculado.
     let preview = staging.previewCache as PreviewResult | null;
     if (!preview) {
-      const extraWarnings = this.validator.validate(staging.payload);
+      const extraWarnings = this.validator.validate(staging.payload, resolved);
       preview = await this.previewBuilder.build(
         staging.payload,
         companyId,
@@ -481,6 +491,7 @@ export class ImportsController {
         payload: staging.payload,
         preview,
         decisions: body.decisions,
+        resolved,
       });
       // Persistir snapshot pre-commit antes de marcar committed, para
       // que POST /revert lo encuentre.

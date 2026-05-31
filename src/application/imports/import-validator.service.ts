@@ -3,6 +3,7 @@ import type {
   ImportPayload,
   ImportWarning,
 } from '../../domain/imports/import-payload.types';
+import type { ResolvedReferences } from './import-reference-resolver.service';
 
 /**
  * ImportValidator — chequeos cross-entity sobre un payload ya parseado
@@ -17,14 +18,22 @@ import type {
  * Side-effect-free: devuelve `warnings[]` adicionales. No muta el
  * payload. El committer decide qué hacer con warnings de severity
  * 'error' (skip esa fila).
+ *
+ * Si se pasa `resolved` (refs externas al payload encontradas en BD),
+ * los warnings de tipo `*_NOT_IN_PAYLOAD` se rebajan a severity='info'
+ * cuando la ref es resoluble en BD — eso evita el ruido en el caso
+ * pyme "subo solo employees con dept apuntando a una BD ya poblada".
  */
 @Injectable()
 export class ImportValidatorService {
-  validate(payload: ImportPayload): ImportWarning[] {
+  validate(
+    payload: ImportPayload,
+    resolved?: ResolvedReferences,
+  ): ImportWarning[] {
     const warnings: ImportWarning[] = [];
 
     this.checkExternalIdUniqueness(payload, warnings);
-    this.checkIntraPayloadFks(payload, warnings);
+    this.checkIntraPayloadFks(payload, warnings, resolved);
     this.checkShiftTimes(payload, warnings);
     this.checkEmployeeUniqueness(payload, warnings);
     this.checkTimeOffRanges(payload, warnings);
@@ -69,6 +78,7 @@ export class ImportValidatorService {
   private checkIntraPayloadFks(
     payload: ImportPayload,
     warnings: ImportWarning[],
+    resolved?: ResolvedReferences,
   ): void {
     const empIds = new Set(
       (payload.data.employees ?? []).map((e) => e.externalId),
@@ -83,40 +93,82 @@ export class ImportValidatorService {
       (payload.data.locations ?? []).map((l) => l.externalId),
     );
 
-    // Shifts → employee
-    for (const s of payload.data.shifts ?? []) {
-      if (s.employeeExternalId && !empIds.has(s.employeeExternalId)) {
+    // Emisor central — si la ref está en `resolved.<entity>`, la BD ya
+    // tiene un row matcheable. En ese caso el warning es 'info' (no
+    // bloquea ni cuenta como ruido) y el mensaje lo dice explícito.
+    const emit = (args: {
+      entity: 'shifts' | 'employees' | 'availability' | 'timeOff';
+      externalId: string;
+      refKind: 'employees' | 'departments' | 'roles' | 'branches';
+      refValue: string;
+      codeIfPayload: string;
+      codeIfDb: string;
+      noun: string;
+    }) => {
+      const inDb = resolved?.[args.refKind].has(args.refValue) ?? false;
+      if (inDb) {
+        warnings.push({
+          severity: 'info',
+          code: args.codeIfDb,
+          message: `${args.entity.replace(/s$/, '')} ${args.externalId} references ${args.noun} "${args.refValue}" — not in payload, matched in DB`,
+          entityRef: { entity: args.entity, externalId: args.externalId },
+        });
+      } else {
         warnings.push({
           severity: 'warn',
-          code: 'IMPORT_SHIFT_EMPLOYEE_NOT_IN_PAYLOAD',
-          message: `Shift ${s.externalId} references employee "${s.employeeExternalId}" not present in this payload`,
-          entityRef: { entity: 'shifts', externalId: s.externalId },
+          code: args.codeIfPayload,
+          message: `${args.entity.replace(/s$/, '')} ${args.externalId} references ${args.noun} "${args.refValue}" — not in payload and not found in DB`,
+          entityRef: { entity: args.entity, externalId: args.externalId },
           suggestion:
-            'The committer will try to match against existing employees in the database.',
+            'Include the row in the payload or use a name that matches an existing one in the database.',
+        });
+      }
+    };
+
+    // Shifts → employee / dept / role / location
+    for (const s of payload.data.shifts ?? []) {
+      if (s.employeeExternalId && !empIds.has(s.employeeExternalId)) {
+        emit({
+          entity: 'shifts',
+          externalId: s.externalId,
+          refKind: 'employees',
+          refValue: s.employeeExternalId,
+          codeIfPayload: 'IMPORT_SHIFT_EMPLOYEE_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_SHIFT_EMPLOYEE_RESOLVED_IN_DB',
+          noun: 'employee',
         });
       }
       if (s.requiredRoleExternalId && !roleIds.has(s.requiredRoleExternalId)) {
-        warnings.push({
-          severity: 'warn',
-          code: 'IMPORT_SHIFT_ROLE_NOT_IN_PAYLOAD',
-          message: `Shift ${s.externalId} requires role "${s.requiredRoleExternalId}" not in payload`,
-          entityRef: { entity: 'shifts', externalId: s.externalId },
+        emit({
+          entity: 'shifts',
+          externalId: s.externalId,
+          refKind: 'roles',
+          refValue: s.requiredRoleExternalId,
+          codeIfPayload: 'IMPORT_SHIFT_ROLE_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_SHIFT_ROLE_RESOLVED_IN_DB',
+          noun: 'role',
         });
       }
       if (s.departmentExternalId && !deptIds.has(s.departmentExternalId)) {
-        warnings.push({
-          severity: 'warn',
-          code: 'IMPORT_SHIFT_DEPT_NOT_IN_PAYLOAD',
-          message: `Shift ${s.externalId} references department "${s.departmentExternalId}" not in payload`,
-          entityRef: { entity: 'shifts', externalId: s.externalId },
+        emit({
+          entity: 'shifts',
+          externalId: s.externalId,
+          refKind: 'departments',
+          refValue: s.departmentExternalId,
+          codeIfPayload: 'IMPORT_SHIFT_DEPT_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_SHIFT_DEPT_RESOLVED_IN_DB',
+          noun: 'department',
         });
       }
       if (s.locationExternalId && !locIds.has(s.locationExternalId)) {
-        warnings.push({
-          severity: 'warn',
-          code: 'IMPORT_SHIFT_LOCATION_NOT_IN_PAYLOAD',
-          message: `Shift ${s.externalId} references location "${s.locationExternalId}" not in payload`,
-          entityRef: { entity: 'shifts', externalId: s.externalId },
+        emit({
+          entity: 'shifts',
+          externalId: s.externalId,
+          refKind: 'branches',
+          refValue: s.locationExternalId,
+          codeIfPayload: 'IMPORT_SHIFT_LOCATION_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_SHIFT_LOCATION_RESOLVED_IN_DB',
+          noun: 'location',
         });
       }
     }
@@ -124,20 +176,26 @@ export class ImportValidatorService {
     // Employees → role(s) y dept
     for (const e of payload.data.employees ?? []) {
       if (e.departmentExternalId && !deptIds.has(e.departmentExternalId)) {
-        warnings.push({
-          severity: 'warn',
-          code: 'IMPORT_EMPLOYEE_DEPT_NOT_IN_PAYLOAD',
-          message: `Employee ${e.externalId} references department "${e.departmentExternalId}" not in payload`,
-          entityRef: { entity: 'employees', externalId: e.externalId },
+        emit({
+          entity: 'employees',
+          externalId: e.externalId,
+          refKind: 'departments',
+          refValue: e.departmentExternalId,
+          codeIfPayload: 'IMPORT_EMPLOYEE_DEPT_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_EMPLOYEE_DEPT_RESOLVED_IN_DB',
+          noun: 'department',
         });
       }
       for (const rid of e.roleExternalIds ?? []) {
         if (!roleIds.has(rid)) {
-          warnings.push({
-            severity: 'warn',
-            code: 'IMPORT_EMPLOYEE_ROLE_NOT_IN_PAYLOAD',
-            message: `Employee ${e.externalId} references role "${rid}" not in payload`,
-            entityRef: { entity: 'employees', externalId: e.externalId },
+          emit({
+            entity: 'employees',
+            externalId: e.externalId,
+            refKind: 'roles',
+            refValue: rid,
+            codeIfPayload: 'IMPORT_EMPLOYEE_ROLE_NOT_IN_PAYLOAD',
+            codeIfDb: 'IMPORT_EMPLOYEE_ROLE_RESOLVED_IN_DB',
+            noun: 'role',
           });
         }
       }
@@ -146,11 +204,14 @@ export class ImportValidatorService {
     // Availability → employee
     for (const a of payload.data.availability ?? []) {
       if (!empIds.has(a.employeeExternalId)) {
-        warnings.push({
-          severity: 'warn',
-          code: 'IMPORT_AVAILABILITY_EMPLOYEE_NOT_IN_PAYLOAD',
-          message: `Availability ${a.externalId} references employee "${a.employeeExternalId}" not in payload`,
-          entityRef: { entity: 'availability', externalId: a.externalId },
+        emit({
+          entity: 'availability',
+          externalId: a.externalId,
+          refKind: 'employees',
+          refValue: a.employeeExternalId,
+          codeIfPayload: 'IMPORT_AVAILABILITY_EMPLOYEE_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_AVAILABILITY_EMPLOYEE_RESOLVED_IN_DB',
+          noun: 'employee',
         });
       }
     }
@@ -158,11 +219,14 @@ export class ImportValidatorService {
     // TimeOff → employee
     for (const t of payload.data.timeOff ?? []) {
       if (!empIds.has(t.employeeExternalId)) {
-        warnings.push({
-          severity: 'warn',
-          code: 'IMPORT_TIMEOFF_EMPLOYEE_NOT_IN_PAYLOAD',
-          message: `TimeOff ${t.externalId} references employee "${t.employeeExternalId}" not in payload`,
-          entityRef: { entity: 'timeOff', externalId: t.externalId },
+        emit({
+          entity: 'timeOff',
+          externalId: t.externalId,
+          refKind: 'employees',
+          refValue: t.employeeExternalId,
+          codeIfPayload: 'IMPORT_TIMEOFF_EMPLOYEE_NOT_IN_PAYLOAD',
+          codeIfDb: 'IMPORT_TIMEOFF_EMPLOYEE_RESOLVED_IN_DB',
+          noun: 'employee',
         });
       }
     }

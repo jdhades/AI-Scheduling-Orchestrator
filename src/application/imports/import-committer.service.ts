@@ -11,6 +11,7 @@ import type {
   PreviewResult,
   PreviewRow,
 } from './import-preview-builder.service';
+import type { ResolvedReferences } from './import-reference-resolver.service';
 
 /**
  * ImportCommitter — ejecuta el commit del payload aprobado al DB real.
@@ -114,6 +115,14 @@ export class ImportCommitterService {
     payload: ImportPayload;
     preview: PreviewResult;
     decisions?: Record<string, 'create' | 'update' | 'skip'>;
+    /**
+     * Pre-resolved external refs (rows que aparecen en `data.shifts` /
+     * `data.employees` etc. apuntando a entidades NO incluidas en el
+     * payload pero existentes en BD). Si se pasa, sus uuids se pre-
+     * cargan en los idMaps antes de iterar — así shifts apuntando a un
+     * employee externo no fallan con "not found".
+     */
+    resolved?: ResolvedReferences;
   }): Promise<CommitResult> {
     const startedAt = new Date().toISOString();
     const snapshot: PreCommitSnapshot = {
@@ -143,11 +152,14 @@ export class ImportCommitterService {
 
     // Maps externalId → realId (poblados a medida que vamos commiteando).
     // Permite resolver FKs intra-payload al persistir.
+    // Pre-cargados con `input.resolved` para que refs apuntando a
+    // entidades existentes en BD (no en el payload) se resuelvan sin
+    // que el committer falle por "not found".
     const idMaps = {
-      locations: new Map<string, string>(),
-      departments: new Map<string, string>(),
-      roles: new Map<string, string>(),
-      employees: new Map<string, string>(),
+      locations: new Map<string, string>(input.resolved?.branches),
+      departments: new Map<string, string>(input.resolved?.departments),
+      roles: new Map<string, string>(input.resolved?.roles),
+      employees: new Map<string, string>(input.resolved?.employees),
       shifts: new Map<string, string>(),
     };
 
@@ -185,10 +197,7 @@ export class ImportCommitterService {
     // Cache de tiempos del assignment para que commitBreaks no tenga
     // que volver a SELECTear shift_assignments por cada break (cuello
     // de botella: 64 shifts × 1 select extra = 64 round-trips evitados).
-    const assignmentTimes = new Map<
-      string,
-      { start: Date; end: Date }
-    >();
+    const assignmentTimes = new Map<string, { start: Date; end: Date }>();
 
     // Fase 5 (magic import): tracking de (employee, template, date) por cada
     // shift commiteado. Se agrupa post-shifts para derivar memberships.
@@ -222,11 +231,7 @@ export class ImportCommitterService {
       report.entities.availability,
       idMaps.employees,
     );
-    await this.commitTimeOff(
-      input,
-      report.entities.timeOff,
-      idMaps.employees,
-    );
+    await this.commitTimeOff(input, report.entities.timeOff, idMaps.employees);
     await this.commitMemberships(
       input,
       report.entities.memberships,
@@ -696,14 +701,18 @@ export class ImportCommitterService {
 
       try {
         if (!r.employeeExternalId) {
+          // TODO(open-shifts): requiere migration de shift_assignments
+          // (employee_id NOT NULL + PK que lo incluye) + cambios en
+          // solver/grilla/queries que asumen empleado. Sprint dedicado
+          // — no se cierra como bug fix de imports.
           throw new Error(
-            'Open shifts (without employee) not supported in import yet',
+            'Open shifts (shifts without an assigned employee) are not yet supported by this import flow. Add the employee to the row, or create the shift via the schedule UI after import.',
           );
         }
         const employeeId = empMap.get(r.employeeExternalId);
         if (!employeeId) {
           throw new Error(
-            `employee "${r.employeeExternalId}" not found in payload or DB`,
+            `employee "${r.employeeExternalId}" not found in payload or DB (lookup by external_id)`,
           );
         }
         const dayOfWeek = this.dayOfWeekFromIsoDate(r.date);
@@ -731,18 +740,16 @@ export class ImportCommitterService {
         );
 
         const id = randomUUID();
-        const { error } = await this.supabase
-          .from('shift_assignments')
-          .insert({
-            id,
-            company_id: input.companyId,
-            template_id: templateId,
-            employee_id: employeeId,
-            date: r.date,
-            origin: 'override',
-            actual_start_time: startTs,
-            actual_end_time: endTs,
-          });
+        const { error } = await this.supabase.from('shift_assignments').insert({
+          id,
+          company_id: input.companyId,
+          template_id: templateId,
+          employee_id: employeeId,
+          date: r.date,
+          origin: 'override',
+          actual_start_time: startTs,
+          actual_end_time: endTs,
+        });
         if (error) throw new Error(error.message);
         shiftMap.set(r.externalId, id);
         assignmentTimes.set(id, {
@@ -966,10 +973,7 @@ export class ImportCommitterService {
             `employee "${r.employeeExternalId}" not found in payload or DB`,
           );
         }
-        const insertRows = this.expandAvailabilityWindows(
-          r,
-          employeeId,
-        );
+        const insertRows = this.expandAvailabilityWindows(r, employeeId);
         if (insertRows.length === 0) {
           out.push({
             externalId: r.externalId,
@@ -1172,16 +1176,14 @@ export class ImportCommitterService {
       const externalId = `memb:${employeeId.slice(0, 8)}:${templateId.slice(0, 8)}`;
       try {
         const id = randomUUID();
-        const { error } = await this.supabase
-          .from('shift_memberships')
-          .insert({
-            id,
-            company_id: input.companyId,
-            employee_id: employeeId,
-            template_id: templateId,
-            effective_from: firstDate,
-            effective_until: null,
-          });
+        const { error } = await this.supabase.from('shift_memberships').insert({
+          id,
+          company_id: input.companyId,
+          employee_id: employeeId,
+          template_id: templateId,
+          effective_from: firstDate,
+          effective_until: null,
+        });
         if (error) {
           // Postgres unique_violation = 23505
           const code = (error as { code?: string }).code;

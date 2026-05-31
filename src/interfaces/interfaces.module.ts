@@ -67,6 +67,7 @@ import { AdminImportsController } from './controllers/admin-imports.controller';
 import { ImportValidatorService } from '../application/imports/import-validator.service';
 import { ImportPreviewBuilderService } from '../application/imports/import-preview-builder.service';
 import { ImportCommitterService } from '../application/imports/import-committer.service';
+import { ImportReferenceResolverService } from '../application/imports/import-reference-resolver.service';
 import { ImportReverterService } from '../application/imports/import-reverter.service';
 import { ImportDateSnapperService } from '../application/imports/import-date-snapper.service';
 import { TemplateExcelBuilderService } from '../application/imports/template-excel-builder.service';
@@ -161,6 +162,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ImportValidatorService,
     ImportPreviewBuilderService,
     ImportCommitterService,
+    ImportReferenceResolverService,
     ImportReverterService,
     ImportDateSnapperService,
     TemplateExcelBuilderService,
