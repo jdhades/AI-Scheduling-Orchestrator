@@ -499,6 +499,42 @@ export class AuthController {
       throw new BadRequestException('Either email or phoneNumber is required');
     }
 
+    // Fail-early: si el email ya tiene cuenta en auth.users, no tiene
+    // sentido crear la invitación. Sin este check, el flujo descubre el
+    // conflicto recién al hacer accept (mala UX: el manager invita, el
+    // mail sale, el invitado clickea, completa el form y AHÍ ve el 409).
+    // Service_role + `.schema('auth')` para query directo a auth.users.
+    if (dto.email) {
+      const { data: existingAuthUser } = await (
+        this.supabase as unknown as {
+          schema: (s: string) => {
+            from: (t: string) => {
+              select: (cols: string) => {
+                eq: (col: string, val: string) => {
+                  limit: (n: number) => {
+                    maybeSingle: () => Promise<{
+                      data: { id: string } | null;
+                    }>;
+                  };
+                };
+              };
+            };
+          };
+        }
+      )
+        .schema('auth')
+        .from('users')
+        .select('id')
+        .eq('email', dto.email)
+        .limit(1)
+        .maybeSingle();
+      if (existingAuthUser) {
+        throw new ConflictException(
+          'A user with this email already exists. Ask them to log in instead.',
+        );
+      }
+    }
+
     // Si vino employeeId, validar que sea del mismo tenant + que el row
     // existe + que no esté ya linkeado a un auth_user.
     let inviterName = 'A manager';
