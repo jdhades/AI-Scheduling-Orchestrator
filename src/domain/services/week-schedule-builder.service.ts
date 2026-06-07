@@ -188,6 +188,11 @@ export class WeekScheduleBuilder {
      * filtra en decideCell). Undefined = feature off → sin restricción.
      */
     allowedLocationsByEmployee?: Map<string, Set<string>>;
+    /**
+     * Locations feature — `employeeId → 'fixed' | 'rotate'`. El determinístico
+     * usa esto para anclar (fixed) o distribuir (rotate) entre locaciones.
+     */
+    locationModeByEmployee?: Map<string, 'fixed' | 'rotate'>;
   }): Promise<BuildWithRetriesResult> {
     const isEs = (params.locale ?? 'en').toLowerCase().startsWith('es');
     // Templates de warning localizables. El builder devuelve strings
@@ -583,6 +588,8 @@ export class WeekScheduleBuilder {
     applyFairness?: boolean;
     /** Locations feature — `employeeId → Set<locationId>` permitidas. */
     allowedLocationsByEmployee?: Map<string, Set<string>>;
+    /** Locations feature — `employeeId → 'fixed' | 'rotate'` (default rotate). */
+    locationModeByEmployee?: Map<string, 'fixed' | 'rotate'>;
   }): BuilderResult {
     const {
       employees,
@@ -597,7 +604,11 @@ export class WeekScheduleBuilder {
       unpaidMinutesByTemplate,
       applyFairness = true,
       allowedLocationsByEmployee,
+      locationModeByEmployee,
     } = params;
+    // Locations feature — carga acumulada (semana en curso) por empleado y
+    // locationId, para distribuir (rotate) o anclar (fixed) en decideCell.
+    const locationLoad = new Map<string, Map<string, number>>();
     const unpaidMap = unpaidMinutesByTemplate ?? new Map<string, number>();
 
     // ── Estado ────────────────────────────────────────────────────────────
@@ -667,6 +678,8 @@ export class WeekScheduleBuilder {
           multiShiftPermits,
           llmLines,
           allowedLocations: allowedLocationsByEmployee?.get(emp.id) ?? null,
+          locationMode: locationModeByEmployee?.get(emp.id) ?? 'rotate',
+          locationLoad: locationLoad.get(emp.id),
         });
 
         if (decision.type === 'rest') {
@@ -678,6 +691,16 @@ export class WeekScheduleBuilder {
         const slot = decision.slot;
         line.days[date] = slot;
         fillBySlot.set(slot.slotKey, (fillBySlot.get(slot.slotKey) ?? 0) + 1);
+
+        // Locations feature — registrar la carga por locación para el balanceo.
+        if (slot.locationId) {
+          let lm = locationLoad.get(emp.id);
+          if (!lm) {
+            lm = new Map<string, number>();
+            locationLoad.set(emp.id, lm);
+          }
+          lm.set(slot.locationId, (lm.get(slot.locationId) ?? 0) + 1);
+        }
 
         const snapshot = this.snapshotOf(liveHistory);
         assignments.push(
@@ -738,6 +761,10 @@ export class WeekScheduleBuilder {
     llmLines?: Map<string, Record<string, string | 'rest'>>;
     /** Locations feature — set de locaciones permitidas del empleado (o null). */
     allowedLocations?: Set<string> | null;
+    /** Locations feature — modo del empleado: 'fixed' (anclar) | 'rotate' (distribuir). */
+    locationMode?: 'fixed' | 'rotate';
+    /** Locations feature — carga actual del empleado por locationId (semana en curso). */
+    locationLoad?: Map<string, number>;
   }):
     | { type: 'rest'; reason: string }
     | {
@@ -756,6 +783,8 @@ export class WeekScheduleBuilder {
       multiShiftPermits,
       llmLines,
       allowedLocations,
+      locationMode,
+      locationLoad,
     } = params;
 
     // Paso 0 (implícito): ya asignado → no sobrescribir. La iteración por
@@ -879,7 +908,18 @@ export class WeekScheduleBuilder {
         const ca = categoryOf(a.slot, a.fill);
         const cb = categoryOf(b.slot, b.fill);
         if (ca !== cb) return ca - cb;
-        return a.fill - b.fill;
+        if (a.fill !== b.fill) return a.fill - b.fill;
+        // Locations feature — desempate por modo del empleado:
+        //   rotate → preferir la locación menos usada esta semana (distribuir);
+        //   fixed  → preferir la más usada (anclar a una sola).
+        const la = a.slot.locationId ? (locationLoad?.get(a.slot.locationId) ?? 0) : 0;
+        const lb = b.slot.locationId ? (locationLoad?.get(b.slot.locationId) ?? 0) : 0;
+        if (la !== lb) return locationMode === 'fixed' ? lb - la : la - lb;
+        // Tiebreak estable por locationId → ancla consistente para 'fixed'.
+        const ida = a.slot.locationId ?? '';
+        const idb = b.slot.locationId ?? '';
+        if (ida !== idb) return ida < idb ? -1 : 1;
+        return 0;
       });
 
     const chosen = ranked[0].slot;

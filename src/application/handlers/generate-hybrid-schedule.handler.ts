@@ -376,14 +376,22 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
     // el scheduler (LLM verify + determinístico) solo asigne a slots de sus
     // locaciones. Flag off → undefined → sin restricción (comportamiento legacy).
     let allowedLocationsByEmployee: Map<string, Set<string>> | undefined;
+    let locationModeByEmployee: Map<string, 'fixed' | 'rotate'> | undefined;
     if (await this.tenantFeatures.isEnabled(command.companyId, 'locations')) {
       const empIds = employees.map((e) => e.id);
       if (empIds.length > 0) {
-        const { data: locRows } = await this.supabase
-          .from('employee_locations')
-          .select('employee_id, location_id')
-          .eq('company_id', command.companyId)
-          .in('employee_id', empIds);
+        const [{ data: locRows }, { data: modeRows }] = await Promise.all([
+          this.supabase
+            .from('employee_locations')
+            .select('employee_id, location_id')
+            .eq('company_id', command.companyId)
+            .in('employee_id', empIds),
+          this.supabase
+            .from('employees')
+            .select('id, location_mode')
+            .eq('company_id', command.companyId)
+            .in('id', empIds),
+        ]);
         const map = new Map<string, Set<string>>();
         for (const r of locRows ?? []) {
           const eid = r.employee_id as string;
@@ -391,6 +399,14 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
           map.get(eid)!.add(r.location_id as string);
         }
         allowedLocationsByEmployee = map;
+        const modeMap = new Map<string, 'fixed' | 'rotate'>();
+        for (const r of modeRows ?? []) {
+          modeMap.set(
+            r.id as string,
+            (r.location_mode as string) === 'fixed' ? 'fixed' : 'rotate',
+          );
+        }
+        locationModeByEmployee = modeMap;
       }
     }
 
@@ -412,6 +428,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       unpaidMinutesByTemplate,
       applyFairness,
       allowedLocationsByEmployee,
+      locationModeByEmployee,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría

@@ -297,6 +297,38 @@ describe('WeekScheduleBuilder', () => {
     expect(ok.some((v) => v.kind === 'location-not-allowed')).toBe(false);
   });
 
+  it('locations: rotate distribuye entre locaciones; fixed ancla a una', () => {
+    const dates = ['2026-03-09', '2026-03-10', '2026-03-11', '2026-03-12'];
+    const slots = dates.flatMap((d) => [
+      makeSlot('sA', d, 8, 16, null, null, 'L1'),
+      makeSlot('sB', d, 8, 16, null, null, 'L2'),
+    ]);
+    const emps = [makeEmployee('e1')];
+    const allowed = new Map([['e1', new Set(['L1', 'L2'])]]);
+
+    const rot = builder.build({
+      ...DEFAULT_BUILD,
+      employees: emps,
+      slots,
+      semanticRules: [],
+      allowedLocationsByEmployee: allowed,
+      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([['e1', 'rotate']]),
+    });
+    expect(rot.assignments).toHaveLength(4);
+    expect(new Set(rot.assignments.map((a) => a.templateId)).size).toBe(2);
+
+    const fix = builder.build({
+      ...DEFAULT_BUILD,
+      employees: emps,
+      slots,
+      semanticRules: [],
+      allowedLocationsByEmployee: allowed,
+      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([['e1', 'fixed']]),
+    });
+    expect(fix.assignments).toHaveLength(4);
+    expect(new Set(fix.assignments.map((a) => a.templateId)).size).toBe(1);
+  });
+
   it('membership prioriza sobre sugerencia LLM: LLM dice Nocturno pero es miembro de Diurno → Diurno', () => {
     const slots = weekSlots();
     const emps = [makeEmployee('e1')];
