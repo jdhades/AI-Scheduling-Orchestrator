@@ -423,6 +423,7 @@ export class EmployeeController {
     departmentId: string | null;
     email: string | null;
     companyName: string | null;
+    timezone: string | null;
   }> {
     if (!user?.employeeId) {
       throw new NotFoundException('No employee is linked to this account');
@@ -449,6 +450,12 @@ export class EmployeeController {
         .eq('id', companyId)
         .maybeSingle(),
     ]);
+    // The wall-clock timezone the employee sees lives on their branch.
+    // Resolve employee → department → branch.timezone (null if unassigned).
+    const timezone = await this.resolveEmployeeTimezone(
+      emp.departmentId,
+      companyId,
+    );
     return {
       id: emp.id,
       name: emp.name,
@@ -457,7 +464,30 @@ export class EmployeeController {
       departmentId: emp.departmentId,
       email: (empRow?.email as string | null) ?? null,
       companyName: (co?.name as string | null) ?? null,
+      timezone,
     };
+  }
+
+  private async resolveEmployeeTimezone(
+    departmentId: string | null,
+    companyId: string,
+  ): Promise<string | null> {
+    if (!departmentId) return null;
+    const { data: dept } = await this.supabase
+      .from('departments')
+      .select('branch_id')
+      .eq('id', departmentId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    const branchId = (dept?.branch_id as string | null) ?? null;
+    if (!branchId) return null;
+    const { data: branch } = await this.supabase
+      .from('branches')
+      .select('timezone')
+      .eq('id', branchId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    return (branch?.timezone as string | null) ?? null;
   }
 
   /**
