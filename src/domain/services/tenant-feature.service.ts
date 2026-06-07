@@ -64,6 +64,13 @@ export const FEATURE_CATALOG: ReadonlyArray<FeatureCatalogEntry> = [
       'Default OFF: el sistema rechaza un nuevo import si la company tiene un import committed que todavía no fue revertido y está dentro de la ventana de revert (7 días). El owner debe revertir el anterior o esperar a que expire. Encender este flag SOLO para tenants de testing — en producción genera empleados/turnos duplicados.',
     defaultEnabled: false,
   },
+  {
+    key: 'locations',
+    label: 'Locations — multi-site under branches',
+    description:
+      'Add-on (default OFF): habilita locaciones físicas bajo una sucursal, cada una con su geofence (posición + radio) obligatorio. El marcaje valida contra la locación del turno, y el empleado puede quedar fijo o rotar entre locaciones (entra en scheduling + fairness). Tenants sin el flag usan la sucursal como único punto de marcaje (comportamiento por defecto).',
+    defaultEnabled: false,
+  },
 ];
 
 // Removidos 2026-05-27 (con el user): flags sin caso de uso real,

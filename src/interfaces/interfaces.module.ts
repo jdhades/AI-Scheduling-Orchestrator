@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EmployeeController } from './controllers/employee.controller';
 import { TimeclockController } from './controllers/timeclock.controller';
+import { LocationsController } from './controllers/locations.controller';
 import { HandshakeController } from './controllers/handshake.controller';
 import { ScheduleController } from './controllers/schedule.controller';
 import { RuleController } from './controllers/rule.controller';
@@ -97,6 +98,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
   controllers: [
     EmployeeController,
     TimeclockController,
+    LocationsController,
     HandshakeController,
     ScheduleController,
     RuleController,
