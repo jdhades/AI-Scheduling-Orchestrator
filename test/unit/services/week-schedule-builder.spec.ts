@@ -329,6 +329,26 @@ describe('WeekScheduleBuilder', () => {
     expect(new Set(fix.assignments.map((a) => a.templateId)).size).toBe(1);
   });
 
+  it('locations: rotate cross-week prefiere la locación menos usada históricamente', () => {
+    const slots = [
+      makeSlot('sA', '2026-03-09', 8, 16, null, null, 'L1'),
+      makeSlot('sB', '2026-03-09', 8, 16, null, null, 'L2'),
+    ];
+    const emps = [makeEmployee('e1')];
+    const res = builder.build({
+      ...DEFAULT_BUILD,
+      employees: emps,
+      slots,
+      semanticRules: [],
+      allowedLocationsByEmployee: new Map([['e1', new Set(['L1', 'L2'])]]),
+      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([['e1', 'rotate']]),
+      // Históricamente cargado en L1 → debe elegir L2 (sB) esta vez.
+      priorLocationLoadByEmployee: new Map([['e1', new Map([['L1', 3]])]]),
+    });
+    expect(res.assignments).toHaveLength(1);
+    expect(res.assignments[0].templateId).toBe('sB');
+  });
+
   it('membership prioriza sobre sugerencia LLM: LLM dice Nocturno pero es miembro de Diurno → Diurno', () => {
     const slots = weekSlots();
     const emps = [makeEmployee('e1')];

@@ -193,6 +193,16 @@ export class WeekScheduleBuilder {
      * usa esto para anclar (fixed) o distribuir (rotate) entre locaciones.
      */
     locationModeByEmployee?: Map<string, 'fixed' | 'rotate'>;
+    /**
+     * Locations feature — `locationId → name`. Se pasa al proposer para que el
+     * prompt del LLM muestre nombres de locación y respete permitidas + modo.
+     */
+    locationNamesById?: Map<string, string>;
+    /**
+     * Locations feature — carga histórica `employeeId → (locationId → count)`
+     * para el balanceo de rotación cross-week (sembrado en build()).
+     */
+    priorLocationLoadByEmployee?: Map<string, Map<string, number>>;
   }): Promise<BuildWithRetriesResult> {
     const isEs = (params.locale ?? 'en').toLowerCase().startsWith('es');
     // Templates de warning localizables. El builder devuelve strings
@@ -307,6 +317,9 @@ export class WeekScheduleBuilder {
         feedback,
         policyPromptBlock,
         signal: params.signal,
+        locationNamesById: params.locationNamesById,
+        allowedLocationsByEmployee: params.allowedLocationsByEmployee,
+        locationModeByEmployee: params.locationModeByEmployee,
       });
 
       if (llmLines.size === 0) {
@@ -590,6 +603,12 @@ export class WeekScheduleBuilder {
     allowedLocationsByEmployee?: Map<string, Set<string>>;
     /** Locations feature — `employeeId → 'fixed' | 'rotate'` (default rotate). */
     locationModeByEmployee?: Map<string, 'fixed' | 'rotate'>;
+    /**
+     * Locations feature — carga histórica `employeeId → (locationId → count)`
+     * de semanas previas. Siembra el balanceo para que 'rotate' sea justo
+     * CROSS-week (no solo dentro de la semana).
+     */
+    priorLocationLoadByEmployee?: Map<string, Map<string, number>>;
   }): BuilderResult {
     const {
       employees,
@@ -605,10 +624,17 @@ export class WeekScheduleBuilder {
       applyFairness = true,
       allowedLocationsByEmployee,
       locationModeByEmployee,
+      priorLocationLoadByEmployee,
     } = params;
-    // Locations feature — carga acumulada (semana en curso) por empleado y
-    // locationId, para distribuir (rotate) o anclar (fixed) en decideCell.
+    // Locations feature — carga por empleado y locationId, para distribuir
+    // (rotate) o anclar (fixed) en decideCell. Se siembra con la carga
+    // histórica (semanas previas) para que rotate sea justo cross-week.
     const locationLoad = new Map<string, Map<string, number>>();
+    if (priorLocationLoadByEmployee) {
+      for (const [eid, m] of priorLocationLoadByEmployee) {
+        locationLoad.set(eid, new Map(m));
+      }
+    }
     const unpaidMap = unpaidMinutesByTemplate ?? new Map<string, number>();
 
     // ── Estado ────────────────────────────────────────────────────────────

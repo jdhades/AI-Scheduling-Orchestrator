@@ -59,6 +59,12 @@ export class LLMLineProposerService {
      * y `complete()` lanza un error que el builder propaga arriba.
      */
     signal?: AbortSignal;
+    /** Locations feature — `locationId → name` (vacío/undefined = feature off). */
+    locationNamesById?: Map<string, string>;
+    /** Locations feature — `employeeId → Set<locationId>` permitidas. */
+    allowedLocationsByEmployee?: Map<string, Set<string>>;
+    /** Locations feature — `employeeId → 'fixed' | 'rotate'`. */
+    locationModeByEmployee?: Map<string, 'fixed' | 'rotate'>;
   }): Promise<Map<string, Record<string, string | 'rest'>>> {
     const {
       companyId,
@@ -71,6 +77,9 @@ export class LLMLineProposerService {
       feedback,
       policyPromptBlock,
       signal,
+      locationNamesById,
+      allowedLocationsByEmployee,
+      locationModeByEmployee,
     } = params;
 
     if (employees.length === 0 || slots.length === 0) {
@@ -103,6 +112,9 @@ export class LLMLineProposerService {
       weekStart,
       feedback,
       policyPromptBlock,
+      locationNamesById,
+      allowedLocationsByEmployee,
+      locationModeByEmployee,
     });
 
     this.logger.log(
@@ -220,6 +232,12 @@ Expected output format:
     weekStart: Date;
     feedback?: string;
     policyPromptBlock?: string;
+    /** Locations feature — `locationId → name` para renderizar en el prompt. */
+    locationNamesById?: Map<string, string>;
+    /** Locations feature — `employeeId → Set<locationId>` permitidas. */
+    allowedLocationsByEmployee?: Map<string, Set<string>>;
+    /** Locations feature — `employeeId → 'fixed' | 'rotate'`. */
+    locationModeByEmployee?: Map<string, 'fixed' | 'rotate'>;
   }): {
     prompt: string;
     empMaps: ReturnType<LLMLineProposerService['buildIdentifierMaps']>;
@@ -232,6 +250,9 @@ Expected output format:
       weekStart,
       feedback,
       policyPromptBlock,
+      locationNamesById,
+      allowedLocationsByEmployee,
+      locationModeByEmployee,
     } = params;
 
     // Mapeo de nombres a UUIDs. Sufijo `-xxxxxx` (6 chars del UUID) se incluye
@@ -264,13 +285,38 @@ Expected output format:
       })
       .join('\n');
 
+    const locationsActive = !!locationNamesById && locationNamesById.size > 0;
+
     const templateBlock = templates
       .map((t) => {
         const displayName = templateIdToName.get(t.templateId)!;
         const capacity = this.capacityLabel(t.requiredEmployees);
-        return `  - ${displayName}: ${t.startLabel} a ${t.endLabel} (${capacity})`;
+        const loc =
+          locationsActive && t.locationId
+            ? locationNamesById!.get(t.locationId)
+            : null;
+        const locSuffix = loc ? ` @ ${loc}` : '';
+        return `  - ${displayName}: ${t.startLabel} a ${t.endLabel} (${capacity})${locSuffix}`;
       })
       .join('\n');
+
+    // Locations feature — por empleado: locaciones permitidas + modo.
+    const locationsSection = locationsActive
+      ? `\n## Locations (HARD constraint)\nEach shift happens at the location shown after "@". An employee may ONLY be assigned to shifts whose location is in their allowed list. Honor each employee's mode: 'rotate' = spread their week across their allowed locations; 'fixed' = keep them at a single location all week.\n${employees
+          .map((e) => {
+            const display = empIdToName.get(e.id);
+            const allowed = allowedLocationsByEmployee?.get(e.id);
+            const mode = locationModeByEmployee?.get(e.id) ?? 'rotate';
+            if (!allowed || allowed.size === 0) {
+              return `  - ${display}: any location`;
+            }
+            const names = [...allowed]
+              .map((id) => locationNamesById!.get(id) ?? id)
+              .sort();
+            return `  - ${display}: allowed [${names.join(', ')}] · mode: ${mode}`;
+          })
+          .join('\n')}\n`
+      : '';
 
     const datesBlock = dates
       .map((d, i) => `  ${i + 1}. ${d} (${this.weekdayLabel(d)})`)
@@ -319,7 +365,7 @@ ${employeeBlock}
 
 ## Shifts (valid every day of the week)
 ${templateBlock}
-
+${locationsSection}
 ## Week
 ${weekStartIso} to ${dates[dates.length - 1]}.
 ${datesBlock}
@@ -426,6 +472,7 @@ Reason (3–5 lines), then return the JSON.`;
     startLabel: string;
     endLabel: string;
     requiredEmployees: number | null;
+    locationId: string | null;
   }[] {
     const byId = new Map<string, VirtualShiftSlot>();
     for (const s of slots) {
@@ -437,6 +484,7 @@ Reason (3–5 lines), then return the JSON.`;
       startLabel: this.hm(s.startTime),
       endLabel: this.hm(s.endTime),
       requiredEmployees: s.requiredEmployees,
+      locationId: s.locationId,
     }));
   }
 

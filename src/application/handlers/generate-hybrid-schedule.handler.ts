@@ -377,21 +377,36 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
     // locaciones. Flag off → undefined → sin restricción (comportamiento legacy).
     let allowedLocationsByEmployee: Map<string, Set<string>> | undefined;
     let locationModeByEmployee: Map<string, 'fixed' | 'rotate'> | undefined;
+    let locationNamesById: Map<string, string> | undefined;
+    let priorLocationLoadByEmployee:
+      | Map<string, Map<string, number>>
+      | undefined;
     if (await this.tenantFeatures.isEnabled(command.companyId, 'locations')) {
       const empIds = employees.map((e) => e.id);
       if (empIds.length > 0) {
-        const [{ data: locRows }, { data: modeRows }] = await Promise.all([
-          this.supabase
-            .from('employee_locations')
-            .select('employee_id, location_id')
-            .eq('company_id', command.companyId)
-            .in('employee_id', empIds),
-          this.supabase
-            .from('employees')
-            .select('id, location_mode')
-            .eq('company_id', command.companyId)
-            .in('id', empIds),
-        ]);
+        const [{ data: locRows }, { data: modeRows }, { data: nameRows }] =
+          await Promise.all([
+            this.supabase
+              .from('employee_locations')
+              .select('employee_id, location_id')
+              .eq('company_id', command.companyId)
+              .in('employee_id', empIds),
+            this.supabase
+              .from('employees')
+              .select('id, location_mode')
+              .eq('company_id', command.companyId)
+              .in('id', empIds),
+            this.supabase
+              .from('locations')
+              .select('id, name')
+              .eq('company_id', command.companyId)
+              .eq('is_active', true),
+          ]);
+        const nameMap = new Map<string, string>();
+        for (const r of nameRows ?? []) {
+          nameMap.set(r.id as string, r.name as string);
+        }
+        locationNamesById = nameMap;
         const map = new Map<string, Set<string>>();
         for (const r of locRows ?? []) {
           const eid = r.employee_id as string;
@@ -407,6 +422,35 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
           );
         }
         locationModeByEmployee = modeMap;
+
+        // Cross-week rotation fairness — carga histórica por locación de las
+        // últimas ~8 semanas, derivada de assignments previos (regen-safe:
+        // excluye la semana en curso y se recalcula en cada run).
+        const since = new Date(weekStart);
+        since.setUTCDate(since.getUTCDate() - 56);
+        const sinceIso = since.toISOString().split('T')[0];
+        const thisWeekIso = weekStart.toISOString().split('T')[0];
+        const { data: histRows } = await this.supabase
+          .from('shift_assignments')
+          .select('employee_id, template_id, date')
+          .eq('company_id', command.companyId)
+          .in('employee_id', empIds)
+          .gte('date', sinceIso)
+          .lt('date', thisWeekIso);
+        const tplLoc = new Map(templates.map((t) => [t.id, t.locationId]));
+        const prior = new Map<string, Map<string, number>>();
+        for (const r of histRows ?? []) {
+          const locId = tplLoc.get(r.template_id as string);
+          if (!locId) continue;
+          const eid = r.employee_id as string;
+          let m = prior.get(eid);
+          if (!m) {
+            m = new Map<string, number>();
+            prior.set(eid, m);
+          }
+          m.set(locId, (m.get(locId) ?? 0) + 1);
+        }
+        priorLocationLoadByEmployee = prior;
       }
     }
 
@@ -429,6 +473,8 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       applyFairness,
       allowedLocationsByEmployee,
       locationModeByEmployee,
+      locationNamesById,
+      priorLocationLoadByEmployee,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría
