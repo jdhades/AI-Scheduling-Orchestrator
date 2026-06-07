@@ -43,6 +43,11 @@ export class CreateClockEventDto {
   @IsString()
   shiftAssignmentId?: string;
 
+  /** Locación contra la que se valida el geofence (feature 'locations'). */
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
   @ValidateNested()
   @Type(() => ClockGpsDto)
   gps!: ClockGpsDto;

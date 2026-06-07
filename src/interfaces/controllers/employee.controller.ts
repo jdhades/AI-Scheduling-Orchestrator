@@ -19,6 +19,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
@@ -39,6 +40,27 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { EmailService } from '../../infrastructure/notifications/email.service';
+import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
+import { IsArray, IsIn, IsString } from 'class-validator';
+
+/** Body de PUT /employees/:id/locations — set de locaciones permitidas + modo. */
+export class SetEmployeeLocationsDto {
+  @IsArray()
+  @IsString({ each: true })
+  locationIds!: string[];
+
+  @IsIn(['fixed', 'rotate'])
+  mode!: 'fixed' | 'rotate';
+}
+
+interface EmployeeLocationDTO {
+  id: string;
+  branchId: string;
+  name: string;
+  geofenceLat: number;
+  geofenceLng: number;
+  geofenceRadiusM: number;
+}
 
 /**
  * EmployeeController — Interfaces Layer
@@ -68,7 +90,17 @@ export class EmployeeController {
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
     private readonly emailService: EmailService,
+    private readonly tenantFeatures: TenantFeatureService,
   ) {}
+
+  private async ensureLocationsEnabled(companyId: string): Promise<void> {
+    const on = await this.tenantFeatures.isEnabled(companyId, 'locations');
+    if (!on) {
+      throw new BadRequestException(
+        'The "locations" feature is not enabled for this company',
+      );
+    }
+  }
 
   /**
    * Bookkeeping HR fields que viven a nivel de tabla `employees` pero NO
@@ -535,6 +567,155 @@ export class EmployeeController {
         user.employeeId,
       ),
     );
+  }
+
+  /**
+   * GET /employees/me/locations
+   * Locaciones permitidas del empleado autenticado + su modo (app móvil).
+   * Declarado antes de `:id`. Requiere la feature 'locations'.
+   */
+  @Get('me/locations')
+  async getMyLocations(
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ mode: 'fixed' | 'rotate'; locations: EmployeeLocationDTO[] }> {
+    if (!user?.employeeId) {
+      throw new NotFoundException('No employee is linked to this account');
+    }
+    await this.ensureLocationsEnabled(companyId);
+    const [{ data: emp }, { data: rows }] = await Promise.all([
+      this.supabase
+        .from('employees')
+        .select('location_mode')
+        .eq('id', user.employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle(),
+      this.supabase
+        .from('employee_locations')
+        .select(
+          'locations(id, branch_id, name, geofence_lat, geofence_lng, geofence_radius_m, is_active)',
+        )
+        .eq('employee_id', user.employeeId)
+        .eq('company_id', companyId),
+    ]);
+    const mode = (emp?.location_mode as string) === 'fixed' ? 'fixed' : 'rotate';
+    type LocRow = {
+      id: string;
+      branch_id: string;
+      name: string;
+      geofence_lat: number;
+      geofence_lng: number;
+      geofence_radius_m: number;
+      is_active: boolean;
+    };
+    // supabase types the to-one embed as an array; normalize array-or-object.
+    const typed = (rows ?? []) as unknown as Array<{ locations: LocRow | LocRow[] | null }>;
+    const locations: EmployeeLocationDTO[] = typed
+      .map((r) => (Array.isArray(r.locations) ? r.locations[0] : r.locations))
+      .filter((l): l is LocRow => !!l && l.is_active)
+      .map((l) => ({
+        id: l.id,
+        branchId: l.branch_id,
+        name: l.name,
+        geofenceLat: l.geofence_lat,
+        geofenceLng: l.geofence_lng,
+        geofenceRadiusM: l.geofence_radius_m,
+      }));
+    return { mode, locations };
+  }
+
+  /**
+   * GET /employees/:id/locations — locaciones permitidas + modo (vista manager).
+   */
+  @Get(':id/locations')
+  async getEmployeeLocations(
+    @Param('id') employeeId: string,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ mode: 'fixed' | 'rotate'; locationIds: string[] }> {
+    await this.ensureLocationsEnabled(companyId);
+    const [{ data: emp }, { data: rows }] = await Promise.all([
+      this.supabase
+        .from('employees')
+        .select('location_mode')
+        .eq('id', employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle(),
+      this.supabase
+        .from('employee_locations')
+        .select('location_id')
+        .eq('employee_id', employeeId)
+        .eq('company_id', companyId),
+    ]);
+    if (!emp) throw new NotFoundException(`Employee ${employeeId} not found`);
+    const mode = (emp.location_mode as string) === 'fixed' ? 'fixed' : 'rotate';
+    return {
+      mode,
+      locationIds: (rows ?? []).map((r) => r.location_id as string),
+    };
+  }
+
+  /**
+   * PUT /employees/:id/locations — set de locaciones permitidas + modo.
+   * Reemplaza el set completo. Valida que las locaciones sean del tenant.
+   */
+  @Put(':id/locations')
+  @Requires('employees:write')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setEmployeeLocations(
+    @Param('id') employeeId: string,
+    @Body() dto: SetEmployeeLocationsDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    await this.ensureLocationsEnabled(companyId);
+    const { data: emp } = await this.supabase
+      .from('employees')
+      .select('id')
+      .eq('id', employeeId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (!emp) throw new NotFoundException(`Employee ${employeeId} not found`);
+
+    const ids = [...new Set(dto.locationIds)];
+    if (ids.length) {
+      const { data: locs } = await this.supabase
+        .from('locations')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+        .in('id', ids);
+      const valid = new Set((locs ?? []).map((l) => l.id as string));
+      const bad = ids.filter((i) => !valid.has(i));
+      if (bad.length) {
+        throw new BadRequestException(`Unknown location(s): ${bad.join(', ')}`);
+      }
+    }
+
+    const { error: upErr } = await this.supabase
+      .from('employees')
+      .update({ location_mode: dto.mode })
+      .eq('id', employeeId)
+      .eq('company_id', companyId);
+    if (upErr) throw new Error(upErr.message);
+
+    const { error: delErr } = await this.supabase
+      .from('employee_locations')
+      .delete()
+      .eq('employee_id', employeeId)
+      .eq('company_id', companyId);
+    if (delErr) throw new Error(delErr.message);
+
+    if (ids.length) {
+      const { error: insErr } = await this.supabase
+        .from('employee_locations')
+        .insert(
+          ids.map((location_id) => ({
+            company_id: companyId,
+            employee_id: employeeId,
+            location_id,
+          })),
+        );
+      if (insErr) throw new Error(insErr.message);
+    }
   }
 
   /**

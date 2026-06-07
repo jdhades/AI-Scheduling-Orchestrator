@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -18,6 +19,7 @@ import {
   evaluateGpsClock,
   type GeofenceConfig,
 } from '../../domain/services/timeclock-evaluation';
+import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 import { CreateClockEventDto } from '../dtos/create-clock-event.dto';
 
 interface ClockEventDTO {
@@ -79,7 +81,10 @@ function toDTO(r: ClockEventRow): ClockEventDTO {
  */
 @Controller('timeclock')
 export class TimeclockController {
-  constructor(@Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+    private readonly tenantFeatures: TenantFeatureService,
+  ) {}
 
   @Post('events')
   @HttpCode(HttpStatus.OK)
@@ -96,7 +101,11 @@ export class TimeclockController {
     const existing = await this.findByClientUuid(companyId, dto.clientUuid);
     if (existing) return toDTO(existing);
 
-    const geofence = await this.resolveGeofence(user.employeeId, companyId);
+    const { geofence, locationId } = await this.resolvePunchGeofence(
+      user.employeeId,
+      companyId,
+      dto.locationId,
+    );
     const evaluation = evaluateGpsClock(
       { lat: dto.gps.lat, lng: dto.gps.lng, accuracy: dto.gps.accuracy },
       geofence,
@@ -108,6 +117,7 @@ export class TimeclockController {
         company_id: companyId,
         employee_id: user.employeeId,
         shift_assignment_id: dto.shiftAssignmentId ?? null,
+        location_id: locationId,
         client_uuid: dto.clientUuid,
         type: dto.type,
         source: 'gps',
@@ -170,6 +180,49 @@ export class TimeclockController {
       .eq('client_uuid', clientUuid)
       .maybeSingle<ClockEventRow>();
     return data ?? null;
+  }
+
+  /**
+   * Resolves the geofence to validate the punch against:
+   *  - if the 'locations' feature is on AND a locationId is given → validate it
+   *    belongs to the employee's allowed set + active, use its geofence, and
+   *    stamp location_id on the event.
+   *  - otherwise → the branch geofence (default behavior, no location stamped).
+   */
+  private async resolvePunchGeofence(
+    employeeId: string,
+    companyId: string,
+    locationId?: string,
+  ): Promise<{ geofence: GeofenceConfig | null; locationId: string | null }> {
+    if (locationId && (await this.tenantFeatures.isEnabled(companyId, 'locations'))) {
+      const { data: allowed } = await this.supabase
+        .from('employee_locations')
+        .select('location_id')
+        .eq('employee_id', employeeId)
+        .eq('company_id', companyId)
+        .eq('location_id', locationId)
+        .maybeSingle();
+      if (!allowed) {
+        throw new ForbiddenException('This location is not allowed for the employee');
+      }
+      const { data: loc } = await this.supabase
+        .from('locations')
+        .select('geofence_lat, geofence_lng, geofence_radius_m, is_active')
+        .eq('id', locationId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (loc && loc.is_active) {
+        return {
+          geofence: {
+            lat: loc.geofence_lat as number,
+            lng: loc.geofence_lng as number,
+            radiusM: loc.geofence_radius_m as number,
+          },
+          locationId,
+        };
+      }
+    }
+    return { geofence: await this.resolveGeofence(employeeId, companyId), locationId: null };
   }
 
   /** employee → department → branch geofence (null if not fully configured). */
