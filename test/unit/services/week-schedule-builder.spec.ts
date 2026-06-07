@@ -64,6 +64,7 @@ function makeSlot(
   endHour: number,
   requiredEmployees: number | null = 1,
   requiredSkillId: string | null = null,
+  locationId: string | null = null,
 ): VirtualShiftSlot {
   const start = new Date(`${date}T00:00:00Z`);
   start.setUTCHours(startHour, 0, 0, 0);
@@ -81,6 +82,7 @@ function makeSlot(
     requiredSkillId,
     demandScore: 1,
     undesirableWeight: 0,
+    locationId,
   });
 }
 
@@ -232,6 +234,67 @@ describe('WeekScheduleBuilder', () => {
     const under = result.underfilled.find((u) => u.slot.templateId === 'cook');
     expect(under).toBeDefined();
     expect(under!.filled).toBe(0);
+  });
+
+  it('locations: determinístico no asigna a slot de locación no permitida; sí a la permitida', () => {
+    const slots = [makeSlot('postA', '2026-03-09', 8, 16, 1, null, 'L1')];
+    const emps = [makeEmployee('e1')];
+    const memberships = [membership('e1', 'postA')];
+
+    const blocked = builder.build({
+      ...DEFAULT_BUILD,
+      employees: emps,
+      slots,
+      memberships,
+      semanticRules: [],
+      allowedLocationsByEmployee: new Map([['e1', new Set(['L2'])]]),
+    });
+    expect(blocked.assignments).toHaveLength(0);
+
+    const allowed = builder.build({
+      ...DEFAULT_BUILD,
+      employees: emps,
+      slots,
+      memberships,
+      semanticRules: [],
+      allowedLocationsByEmployee: new Map([['e1', new Set(['L1'])]]),
+    });
+    expect(allowed.assignments).toHaveLength(1);
+    expect(allowed.assignments[0].templateId).toBe('postA');
+  });
+
+  it('locations: verify() marca location-not-allowed fuera del set permitido', () => {
+    const slots = [makeSlot('postA', '2026-03-09', 8, 16, 1, null, 'L1')];
+    const emps = [makeEmployee('e1')];
+    const memberships = [membership('e1', 'postA')];
+    const result = builder.build({
+      ...DEFAULT_BUILD,
+      employees: emps,
+      slots,
+      memberships,
+      semanticRules: [],
+    });
+    expect(result.assignments).toHaveLength(1);
+
+    const bad = builder.verify(
+      result.assignments,
+      slots,
+      [],
+      emps,
+      undefined,
+      new Map([['e1', new Set(['L2'])]]),
+    );
+    expect(bad.some((v) => v.kind === 'location-not-allowed')).toBe(true);
+
+    const ok = builder.verify(
+      result.assignments,
+      slots,
+      [],
+      emps,
+      undefined,
+      new Map([['e1', new Set(['L1'])]]),
+    );
+    expect(ok.some((v) => v.kind === 'location-not-allowed')).toBe(false);
   });
 
   it('membership prioriza sobre sugerencia LLM: LLM dice Nocturno pero es miembro de Diurno → Diurno', () => {

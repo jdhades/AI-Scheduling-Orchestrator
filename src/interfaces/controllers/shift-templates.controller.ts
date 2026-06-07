@@ -98,6 +98,13 @@ export class CreateShiftTemplateDto {
   @IsString()
   @IsNotEmpty()
   departmentId?: string | null;
+
+  /** UUID de la locación (feature 'locations'). null = sin locación. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
+  locationId?: string | null;
 }
 
 export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
@@ -153,6 +160,12 @@ export class UpdateShiftTemplateDto implements ShiftTemplatePatch {
   @IsString()
   @IsNotEmpty()
   departmentId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @IsNotEmpty()
+  locationId?: string | null;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -244,6 +257,7 @@ export class ShiftTemplatesController {
       isActive: true,
       requiredEmployees: dto.requiredEmployees ?? null,
       departmentId: dto.departmentId ?? null,
+      locationId: dto.locationId ?? null,
     });
 
     await this.templateRepo.save(template);
@@ -359,6 +373,7 @@ export class ShiftTemplatesController {
       isActive: t.isActive,
       requiredEmployees: t.requiredEmployees,
       departmentId: t.departmentId,
+      locationId: t.locationId,
     };
   }
 }

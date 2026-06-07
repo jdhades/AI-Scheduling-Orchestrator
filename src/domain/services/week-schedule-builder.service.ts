@@ -20,6 +20,7 @@ export interface VerifyViolation {
     | 'unknown-employee'
     | 'unknown-template'
     | 'two-shifts-same-day'
+    | 'location-not-allowed'
     | 'policy-hard-violation';
   employeeId?: string;
   date?: string;
@@ -181,6 +182,12 @@ export class WeekScheduleBuilder {
      * de la decisión, no la auditoría.
      */
     applyFairness?: boolean;
+    /**
+     * Locations feature — `employeeId → Set<locationId>` permitidas. Se pasa a
+     * verify() (enforce sobre la propuesta LLM) y a build() (el determinístico
+     * filtra en decideCell). Undefined = feature off → sin restricción.
+     */
+    allowedLocationsByEmployee?: Map<string, Set<string>>;
   }): Promise<BuildWithRetriesResult> {
     const isEs = (params.locale ?? 'en').toLowerCase().startsWith('es');
     // Templates de warning localizables. El builder devuelve strings
@@ -311,6 +318,7 @@ export class WeekScheduleBuilder {
         params.semanticRules,
         params.employees,
         params.multiShiftPermits,
+        params.allowedLocationsByEmployee,
       );
       const policyEval = await this.evaluatePolicies(
         candidate.assignments,
@@ -573,6 +581,8 @@ export class WeekScheduleBuilder {
      * chicos donde el ordering agrega ruido sin beneficio real.
      */
     applyFairness?: boolean;
+    /** Locations feature — `employeeId → Set<locationId>` permitidas. */
+    allowedLocationsByEmployee?: Map<string, Set<string>>;
   }): BuilderResult {
     const {
       employees,
@@ -586,6 +596,7 @@ export class WeekScheduleBuilder {
       companyId,
       unpaidMinutesByTemplate,
       applyFairness = true,
+      allowedLocationsByEmployee,
     } = params;
     const unpaidMap = unpaidMinutesByTemplate ?? new Map<string, number>();
 
@@ -655,6 +666,7 @@ export class WeekScheduleBuilder {
           hardRules,
           multiShiftPermits,
           llmLines,
+          allowedLocations: allowedLocationsByEmployee?.get(emp.id) ?? null,
         });
 
         if (decision.type === 'rest') {
@@ -724,6 +736,8 @@ export class WeekScheduleBuilder {
     hardRules: SemanticConstraint[];
     multiShiftPermits?: Set<string>;
     llmLines?: Map<string, Record<string, string | 'rest'>>;
+    /** Locations feature — set de locaciones permitidas del empleado (o null). */
+    allowedLocations?: Set<string> | null;
   }):
     | { type: 'rest'; reason: string }
     | {
@@ -741,6 +755,7 @@ export class WeekScheduleBuilder {
       hardRules,
       multiShiftPermits,
       llmLines,
+      allowedLocations,
     } = params;
 
     // Paso 0 (implícito): ya asignado → no sobrescribir. La iteración por
@@ -793,6 +808,16 @@ export class WeekScheduleBuilder {
       if (!emp.isAvailable(slot.startTime, slot.endTime)) return false;
       // requiredEmployees === 0 → excluido (feriado por ese template)
       if (slot.requiredEmployees === 0) return false;
+      // Locación permitida (Locations feature): si el empleado tiene un set
+      // de locaciones y el slot tiene una locación fuera de él → excluir.
+      if (
+        allowedLocations &&
+        allowedLocations.size > 0 &&
+        slot.locationId &&
+        !allowedLocations.has(slot.locationId)
+      ) {
+        return false;
+      }
       return true;
     });
 
@@ -991,6 +1016,12 @@ export class WeekScheduleBuilder {
     semanticRules: SemanticConstraint[],
     employees: Employee[],
     multiShiftPermits?: Set<string>,
+    /**
+     * Locations feature — `employeeId → Set<locationId>` permitidas. Si un
+     * empleado tiene un set no vacío y el slot tiene una locación fuera de él
+     * → violación. Undefined/empty = sin restricción (feature off o sin set).
+     */
+    allowedLocationsByEmployee?: Map<string, Set<string>>,
   ): VerifyViolation[] {
     const violations: VerifyViolation[] = [];
     const empById = new Map(employees.map((e) => [e.id, e]));
@@ -1084,6 +1115,23 @@ export class WeekScheduleBuilder {
           date: list[0].date,
           message: `${emp?.name ?? list[0].employeeId.slice(0, 8)} has ${list.length} shifts on ${list[0].date}.`,
         });
+      }
+    }
+
+    // 6. Location allowed (Locations feature)
+    if (allowedLocationsByEmployee) {
+      for (const a of assignments) {
+        const slot = slotByKey.get(a.slotKey);
+        if (!slot?.locationId) continue;
+        const allowed = allowedLocationsByEmployee.get(a.employeeId);
+        if (allowed && allowed.size > 0 && !allowed.has(slot.locationId)) {
+          violations.push({
+            kind: 'location-not-allowed',
+            employeeId: a.employeeId,
+            slotKey: a.slotKey,
+            message: `${empById.get(a.employeeId)?.name ?? a.employeeId.slice(0, 8)} is not allowed at the location of ${slot.templateName}.`,
+          });
+        }
       }
     }
 

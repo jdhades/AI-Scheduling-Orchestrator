@@ -20,6 +20,7 @@ export class VirtualShiftSlot {
     public readonly requiredEmployees: number | null, // null = elástico
     public readonly demandScore: number,
     public readonly undesirableWeight: number,
+    public readonly locationId: string | null = null,
   ) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error(`VirtualShiftSlot.date must be YYYY-MM-DD, got: ${date}`);
@@ -40,6 +41,7 @@ export class VirtualShiftSlot {
     requiredEmployees?: number | null;
     demandScore?: number;
     undesirableWeight?: number;
+    locationId?: string | null;
   }): VirtualShiftSlot {
     return new VirtualShiftSlot(
       props.templateId,
@@ -52,6 +54,7 @@ export class VirtualShiftSlot {
       props.requiredEmployees ?? null,
       props.demandScore ?? 1.0,
       props.undesirableWeight ?? 0.0,
+      props.locationId ?? null,
     );
   }
 

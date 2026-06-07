@@ -12,6 +12,8 @@ export interface ShiftTemplatePatch {
   requiredEmployees?: number | null;
   /** UUID del departamento. null = company-wide. */
   departmentId?: string | null;
+  /** UUID de la locación. null = sin locación específica. */
+  locationId?: string | null;
 }
 
 export interface IShiftTemplateRepository {

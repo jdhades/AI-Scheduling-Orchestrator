@@ -372,6 +372,28 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       'fairness_postprocess',
     );
 
+    // Locations feature — set de locaciones permitidas por empleado, para que
+    // el scheduler (LLM verify + determinístico) solo asigne a slots de sus
+    // locaciones. Flag off → undefined → sin restricción (comportamiento legacy).
+    let allowedLocationsByEmployee: Map<string, Set<string>> | undefined;
+    if (await this.tenantFeatures.isEnabled(command.companyId, 'locations')) {
+      const empIds = employees.map((e) => e.id);
+      if (empIds.length > 0) {
+        const { data: locRows } = await this.supabase
+          .from('employee_locations')
+          .select('employee_id, location_id')
+          .eq('company_id', command.companyId)
+          .in('employee_id', empIds);
+        const map = new Map<string, Set<string>>();
+        for (const r of locRows ?? []) {
+          const eid = r.employee_id as string;
+          if (!map.has(eid)) map.set(eid, new Set<string>());
+          map.get(eid)!.add(r.location_id as string);
+        }
+        allowedLocationsByEmployee = map;
+      }
+    }
+
     const buildResult = await this.weekScheduleBuilder.buildWithRetries({
       employees,
       slots,
@@ -389,6 +411,7 @@ export class GenerateHybridScheduleHandler implements ICommandHandler<
       locale: command.locale,
       unpaidMinutesByTemplate,
       applyFairness,
+      allowedLocationsByEmployee,
     });
 
     // Cancel-check antes de tocar BD: si llegó cancel mientras corría

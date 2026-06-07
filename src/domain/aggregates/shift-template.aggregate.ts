@@ -22,6 +22,8 @@ export interface CreateShiftTemplateProps {
    * Null en tenants legacy sin estructura de departments configurada.
    */
   departmentId?: string | null;
+  /** Locación de los turnos del template (FK locations.id). Locations feature. */
+  locationId?: string | null;
 }
 
 /**
@@ -54,6 +56,7 @@ export class ShiftTemplate {
     public readonly isActive: boolean,
     public readonly requiredEmployees: number | null = null,
     public readonly departmentId: string | null = null,
+    public readonly locationId: string | null = null,
   ) {
     if (dayOfWeek < 0 || dayOfWeek > 6) {
       throw new Error(`Invalid dayOfWeek: ${dayOfWeek}. Must be 0–6.`);
@@ -76,6 +79,7 @@ export class ShiftTemplate {
       props.isActive,
       props.requiredEmployees ?? null,
       props.departmentId ?? null,
+      props.locationId ?? null,
     );
   }
 
@@ -161,6 +165,7 @@ export class ShiftTemplate {
       isActive: this.isActive,
       requiredEmployees: this.requiredEmployees,
       departmentId: this.departmentId,
+      locationId: this.locationId,
     };
   }
 }
