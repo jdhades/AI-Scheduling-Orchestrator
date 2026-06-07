@@ -307,6 +307,25 @@ export class EmployeeController {
       invitationSent = true;
     }
 
+    // Department es bookkeeping HR (no en el aggregate, igual que email).
+    // Persistimos directo; define la sucursal vía department→branch.
+    if (dto.departmentId) {
+      const { error } = await this.supabase
+        .from('employees')
+        .update({ department_id: dto.departmentId })
+        .eq('id', employeeId)
+        .eq('company_id', companyId);
+      if (error) {
+        // 23503 = FK violation → el department no existe / no es del tenant.
+        if ((error as { code?: string }).code === '23503') {
+          throw new BadRequestException(
+            `Department ${dto.departmentId} does not exist in this company`,
+          );
+        }
+        throw new Error(error.message);
+      }
+    }
+
     const created = await this.queryBus
       .execute(new GetEmployeeByIdQuery(employeeId, companyId))
       .catch(() => null);

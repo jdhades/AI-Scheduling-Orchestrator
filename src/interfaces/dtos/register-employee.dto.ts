@@ -49,4 +49,12 @@ export class RegisterEmployeeDto {
   @IsString()
   @MaxLength(64)
   externalId?: string;
+
+  /**
+   * Departamento al que se asigna el empleado (define también su sucursal
+   * vía department→branch). Opcional: si no llega, queda sin asignar.
+   */
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
 }
