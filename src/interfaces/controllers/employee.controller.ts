@@ -28,13 +28,15 @@ import { DeleteEmployeeCommand } from '../../application/commands/delete-employe
 import { GetEmployeeCalendarQuery } from '../../application/queries/get-employee-calendar.query';
 import { GetCompanyEmployeesQuery } from '../../application/queries/get-company-employees.query';
 import { GetEmployeeByIdQuery } from '../../application/queries/get-employee-by-id.query';
+import { GetCompanyScheduleQuery } from '../../application/queries/get-company-schedule.query';
+import type { CompanyScheduleAssignmentDTO } from '../../application/handlers/get-company-schedule.handler';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { ExperienceLevel } from '../../domain/value-objects/experience-level.vo';
 import { RegisterEmployeeDto } from '../dtos/register-employee.dto';
 import { GetEmployeeCalendarDto } from '../dtos/get-employee-calendar.dto';
 import { UpdateEmployeeDto } from '../dtos/update-employee.dto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { EmailService } from '../../infrastructure/notifications/email.service';
 
@@ -400,6 +402,90 @@ export class EmployeeController {
       invitedBy: user?.employeeId ?? null,
     });
     return { ok: true, reused: result.reused };
+  }
+
+  /**
+   * GET /employees/me
+   * Perfil del empleado autenticado (vista del propio empleado en la app
+   * móvil). Reusa GetEmployeeByIdQuery con el employeeId del JWT y enriquece
+   * con email + nombre de la empresa. Declarado ANTES de `:id` para que la
+   * ruta estática gane sobre el param.
+   */
+  @Get('me')
+  async getMe(
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{
+    id: string;
+    name: string;
+    role: string | null;
+    phone: string | null;
+    departmentId: string | null;
+    email: string | null;
+    companyName: string | null;
+  }> {
+    if (!user?.employeeId) {
+      throw new NotFoundException('No employee is linked to this account');
+    }
+    const emp = (await this.queryBus.execute(
+      new GetEmployeeByIdQuery(user.employeeId, companyId),
+    )) as {
+      id: string;
+      name: string;
+      role: string | null;
+      phone: string | null;
+      departmentId: string | null;
+    };
+    const [{ data: empRow }, { data: co }] = await Promise.all([
+      this.supabase
+        .from('employees')
+        .select('email')
+        .eq('id', user.employeeId)
+        .eq('company_id', companyId)
+        .maybeSingle(),
+      this.supabase
+        .from('companies')
+        .select('name')
+        .eq('id', companyId)
+        .maybeSingle(),
+    ]);
+    return {
+      id: emp.id,
+      name: emp.name,
+      role: emp.role,
+      phone: emp.phone,
+      departmentId: emp.departmentId,
+      email: (empRow?.email as string | null) ?? null,
+      companyName: (co?.name as string | null) ?? null,
+    };
+  }
+
+  /**
+   * GET /employees/me/schedule?weekStart=YYYY-MM-DD
+   * Turnos del empleado autenticado para la semana. Reusa
+   * GetCompanyScheduleQuery filtrando por el employeeId del JWT — el
+   * empleado solo ve lo suyo, el tenant viene del token.
+   */
+  @Get('me/schedule')
+  async getMySchedule(
+    @Query('weekStart') weekStart: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<CompanyScheduleAssignmentDTO[]> {
+    if (!user?.employeeId) {
+      throw new NotFoundException('No employee is linked to this account');
+    }
+    if (!weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+      throw new BadRequestException('weekStart (YYYY-MM-DD) is required');
+    }
+    return this.queryBus.execute(
+      new GetCompanyScheduleQuery(
+        companyId,
+        weekStart,
+        undefined,
+        user.employeeId,
+      ),
+    );
   }
 
   /**
