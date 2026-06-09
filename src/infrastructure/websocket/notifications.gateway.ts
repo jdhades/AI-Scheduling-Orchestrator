@@ -81,6 +81,9 @@ export class NotificationsGateway
         return;
       }
       void client.join(`company:${companyId}`);
+      // Room por usuario (single-device): permite avisar a los OTROS dispositivos
+      // de la misma cuenta cuando uno reclama la sesión.
+      if (claims.sub) void client.join(`user:${claims.sub}`);
       client.data.companyId = companyId;
       client.data.userId = claims.sub;
       this.logger.log(
@@ -139,6 +142,18 @@ export class NotificationsGateway
     const companyId = client.data?.companyId as string | undefined;
     if (!companyId || !body?.roomId || !body?.employeeId) return;
     this.notifyChatTyping(companyId, body.roomId, body.employeeId, body.name ?? '');
+  }
+
+  /**
+   * Single-device: el dispositivo que acaba de loguear "reclama" la sesión.
+   * Avisamos a los OTROS sockets de la misma cuenta (room `user:${sub}`, el
+   * emisor queda excluido con client.to) para que cierren sesión al instante.
+   */
+  @SubscribeMessage('session:claim')
+  onSessionClaim(@ConnectedSocket() client: Socket): void {
+    const userId = client.data?.userId as string | undefined;
+    if (!userId) return;
+    client.to(`user:${userId}`).emit('SessionRevoked', {});
   }
 
   /**
