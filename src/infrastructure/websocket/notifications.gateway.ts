@@ -4,6 +4,9 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   OnGatewayInit,
+  SubscribeMessage,
+  ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
@@ -119,8 +122,23 @@ export class NotificationsGateway
   }
 
   /** Broadcasts a typing indicator for a room. */
-  notifyChatTyping(companyId: string, roomId: string, employeeId: string) {
-    this.emitToCompany(companyId, 'ChatTyping', { roomId, employeeId });
+  notifyChatTyping(companyId: string, roomId: string, employeeId: string, name: string) {
+    this.emitToCompany(companyId, 'ChatTyping', { roomId, employeeId, name });
+  }
+
+  /**
+   * Inbound socket event: a client signals it's typing in a room. We re-broadcast
+   * to the tenant (companyId comes from the authenticated socket, never the
+   * payload). Receivers filter by roomId + ignore their own employeeId.
+   */
+  @SubscribeMessage('chat:typing')
+  onChatTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { roomId?: string; employeeId?: string; name?: string },
+  ): void {
+    const companyId = client.data?.companyId as string | undefined;
+    if (!companyId || !body?.roomId || !body?.employeeId) return;
+    this.notifyChatTyping(companyId, body.roomId, body.employeeId, body.name ?? '');
   }
 
   /**
