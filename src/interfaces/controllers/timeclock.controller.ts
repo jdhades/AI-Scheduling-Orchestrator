@@ -42,6 +42,7 @@ interface ReviewItemDTO extends ClockEventDTO {
   employeeName: string | null;
   locationId: string | null;
   locationName: string | null;
+  locationAddress: string | null;
   reviewedAt: string | null;
   reviewNote: string | null;
   /** URL firmada (1h) de la selfie, si hay bucket + foto. */
@@ -232,12 +233,15 @@ export class TimeclockController {
     const [{ data: emps }, { data: locs }] = await Promise.all([
       this.supabase.from('employees').select('id, name').in('id', empIds),
       locIds.length > 0
-        ? this.supabase.from('locations').select('id, name').in('id', locIds)
-        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+        ? this.supabase.from('locations').select('id, name, address').in('id', locIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; address: string | null }[] }),
     ]);
     const empName = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
-    const locName = new Map(
-      ((locs ?? []) as { id: string; name: string }[]).map((l) => [l.id, l.name]),
+    const locInfo = new Map(
+      ((locs ?? []) as { id: string; name: string; address: string | null }[]).map((l) => [
+        l.id,
+        { name: l.name, address: l.address ?? null },
+      ]),
     );
 
     return Promise.all(
@@ -257,7 +261,8 @@ export class TimeclockController {
           employeeId: r.employee_id,
           employeeName: empName.get(r.employee_id) ?? null,
           locationId: r.location_id ?? null,
-          locationName: r.location_id ? (locName.get(r.location_id) ?? null) : null,
+          locationName: r.location_id ? (locInfo.get(r.location_id)?.name ?? null) : null,
+          locationAddress: r.location_id ? (locInfo.get(r.location_id)?.address ?? null) : null,
           reviewedAt: r.reviewed_at ?? null,
           reviewNote: r.review_note ?? null,
           photoSignedUrl,
