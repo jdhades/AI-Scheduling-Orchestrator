@@ -29,6 +29,7 @@ import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.d
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { PushService } from '../../infrastructure/notifications/push.service';
 
 export class SendMessageDto {
   @IsOptional()
@@ -130,6 +131,7 @@ export class ChatController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
     private readonly notifications: NotificationsGateway,
+    private readonly push: PushService,
   ) {}
 
   private meId(user: AuthContext | undefined): string {
@@ -391,6 +393,23 @@ export class ChatController {
     const dtoOut = await this.withSender(inserted, me, user);
     // Realtime: avisar a la company (los clientes filtran por room).
     this.notifications.notifyChatMessage(companyId, roomId, dtoOut);
+    // Push a los demás miembros (best-effort, no bloquea la respuesta).
+    void this.supabase
+      .from('chat_room_members')
+      .select('employee_id')
+      .eq('room_id', roomId)
+      .neq('employee_id', me)
+      .then(({ data }) =>
+        this.push.sendToEmployees(
+          companyId,
+          (data ?? []).map((m) => m.employee_id as string),
+          {
+            title: dtoOut.senderName ?? 'Mensaje',
+            body: content || '📷',
+            data: { type: 'chat', roomId },
+          },
+        ),
+      );
     return dtoOut;
   }
 
