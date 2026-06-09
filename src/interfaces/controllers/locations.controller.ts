@@ -53,6 +53,10 @@ export class CreateLocationDto {
   @IsInt()
   @Min(1)
   geofenceRadiusM!: number;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 }
 
 export class UpdateLocationDto {
@@ -79,6 +83,10 @@ export class UpdateLocationDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 }
 
 interface LocationRow {
@@ -89,6 +97,7 @@ interface LocationRow {
   geofence_lng: number;
   geofence_radius_m: number;
   is_active: boolean;
+  address: string | null;
 }
 
 interface LocationDTO {
@@ -99,9 +108,11 @@ interface LocationDTO {
   geofenceLng: number;
   geofenceRadiusM: number;
   isActive: boolean;
+  address: string | null;
 }
 
-const COLS = 'id, branch_id, name, geofence_lat, geofence_lng, geofence_radius_m, is_active';
+const COLS =
+  'id, branch_id, name, geofence_lat, geofence_lng, geofence_radius_m, is_active, address';
 
 function toDTO(r: LocationRow): LocationDTO {
   return {
@@ -112,6 +123,7 @@ function toDTO(r: LocationRow): LocationDTO {
     geofenceLng: r.geofence_lng,
     geofenceRadiusM: r.geofence_radius_m,
     isActive: r.is_active,
+    address: r.address ?? null,
   };
 }
 
@@ -174,6 +186,7 @@ export class LocationsController {
         geofence_lat: dto.geofenceLat,
         geofence_lng: dto.geofenceLng,
         geofence_radius_m: dto.geofenceRadiusM,
+        address: dto.address ?? null,
       })
       .select(COLS)
       .single<LocationRow>();
@@ -203,6 +216,7 @@ export class LocationsController {
     if (dto.geofenceLng !== undefined) patch.geofence_lng = dto.geofenceLng;
     if (dto.geofenceRadiusM !== undefined) patch.geofence_radius_m = dto.geofenceRadiusM;
     if (dto.isActive !== undefined) patch.is_active = dto.isActive;
+    if (dto.address !== undefined) patch.address = dto.address;
 
     const { data, error } = await this.supabase
       .from('locations')
