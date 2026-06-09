@@ -226,6 +226,9 @@ export class CloneScheduleHandler implements ICommandHandler<
             fairnessSnapshot: {},
             actualStartTime: newStart,
             actualEndTime: newEnd,
+            // Clonar también la localidad del turno origen (el manager la
+            // cambia después si quiere).
+            locationId: src.locationId,
           }),
         );
         affectedFairness.add(`${src.employeeId}|${ws}`);

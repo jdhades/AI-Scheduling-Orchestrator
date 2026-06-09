@@ -19,6 +19,7 @@ export interface CreateAssignmentInput {
   templateId: string;
   date: string; // YYYY-MM-DD
   reason?: string | null;
+  locationId?: string | null;
 }
 
 export type CreateConflictReason =
@@ -120,6 +121,7 @@ export class ShiftAssignmentCreatorService {
       fairnessSnapshot: {},
       actualStartTime: start,
       actualEndTime: end,
+      locationId: input.locationId ?? null,
     });
 
     await this.assignmentRepo.save(assignment);

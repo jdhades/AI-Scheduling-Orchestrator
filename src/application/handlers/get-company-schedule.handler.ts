@@ -45,6 +45,9 @@ export interface CompanyScheduleAssignmentDTO {
   /** Timestamp ISO cuando el empleado confirmó "leí el turno". null si
    * no confirmado todavía o si la company no requiere confirmación. */
   confirmedAt: string | null;
+  /** Localidad asignada al turno (feature Locations). null si no aplica. */
+  locationId: string | null;
+  locationName: string | null;
 }
 
 /**
@@ -132,6 +135,20 @@ export class GetCompanyScheduleHandler implements IQueryHandler<
         (r.confirmed_at as string | null) ?? null,
       ]),
     );
+    // Nombres de localidad (feature Locations) — un fetch por tenant para
+    // mostrar el nombre en la celda sin N queries.
+    const locIds = [...new Set(filtered.map((a) => a.locationId).filter(Boolean))] as string[];
+    const { data: locRows } = locIds.length
+      ? await this.supabase
+          .from('locations')
+          .select('id, name')
+          .eq('company_id', query.companyId)
+          .in('id', locIds)
+      : { data: [] as Array<{ id: string; name: string }> };
+    const locNameById = new Map<string, string>(
+      (locRows ?? []).map((r) => [r.id as string, r.name as string]),
+    );
+
     const breaksByAssignmentId = new Map<
       string,
       CompanyScheduleAssignmentBreakDTO[]
@@ -160,6 +177,8 @@ export class GetCompanyScheduleHandler implements IQueryHandler<
         origin: a.origin,
         breaks: breaksByAssignmentId.get(a.id) ?? [],
         confirmedAt: confirmedById.get(a.id) ?? null,
+        locationId: a.locationId,
+        locationName: a.locationId ? (locNameById.get(a.locationId) ?? null) : null,
       };
     });
   }

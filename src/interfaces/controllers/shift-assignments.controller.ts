@@ -86,6 +86,11 @@ export class MoveAssignmentDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  /** Nueva localidad (feature Locations). Mandá null para quitarla. */
+  @IsOptional()
+  @IsString()
+  locationId?: string | null;
 }
 
 export class CreateAssignmentDto {
@@ -103,6 +108,10 @@ export class CreateAssignmentDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @IsOptional()
+  @IsString()
+  locationId?: string | null;
 }
 
 /**
@@ -182,6 +191,7 @@ export class ShiftAssignmentsController {
         templateId: dto.templateId,
         date: dto.date,
         reason: dto.reason,
+        locationId: dto.locationId ?? null,
       });
       await this.audit.log({
         companyId,
@@ -259,12 +269,13 @@ export class ShiftAssignmentsController {
       !dto.employeeId &&
       !dto.date &&
       !dto.actualStartTime &&
-      !dto.actualEndTime
+      !dto.actualEndTime &&
+      dto.locationId === undefined
     ) {
       throw new ConflictException({
         error: 'invalid_request',
         message:
-          'At least one of `employeeId`, `date`, `actualStartTime`, `actualEndTime` must be provided.',
+          'At least one of `employeeId`, `date`, `actualStartTime`, `actualEndTime`, `locationId` must be provided.',
       });
     }
     const previous = await this.repo.findById(id, companyId);
@@ -280,6 +291,7 @@ export class ShiftAssignmentsController {
         newActualEndTime: dto.actualEndTime
           ? new Date(dto.actualEndTime)
           : undefined,
+        newLocationId: dto.locationId,
         reason: dto.reason,
         editedByUserId: user?.userId ?? null,
       });
@@ -356,6 +368,7 @@ export class ShiftAssignmentsController {
       origin: a.origin,
       actualStartTime: a.actualStartTime.toISOString(),
       actualEndTime: a.actualEndTime.toISOString(),
+      locationId: a.locationId,
     };
   }
 

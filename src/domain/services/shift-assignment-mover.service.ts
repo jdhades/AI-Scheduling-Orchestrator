@@ -26,6 +26,8 @@ export interface MoveAssignmentInput {
   newActualStartTime?: Date;
   /** Nueva hora de fin. Mismo contrato que newActualStartTime. */
   newActualEndTime?: Date;
+  /** Nueva localidad del turno (feature Locations). undefined = no tocar. */
+  newLocationId?: string | null;
   /** Audit metadata. */
   editedByUserId?: string | null;
   reason?: string | null;
@@ -113,10 +115,17 @@ export class ShiftAssignmentMoverService {
           current.actualStartTime.getTime()) &&
       (!input.newActualEndTime ||
         input.newActualEndTime.getTime() === current.actualEndTime.getTime());
-    if (noEmployeeChange && noDateChange && (!timesProvided || noTimeChange)) {
+    const noLocationChange =
+      input.newLocationId === undefined || input.newLocationId === current.locationId;
+    if (
+      noEmployeeChange &&
+      noDateChange &&
+      (!timesProvided || noTimeChange) &&
+      noLocationChange
+    ) {
       throw new MoveAssignmentConflictError(
         'no_change',
-        'Move requested but employee, date and times are unchanged',
+        'Move requested but employee, date, times and location are unchanged',
       );
     }
 
@@ -188,6 +197,8 @@ export class ShiftAssignmentMoverService {
       fairnessSnapshot: current.fairnessSnapshot,
       actualStartTime: newStart,
       actualEndTime: newEnd,
+      // Localidad: si vino en el input la cambia, si no conserva la actual.
+      locationId: input.newLocationId !== undefined ? input.newLocationId : current.locationId,
     });
 
     await this.assignmentRepo.save(updated);

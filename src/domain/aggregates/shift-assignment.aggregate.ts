@@ -31,6 +31,7 @@ export class ShiftAssignment {
     public readonly fairnessSnapshot: Record<string, number>,
     public readonly actualStartTime: Date,
     public readonly actualEndTime: Date,
+    public readonly locationId: string | null = null,
   ) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error(`ShiftAssignment.date must be YYYY-MM-DD, got: ${date}`);
@@ -77,6 +78,7 @@ export class ShiftAssignment {
     fairnessSnapshot: Record<string, number>;
     actualStartTime: Date;
     actualEndTime: Date;
+    locationId?: string | null;
   }): ShiftAssignment {
     return new ShiftAssignment(
       props.id,
@@ -90,6 +92,7 @@ export class ShiftAssignment {
       { ...props.fairnessSnapshot },
       props.actualStartTime,
       props.actualEndTime,
+      props.locationId ?? null,
     );
   }
 
@@ -105,6 +108,7 @@ export class ShiftAssignment {
     fairnessSnapshot: Record<string, number>;
     actualStartTime: Date;
     actualEndTime: Date;
+    locationId?: string | null;
   }): ShiftAssignment {
     return new ShiftAssignment(
       props.id,
@@ -118,6 +122,7 @@ export class ShiftAssignment {
       { ...props.fairnessSnapshot },
       props.actualStartTime,
       props.actualEndTime,
+      props.locationId ?? null,
     );
   }
 }

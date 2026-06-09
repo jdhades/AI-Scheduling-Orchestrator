@@ -26,6 +26,7 @@ export class SupabaseShiftAssignmentRepository implements IShiftAssignmentReposi
       fairness_snapshot: assignment.fairnessSnapshot,
       actual_start_time: assignment.actualStartTime.toISOString(),
       actual_end_time: assignment.actualEndTime.toISOString(),
+      location_id: assignment.locationId ?? null,
     });
     if (error) {
       throw new Error(`ShiftAssignmentRepository.save: ${error.message}`);
@@ -207,6 +208,7 @@ export class SupabaseShiftAssignmentRepository implements IShiftAssignmentReposi
       fairnessSnapshot: row.fairness_snapshot ?? {},
       actualStartTime: new Date(row.actual_start_time),
       actualEndTime: new Date(row.actual_end_time),
+      locationId: (row.location_id ?? null) as string | null,
     });
   }
 }
