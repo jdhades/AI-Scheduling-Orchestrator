@@ -19,7 +19,6 @@ import {
   IsOptional,
   IsString,
   MaxLength,
-  MinLength,
 } from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -29,14 +28,28 @@ import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
 export class SendMessageDto {
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(4000)
-  content!: string;
+  content?: string;
 
   @IsOptional()
   @IsString()
   clientUuid?: string;
+
+  /** Path en el bucket `chat-attachments` (la app sube el archivo y manda el path). */
+  @IsOptional()
+  @IsString()
+  attachmentPath?: string;
+
+  @IsOptional()
+  @IsIn(['image', 'file'])
+  attachmentType?: 'image' | 'file';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  attachmentName?: string;
 }
 
 export class CreateRoomDto {
@@ -68,7 +81,13 @@ interface MessageDTO {
   senderName: string | null;
   content: string;
   createdAt: string;
+  attachmentUrl: string | null;
+  attachmentType: 'image' | 'file' | null;
+  attachmentName: string | null;
 }
+
+const MSG_COLS =
+  'id, room_id, sender_id, content, created_at, attachment_path, attachment_type, attachment_name';
 
 interface RoomDTO {
   id: string;
@@ -112,6 +131,25 @@ export class ChatController {
       .eq('company_id', companyId)
       .maybeSingle();
     if (!data) throw new ForbiddenException('You are not a member of this room');
+  }
+
+  /**
+   * GET /chat/contacts — empleados del tenant (para iniciar un chat). Cualquier
+   * empleado puede ver a sus compañeros para abrir un DM / armar un grupo.
+   */
+  @Get('contacts')
+  async contacts(
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const me = this.meId(user);
+    const { data } = await this.supabase
+      .from('employees')
+      .select('id, name')
+      .eq('company_id', companyId)
+      .neq('id', me)
+      .order('name', { ascending: true });
+    return (data ?? []).map((e) => ({ id: e.id as string, name: e.name as string }));
   }
 
   // ── Rooms ───────────────────────────────────────────────────────────
@@ -251,7 +289,7 @@ export class ChatController {
     const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
     let q = this.supabase
       .from('chat_messages')
-      .select('id, room_id, sender_id, content, created_at')
+      .select(MSG_COLS)
       .eq('room_id', roomId)
       .order('created_at', { ascending: false })
       .limit(take);
@@ -265,16 +303,22 @@ export class ChatController {
       : { data: [] as { id: string; name: string }[] };
     const empName = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
     // Devolvemos ascendente (viejo → nuevo) para render directo.
-    return rows
-      .map((r) => ({
-        id: r.id as string,
-        roomId: r.room_id as string,
-        senderId: (r.sender_id as string) ?? null,
-        senderName: r.sender_id ? (empName.get(r.sender_id as string) ?? null) : null,
-        content: r.content as string,
-        createdAt: r.created_at as string,
-      }))
-      .reverse();
+    return Promise.all(
+      rows
+        .slice()
+        .reverse()
+        .map(async (r) => ({
+          id: r.id as string,
+          roomId: r.room_id as string,
+          senderId: (r.sender_id as string) ?? null,
+          senderName: r.sender_id ? (empName.get(r.sender_id as string) ?? null) : null,
+          content: r.content as string,
+          createdAt: r.created_at as string,
+          attachmentUrl: await this.signAttachment((r.attachment_path as string) ?? null),
+          attachmentType: ((r.attachment_type as string) ?? null) as 'image' | 'file' | null,
+          attachmentName: (r.attachment_name as string) ?? null,
+        })),
+    );
   }
 
   @Post('rooms/:id/messages')
@@ -288,23 +332,31 @@ export class ChatController {
     const me = this.meId(user);
     await this.ensureMember(roomId, me, companyId);
 
+    const content = (dto.content ?? '').trim();
+    if (!content && !dto.attachmentPath) {
+      throw new BadRequestException('content or attachment is required');
+    }
+
     const { data: inserted, error } = await this.supabase
       .from('chat_messages')
       .insert({
         company_id: companyId,
         room_id: roomId,
         sender_id: me,
-        content: dto.content,
+        content,
         client_uuid: dto.clientUuid ?? null,
+        attachment_path: dto.attachmentPath ?? null,
+        attachment_type: dto.attachmentType ?? null,
+        attachment_name: dto.attachmentName ?? null,
       })
-      .select('id, room_id, sender_id, content, created_at')
+      .select(MSG_COLS)
       .single();
     if (error) {
       // Idempotencia: retry offline con el mismo client_uuid → devolver el original.
       if ((error as { code?: string }).code === '23505' && dto.clientUuid) {
         const { data: raced } = await this.supabase
           .from('chat_messages')
-          .select('id, room_id, sender_id, content, created_at')
+          .select(MSG_COLS)
           .eq('room_id', roomId)
           .eq('client_uuid', dto.clientUuid)
           .maybeSingle();
@@ -369,7 +421,19 @@ export class ChatController {
       senderName,
       content: row.content as string,
       createdAt: row.created_at as string,
+      attachmentUrl: await this.signAttachment((row.attachment_path as string) ?? null),
+      attachmentType: ((row.attachment_type as string) ?? null) as 'image' | 'file' | null,
+      attachmentName: (row.attachment_name as string) ?? null,
     };
+  }
+
+  /** URL firmada (1h) del adjunto, o null. Bucket privado `chat-attachments`. */
+  private async signAttachment(path: string | null): Promise<string | null> {
+    if (!path) return null;
+    const { data } = await this.supabase.storage
+      .from('chat-attachments')
+      .createSignedUrl(path, 3600);
+    return data?.signedUrl ?? null;
   }
 
   private async assertEmployees(companyId: string, ids: string[]): Promise<void> {
