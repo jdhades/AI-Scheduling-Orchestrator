@@ -41,7 +41,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { randomBytes } from 'crypto';
 import { EmailService } from '../../infrastructure/notifications/email.service';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
-import { IsArray, IsIn, IsString } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 
 /** Body de PUT /employees/:id/locations — set de locaciones permitidas + modo. */
 export class SetEmployeeLocationsDto {
@@ -51,6 +51,25 @@ export class SetEmployeeLocationsDto {
 
   @IsIn(['fixed', 'rotate'])
   mode!: 'fixed' | 'rotate';
+}
+
+/**
+ * Body de POST /employees/locations/bulk — asignación masiva.
+ * Suma (unión) las `locationIds` a cada empleado de `employeeIds` sin borrar
+ * las que ya tenían. Si llega `mode`, lo aplica a todos; si no, no lo toca.
+ */
+export class BulkEmployeeLocationsDto {
+  @IsArray()
+  @IsString({ each: true })
+  employeeIds!: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  locationIds!: string[];
+
+  @IsOptional()
+  @IsIn(['fixed', 'rotate'])
+  mode?: 'fixed' | 'rotate';
 }
 
 interface EmployeeLocationDTO {
@@ -715,6 +734,66 @@ export class EmployeeController {
           })),
         );
       if (insErr) throw new Error(insErr.message);
+    }
+  }
+
+  /**
+   * POST /employees/locations/bulk — asignación masiva (suma/unión).
+   * Agrega las locaciones a cada empleado sin borrar las que ya tenían;
+   * setea el modo si viene. Declarado antes de las rutas `:id`.
+   */
+  @Post('locations/bulk')
+  @Requires('employees:write')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async bulkAddLocations(
+    @Body() dto: BulkEmployeeLocationsDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    await this.ensureLocationsEnabled(companyId);
+    const empIds = [...new Set(dto.employeeIds)];
+    const locIds = [...new Set(dto.locationIds)];
+    if (empIds.length === 0 || locIds.length === 0) {
+      throw new BadRequestException('employeeIds and locationIds are required');
+    }
+    const { data: locs } = await this.supabase
+      .from('locations')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .in('id', locIds);
+    const validLoc = new Set((locs ?? []).map((l) => l.id as string));
+    const badLoc = locIds.filter((i) => !validLoc.has(i));
+    if (badLoc.length) {
+      throw new BadRequestException(`Unknown location(s): ${badLoc.join(', ')}`);
+    }
+    const { data: emps } = await this.supabase
+      .from('employees')
+      .select('id')
+      .eq('company_id', companyId)
+      .in('id', empIds);
+    const targetEmps = (emps ?? []).map((e) => e.id as string);
+    if (targetEmps.length === 0) {
+      throw new BadRequestException('No valid employees in this company');
+    }
+    const rows = targetEmps.flatMap((eid) =>
+      locIds.map((lid) => ({
+        company_id: companyId,
+        employee_id: eid,
+        location_id: lid,
+      })),
+    );
+    const { error } = await this.supabase
+      .from('employee_locations')
+      .upsert(rows, { onConflict: 'employee_id,location_id', ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+
+    if (dto.mode) {
+      const { error: mErr } = await this.supabase
+        .from('employees')
+        .update({ location_mode: dto.mode })
+        .eq('company_id', companyId)
+        .in('id', targetEmps);
+      if (mErr) throw new Error(mErr.message);
     }
   }
 
