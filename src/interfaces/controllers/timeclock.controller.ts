@@ -7,13 +7,17 @@ import {
   HttpStatus,
   Inject,
   NotFoundException,
+  Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   evaluateGpsClock,
@@ -21,6 +25,35 @@ import {
 } from '../../domain/services/timeclock-evaluation';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 import { CreateClockEventDto } from '../dtos/create-clock-event.dto';
+
+/** Body de PATCH /timeclock/events/:id/review. */
+export class ReviewClockEventDto {
+  @IsIn(['approve', 'reject'])
+  decision!: 'approve' | 'reject';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+interface ReviewItemDTO extends ClockEventDTO {
+  employeeId: string;
+  employeeName: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  /** URL firmada (1h) de la selfie, si hay bucket + foto. */
+  photoSignedUrl: string | null;
+}
+
+interface ReviewRow extends ClockEventRow {
+  employee_id: string;
+  location_id: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+}
 
 interface ClockEventDTO {
   id: string;
@@ -39,6 +72,8 @@ interface ClockEventDTO {
 
 const EVENT_COLS =
   'id, type, source, source_metadata, occurred_at, recorded_at, validation_status, anomaly_reason, shift_assignment_id';
+
+const REVIEW_COLS = `${EVENT_COLS}, employee_id, location_id, reviewed_at, review_note`;
 
 interface ClockEventRow {
   id: string;
@@ -167,6 +202,99 @@ export class TimeclockController {
     const { data, error } = await q.returns<ClockEventRow[]>();
     if (error) throw new Error(error.message);
     return (data ?? []).map(toDTO);
+  }
+
+  /**
+   * GET /timeclock/review?status=pending_review — cola de revisión del manager.
+   * Lista los marcajes del tenant con ese estado (default pending_review),
+   * enriquecidos con nombre de empleado/locación + URL firmada de la selfie.
+   */
+  @Get('review')
+  @Requires('schedule:write')
+  async reviewQueue(
+    @CurrentCompany() companyId: string,
+    @Query('status') status = 'pending_review',
+  ): Promise<ReviewItemDTO[]> {
+    const { data: rows, error } = await this.supabase
+      .from('time_clock_events')
+      .select(REVIEW_COLS)
+      .eq('company_id', companyId)
+      .eq('validation_status', status)
+      .order('occurred_at', { ascending: false })
+      .limit(200)
+      .returns<ReviewRow[]>();
+    if (error) throw new Error(error.message);
+    const list = rows ?? [];
+    if (list.length === 0) return [];
+
+    const empIds = [...new Set(list.map((r) => r.employee_id))];
+    const locIds = [...new Set(list.map((r) => r.location_id).filter(Boolean))] as string[];
+    const [{ data: emps }, { data: locs }] = await Promise.all([
+      this.supabase.from('employees').select('id, name').in('id', empIds),
+      locIds.length > 0
+        ? this.supabase.from('locations').select('id, name').in('id', locIds)
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    ]);
+    const empName = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
+    const locName = new Map(
+      ((locs ?? []) as { id: string; name: string }[]).map((l) => [l.id, l.name]),
+    );
+
+    return Promise.all(
+      list.map(async (r) => {
+        const photoPath = (r.source_metadata ?? {}).photo_url;
+        let photoSignedUrl: string | null = null;
+        if (photoPath) {
+          // Bucket privado — firmamos por 1h. Si el bucket no existe todavía,
+          // `error` viene seteado y dejamos la foto en null (graceful).
+          const { data: signed } = await this.supabase.storage
+            .from('timeclock-photos')
+            .createSignedUrl(photoPath, 3600);
+          photoSignedUrl = signed?.signedUrl ?? null;
+        }
+        return {
+          ...toDTO(r),
+          employeeId: r.employee_id,
+          employeeName: empName.get(r.employee_id) ?? null,
+          locationId: r.location_id ?? null,
+          locationName: r.location_id ? (locName.get(r.location_id) ?? null) : null,
+          reviewedAt: r.reviewed_at ?? null,
+          reviewNote: r.review_note ?? null,
+          photoSignedUrl,
+        };
+      }),
+    );
+  }
+
+  /**
+   * PATCH /timeclock/events/:id/review — aprobar/rechazar un marcaje.
+   *   approve → validation_status='valid'; reject → 'disputed'.
+   * Audita reviewer + timestamp + nota.
+   */
+  @Patch('events/:id/review')
+  @Requires('schedule:write')
+  async review(
+    @Param('id') id: string,
+    @Body() dto: ReviewClockEventDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ ok: true }> {
+    const validation_status = dto.decision === 'approve' ? 'valid' : 'disputed';
+    const { data, error } = await this.supabase
+      .from('time_clock_events')
+      .update({
+        validation_status,
+        reviewed_by: user?.employeeId ?? null,
+        reviewed_at: new Date().toISOString(),
+        review_note: dto.note ?? null,
+      })
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .select('id')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new NotFoundException(`Punch ${id} not found`);
+    return { ok: true };
   }
 
   private async findByClientUuid(
