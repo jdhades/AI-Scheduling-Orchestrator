@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -19,11 +20,13 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  MinLength,
 } from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
+import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 
@@ -72,6 +75,20 @@ export class CreateRoomDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   memberIds?: string[];
+}
+
+export class AddMembersDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  memberIds!: string[];
+}
+
+export class BroadcastDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  content!: string;
 }
 
 interface MessageDTO {
@@ -394,7 +411,169 @@ export class ChatController {
     if (error) throw new Error(error.message);
   }
 
+  // ── Group members ───────────────────────────────────────────────────
+  @Get('rooms/:id/members')
+  async members(
+    @Param('id') roomId: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ id: string; name: string; role: string }[]> {
+    const me = this.meId(user);
+    await this.ensureMember(roomId, me, companyId);
+    const { data: mems } = await this.supabase
+      .from('chat_room_members')
+      .select('employee_id, role')
+      .eq('room_id', roomId)
+      .eq('company_id', companyId);
+    const ids = (mems ?? []).map((m) => m.employee_id as string);
+    const { data: emps } = ids.length
+      ? await this.supabase.from('employees').select('id, name').in('id', ids)
+      : { data: [] as { id: string; name: string }[] };
+    const name = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
+    return (mems ?? []).map((m) => ({
+      id: m.employee_id as string,
+      name: name.get(m.employee_id as string) ?? '',
+      role: m.role as string,
+    }));
+  }
+
+  @Post('rooms/:id/members')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async addRoomMembers(
+    @Param('id') roomId: string,
+    @Body() dto: AddMembersDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    const me = this.meId(user);
+    await this.ensureMember(roomId, me, companyId);
+    const { data: room } = await this.supabase
+      .from('chat_rooms')
+      .select('type')
+      .eq('id', roomId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (!room) throw new NotFoundException('Room not found');
+    if (room.type !== 'group') throw new BadRequestException('Only group rooms have members');
+    const ids = [...new Set(dto.memberIds)].filter(Boolean);
+    await this.assertEmployees(companyId, ids);
+    await this.addMembers(
+      roomId,
+      companyId,
+      ids.map((employeeId) => ({ employeeId, role: 'member' as const })),
+    );
+  }
+
+  @Delete('rooms/:id/members/:employeeId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeMember(
+    @Param('id') roomId: string,
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    const me = this.meId(user);
+    await this.ensureMember(roomId, me, companyId);
+    // Self-leave siempre; sacar a otro requiere ser admin de la sala.
+    if (employeeId !== me) {
+      const { data: myMem } = await this.supabase
+        .from('chat_room_members')
+        .select('role')
+        .eq('room_id', roomId)
+        .eq('employee_id', me)
+        .maybeSingle();
+      if ((myMem?.role as string) !== 'admin') {
+        throw new ForbiddenException('Only an admin can remove other members');
+      }
+    }
+    const { error } = await this.supabase
+      .from('chat_room_members')
+      .delete()
+      .eq('room_id', roomId)
+      .eq('employee_id', employeeId)
+      .eq('company_id', companyId);
+    if (error) throw new Error(error.message);
+  }
+
+  // ── Broadcast ───────────────────────────────────────────────────────
+  /**
+   * POST /chat/broadcast — anuncio a toda la empresa. Asegura el grupo de
+   * anuncios (uno por company, todos los empleados como miembros) y postea.
+   * Solo owner/manager.
+   */
+  @Post('broadcast')
+  @Requires('schedule:write')
+  @HttpCode(HttpStatus.CREATED)
+  async broadcast(
+    @Body() dto: BroadcastDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ roomId: string }> {
+    const me = this.meId(user);
+    const content = dto.content.trim();
+    if (!content) throw new BadRequestException('content is required');
+
+    let roomId = await this.findAnnouncementsRoom(companyId);
+    if (!roomId) {
+      const { data: company } = await this.supabase
+        .from('companies')
+        .select('name')
+        .eq('id', companyId)
+        .maybeSingle();
+      const { data: room, error } = await this.supabase
+        .from('chat_rooms')
+        .insert({
+          company_id: companyId,
+          type: 'group',
+          name: `📢 ${(company?.name as string) ?? 'Announcements'}`,
+          created_by: me,
+          is_announcement: true,
+        })
+        .select('id')
+        .single();
+      if (error) throw new Error(error.message);
+      roomId = room.id as string;
+    }
+
+    const { data: emps } = await this.supabase
+      .from('employees')
+      .select('id')
+      .eq('company_id', companyId);
+    await this.addMembers(
+      roomId,
+      companyId,
+      (emps ?? []).map((e) => ({
+        employeeId: e.id as string,
+        role: ((e.id as string) === me ? 'admin' : 'member') as 'admin' | 'member',
+      })),
+    );
+
+    const { data: inserted, error: msgErr } = await this.supabase
+      .from('chat_messages')
+      .insert({ company_id: companyId, room_id: roomId, sender_id: me, content })
+      .select(MSG_COLS)
+      .single();
+    if (msgErr) throw new Error(msgErr.message);
+    await this.supabase
+      .from('chat_rooms')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', roomId);
+    const dtoOut = await this.withSender(inserted, me, user);
+    this.notifications.notifyChatMessage(companyId, roomId, dtoOut);
+    return { roomId };
+  }
+
   // ── helpers ─────────────────────────────────────────────────────────
+  private async findAnnouncementsRoom(companyId: string): Promise<string | null> {
+    const { data } = await this.supabase
+      .from('chat_rooms')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('is_announcement', true)
+      .maybeSingle();
+    return (data?.id as string) ?? null;
+  }
+
   private async withSender(
     row: Record<string, unknown>,
     me: string,
