@@ -110,6 +110,20 @@ export class NotificationsGateway
   }
 
   /**
+   * Broadcasts a new chat message to the tenant. Clients filter by `roomId`
+   * (only the ones with that room open / in their list react). Tenant
+   * isolation is guaranteed by the `company:${id}` room.
+   */
+  notifyChatMessage(companyId: string, roomId: string, message: object) {
+    this.emitToCompany(companyId, 'ChatMessageCreated', { roomId, message });
+  }
+
+  /** Broadcasts a typing indicator for a room. */
+  notifyChatTyping(companyId: string, roomId: string, employeeId: string) {
+    this.emitToCompany(companyId, 'ChatTyping', { roomId, employeeId });
+  }
+
+  /**
    * Broadcasts that a new schedule has been successfully generated.
    * Clients should listen to 'ScheduleGenerated' to invalidate their caches.
    */
