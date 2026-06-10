@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -35,6 +36,31 @@ export class ReviewClockEventDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+/** Una fila de la hoja de horas (1 por turno). Las horas extra (día/semana) las
+ *  calcula el front con la política de la empresa sobre estos totales. */
+interface TimesheetRowDTO {
+  shiftId: string;
+  employeeId: string;
+  employeeName: string | null;
+  date: string; // YYYY-MM-DD
+  templateName: string;
+  branchName: string | null;
+  departmentName: string | null;
+  locationName: string | null;
+  /** Horario planificado del turno (wall-clock UTC). */
+  scheduledStart: string;
+  scheduledEnd: string;
+  /** Marcaje real. null si falta (ej. olvidó fichar). */
+  clockIn: string | null;
+  clockOut: string | null;
+  breakCount: number;
+  breakMinutes: number;
+  /** (salida − entrada) − descansos. 0 si falta entrada o salida. */
+  workedMinutes: number;
+  /** true si falta entrada y/o salida (para marcarlo en la hoja). */
+  incomplete: boolean;
 }
 
 interface ReviewItemDTO extends ClockEventDTO {
@@ -372,6 +398,173 @@ export class TimeclockController {
         };
       }),
     );
+  }
+
+  /**
+   * GET /timeclock/timesheet?from=&to=&employeeId=&branchId=&departmentId=
+   * Hoja de horas: 1 fila por turno con entrada/salida/breaks/horas trabajadas,
+   * derivado de los eventos (matcheados al turno por día + cercanía horaria).
+   * Las horas extra (día/semana) las calcula el front con la política del tenant.
+   */
+  @Get('timesheet')
+  @Requires('schedule:write')
+  async timesheet(
+    @CurrentCompany() companyId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('employeeId') employeeId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('departmentId') departmentId?: string,
+  ): Promise<TimesheetRowDTO[]> {
+    if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      throw new BadRequestException('from & to (YYYY-MM-DD) are required');
+    }
+
+    // 1. Turnos del rango.
+    let sq = this.supabase
+      .from('shift_assignments')
+      .select('id, employee_id, template_id, date, actual_start_time, actual_end_time, location_id')
+      .eq('company_id', companyId)
+      .gte('date', from)
+      .lte('date', to);
+    if (employeeId) sq = sq.eq('employee_id', employeeId);
+    const { data: shiftsRaw, error: sErr } = await sq.returns<
+      Array<{
+        id: string;
+        employee_id: string;
+        template_id: string;
+        date: string;
+        actual_start_time: string;
+        actual_end_time: string;
+        location_id: string | null;
+      }>
+    >();
+    if (sErr) throw new Error(sErr.message);
+    const shifts = shiftsRaw ?? [];
+    if (shifts.length === 0) return [];
+
+    // 2. Eventos del rango (válidos + por revisar; los rechazados no cuentan).
+    const empIds = [...new Set(shifts.map((s) => s.employee_id))];
+    const { data: events } = await this.supabase
+      .from('time_clock_events')
+      .select('employee_id, type, occurred_at, validation_status')
+      .eq('company_id', companyId)
+      .in('employee_id', empIds)
+      .gte('occurred_at', `${from}T00:00:00.000Z`)
+      .lte('occurred_at', `${to}T23:59:59.999Z`)
+      .neq('validation_status', 'disputed')
+      .order('occurred_at', { ascending: true })
+      .returns<Array<{ employee_id: string; type: string; occurred_at: string }>>();
+
+    // 3. Lookups: empleado→nombre/depto, depto→nombre/sucursal, sucursal, template, localidad.
+    const tplIds = [...new Set(shifts.map((s) => s.template_id))];
+    const locIds = [...new Set(shifts.map((s) => s.location_id).filter(Boolean))] as string[];
+    const [{ data: emps }, { data: tpls }, { data: locs }] = await Promise.all([
+      this.supabase.from('employees').select('id, name, department_id').in('id', empIds),
+      this.supabase.from('shift_templates').select('id, name').in('id', tplIds),
+      locIds.length
+        ? this.supabase.from('locations').select('id, name').in('id', locIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string }> }),
+    ]);
+    const empInfo = new Map(
+      ((emps ?? []) as Array<{ id: string; name: string; department_id: string | null }>).map((e) => [
+        e.id,
+        { name: e.name, departmentId: e.department_id ?? null },
+      ]),
+    );
+    const tplName = new Map(((tpls ?? []) as Array<{ id: string; name: string }>).map((tp) => [tp.id, tp.name]));
+    const locName = new Map(((locs ?? []) as Array<{ id: string; name: string }>).map((l) => [l.id, l.name]));
+    const deptIds = [...new Set([...empInfo.values()].map((e) => e.departmentId).filter(Boolean))] as string[];
+    const { data: depts } = deptIds.length
+      ? await this.supabase.from('departments').select('id, name, branch_id').in('id', deptIds)
+      : { data: [] as Array<{ id: string; name: string; branch_id: string | null }> };
+    const deptInfo = new Map(
+      (depts ?? []).map((d) => [
+        d.id as string,
+        { name: d.name as string, branchId: (d.branch_id as string | null) ?? null },
+      ]),
+    );
+    const branchIds = [...new Set([...deptInfo.values()].map((d) => d.branchId).filter(Boolean))] as string[];
+    const { data: branches } = branchIds.length
+      ? await this.supabase.from('branches').select('id, name').in('id', branchIds)
+      : { data: [] as Array<{ id: string; name: string }> };
+    const branchName = new Map((branches ?? []).map((b) => [b.id as string, b.name as string]));
+
+    // 4. Agrupar eventos por empleado+día y asignar cada uno al turno más cercano.
+    const dayOf = (iso: string) => iso.slice(0, 10);
+    const shiftsByKey = new Map<string, typeof shifts>();
+    for (const s of shifts) {
+      const k = `${s.employee_id}|${s.date}`;
+      (shiftsByKey.get(k) ?? shiftsByKey.set(k, []).get(k)!).push(s);
+    }
+    const eventsByShift = new Map<string, Array<{ type: string; occurred_at: string }>>();
+    for (const e of events ?? []) {
+      const k = `${e.employee_id}|${dayOf(e.occurred_at)}`;
+      const candidates = shiftsByKey.get(k);
+      if (!candidates || candidates.length === 0) continue;
+      // Turno más cercano por distancia del evento a [start, end].
+      const t = Date.parse(e.occurred_at);
+      let best = candidates[0]!;
+      let bestDist = Infinity;
+      for (const s of candidates) {
+        const a = Date.parse(s.actual_start_time);
+        const b = Date.parse(s.actual_end_time);
+        const dist = t < a ? a - t : t > b ? t - b : 0;
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = s;
+        }
+      }
+      (eventsByShift.get(best.id) ?? eventsByShift.set(best.id, []).get(best.id)!).push(e);
+    }
+
+    // 5. Armar filas + aplicar filtros de sucursal/depto (post-fetch).
+    const rows: TimesheetRowDTO[] = [];
+    for (const s of shifts) {
+      const emp = empInfo.get(s.employee_id);
+      const dept = emp?.departmentId ? deptInfo.get(emp.departmentId) : null;
+      const rowBranchId = dept?.branchId ?? null;
+      if (departmentId && emp?.departmentId !== departmentId) continue;
+      if (branchId && rowBranchId !== branchId) continue;
+
+      const evs = (eventsByShift.get(s.id) ?? []).slice().sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+      const ins = evs.filter((e) => e.type === 'in');
+      const outs = evs.filter((e) => e.type === 'out');
+      const clockIn = ins[0]?.occurred_at ?? null;
+      const clockOut = outs[outs.length - 1]?.occurred_at ?? null;
+      let breakCount = 0;
+      let breakMs = 0;
+      let openBreak: string | null = null;
+      for (const e of evs) {
+        if (e.type === 'break_start') openBreak = e.occurred_at;
+        else if (e.type === 'break_end' && openBreak) {
+          breakCount++;
+          breakMs += Date.parse(e.occurred_at) - Date.parse(openBreak);
+          openBreak = null;
+        }
+      }
+      const workedMs = clockIn && clockOut ? Date.parse(clockOut) - Date.parse(clockIn) - breakMs : 0;
+      rows.push({
+        shiftId: s.id,
+        employeeId: s.employee_id,
+        employeeName: emp?.name ?? null,
+        date: s.date,
+        templateName: tplName.get(s.template_id) ?? '—',
+        branchName: rowBranchId ? (branchName.get(rowBranchId) ?? null) : null,
+        departmentName: dept?.name ?? null,
+        locationName: s.location_id ? (locName.get(s.location_id) ?? null) : null,
+        scheduledStart: s.actual_start_time,
+        scheduledEnd: s.actual_end_time,
+        clockIn,
+        clockOut,
+        breakCount,
+        breakMinutes: Math.round(breakMs / 60000),
+        workedMinutes: Math.max(0, Math.round(workedMs / 60000)),
+        incomplete: !clockIn || !clockOut,
+      });
+    }
+    rows.sort((a, b) => a.date.localeCompare(b.date) || a.scheduledStart.localeCompare(b.scheduledStart));
+    return rows;
   }
 
   /**
