@@ -69,6 +69,7 @@ interface ClockEventDTO {
   lng: number | null;
   accuracy: number | null;
   photoUrl: string | null;
+  breakLimitMinutes: number | null;
 }
 
 const EVENT_COLS =
@@ -80,7 +81,13 @@ interface ClockEventRow {
   id: string;
   type: string;
   source: string;
-  source_metadata: { lat?: number; lng?: number; accuracy?: number; photo_url?: string } | null;
+  source_metadata: {
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    photo_url?: string;
+    break_limit_minutes?: number | null;
+  } | null;
   occurred_at: string;
   recorded_at: string;
   validation_status: string;
@@ -103,6 +110,7 @@ function toDTO(r: ClockEventRow): ClockEventDTO {
     lng: m.lng ?? null,
     accuracy: m.accuracy ?? null,
     photoUrl: m.photo_url ?? null,
+    breakLimitMinutes: m.break_limit_minutes ?? null,
   };
 }
 
@@ -162,6 +170,7 @@ export class TimeclockController {
           lng: dto.gps.lng,
           accuracy: dto.gps.accuracy,
           photo_url: dto.gps.photoUrl ?? null,
+          break_limit_minutes: dto.breakLimitMinutes ?? null,
         },
         occurred_at: dto.occurredAt,
         validation_status: evaluation.validationStatus,

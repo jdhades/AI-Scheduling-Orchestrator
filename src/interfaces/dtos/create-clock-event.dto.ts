@@ -48,6 +48,12 @@ export class CreateClockEventDto {
   @IsString()
   locationId?: string;
 
+  /** En break_start: límite (min) del descanso elegido, para el overbreak.
+   *  null/omitido = descanso sin límite (turno sin descanso configurado). */
+  @IsOptional()
+  @IsNumber()
+  breakLimitMinutes?: number | null;
+
   @ValidateNested()
   @Type(() => ClockGpsDto)
   gps!: ClockGpsDto;
