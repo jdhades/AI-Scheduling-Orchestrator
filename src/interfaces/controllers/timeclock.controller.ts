@@ -40,6 +40,8 @@ export class ReviewClockEventDto {
 interface ReviewItemDTO extends ClockEventDTO {
   employeeId: string;
   employeeName: string | null;
+  departmentName: string | null;
+  branchName: string | null;
   locationId: string | null;
   locationName: string | null;
   locationAddress: string | null;
@@ -306,18 +308,39 @@ export class TimeclockController {
     const empIds = [...new Set(list.map((r) => r.employee_id))];
     const locIds = [...new Set(list.map((r) => r.location_id).filter(Boolean))] as string[];
     const [{ data: emps }, { data: locs }] = await Promise.all([
-      this.supabase.from('employees').select('id, name').in('id', empIds),
+      this.supabase.from('employees').select('id, name, department_id').in('id', empIds),
       locIds.length > 0
         ? this.supabase.from('locations').select('id, name, address').in('id', locIds)
         : Promise.resolve({ data: [] as { id: string; name: string; address: string | null }[] }),
     ]);
-    const empName = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
+    const empInfo = new Map(
+      ((emps ?? []) as Array<{ id: string; name: string; department_id: string | null }>).map(
+        (e) => [e.id, { name: e.name, departmentId: e.department_id ?? null }],
+      ),
+    );
     const locInfo = new Map(
       ((locs ?? []) as { id: string; name: string; address: string | null }[]).map((l) => [
         l.id,
         { name: l.name, address: l.address ?? null },
       ]),
     );
+
+    // Departamento + sucursal del empleado (para columnas + export).
+    const deptIds = [...new Set([...empInfo.values()].map((e) => e.departmentId).filter(Boolean))] as string[];
+    const { data: depts } = deptIds.length
+      ? await this.supabase.from('departments').select('id, name, branch_id').in('id', deptIds)
+      : { data: [] as Array<{ id: string; name: string; branch_id: string | null }> };
+    const deptInfo = new Map(
+      (depts ?? []).map((d) => [
+        d.id as string,
+        { name: d.name as string, branchId: (d.branch_id as string | null) ?? null },
+      ]),
+    );
+    const branchIds = [...new Set([...deptInfo.values()].map((d) => d.branchId).filter(Boolean))] as string[];
+    const { data: branches } = branchIds.length
+      ? await this.supabase.from('branches').select('id, name').in('id', branchIds)
+      : { data: [] as Array<{ id: string; name: string }> };
+    const branchName = new Map((branches ?? []).map((b) => [b.id as string, b.name as string]));
 
     return Promise.all(
       list.map(async (r) => {
@@ -331,10 +354,14 @@ export class TimeclockController {
             .createSignedUrl(photoPath, 3600);
           photoSignedUrl = signed?.signedUrl ?? null;
         }
+        const emp = empInfo.get(r.employee_id);
+        const dept = emp?.departmentId ? deptInfo.get(emp.departmentId) : null;
         return {
           ...toDTO(r),
           employeeId: r.employee_id,
-          employeeName: empName.get(r.employee_id) ?? null,
+          employeeName: emp?.name ?? null,
+          departmentName: dept?.name ?? null,
+          branchName: dept?.branchId ? (branchName.get(dept.branchId) ?? null) : null,
           locationId: r.location_id ?? null,
           locationName: r.location_id ? (locInfo.get(r.location_id)?.name ?? null) : null,
           locationAddress: r.location_id ? (locInfo.get(r.location_id)?.address ?? null) : null,
