@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { PgBossService } from '../../infrastructure/queue/pg-boss.service';
@@ -16,7 +21,7 @@ interface BreakStartRow {
 }
 
 /**
- * Job recurrente (cron `*​/5 * * * *`): cierra los descansos que pasaron su
+ * Job recurrente (cron: cada 5 minutos): cierra los descansos que pasaron su
  * límite y el empleado NUNCA fichó la vuelta. Inserta un break_end `auto` en
  * (inicio + límite), marcado overbreak + pending_review, para que el descanso
  * no quede abierto para siempre y el manager lo vea. Idempotente vía client_uuid
@@ -38,10 +43,16 @@ export class OverbreakScanWorker implements OnApplicationBootstrap {
       return;
     }
     const boss = this.pgBoss.getInstance();
-    await boss.work(JOB_TIMECLOCK_OVERBREAK_SCAN, { batchSize: 1 }, async () => {
-      await this.scan();
-    });
-    this.logger.log(`OverbreakScanWorker ready: ${JOB_TIMECLOCK_OVERBREAK_SCAN}`);
+    await boss.work(
+      JOB_TIMECLOCK_OVERBREAK_SCAN,
+      { batchSize: 1 },
+      async () => {
+        await this.scan();
+      },
+    );
+    this.logger.log(
+      `OverbreakScanWorker ready: ${JOB_TIMECLOCK_OVERBREAK_SCAN}`,
+    );
   }
 
   private async scan(): Promise<void> {
@@ -58,7 +69,10 @@ export class OverbreakScanWorker implements OnApplicationBootstrap {
     // porque el límite es por-fila (vive en el JSON metadata).
     const candidates = (starts ?? []).filter((s) => {
       const limit = s.source_metadata?.break_limit_minutes;
-      return limit != null && now - Date.parse(s.occurred_at) > (limit + GRACE_MINUTES) * 60000;
+      return (
+        limit != null &&
+        now - Date.parse(s.occurred_at) > (limit + GRACE_MINUTES) * 60000
+      );
     });
     if (candidates.length === 0) return;
 
@@ -66,7 +80,7 @@ export class OverbreakScanWorker implements OnApplicationBootstrap {
     const empIds = [...new Set(candidates.map((c) => c.employee_id))];
     const earliest = candidates.reduce(
       (min, c) => (c.occurred_at < min ? c.occurred_at : min),
-      candidates[0]!.occurred_at,
+      candidates[0].occurred_at,
     );
     const { data: closers } = await this.supabase
       .from('time_clock_events')
