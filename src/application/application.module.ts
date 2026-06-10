@@ -79,6 +79,7 @@ import { ScheduleGenerationDeadletterHandler } from './jobs/schedule-generation-
 import { ScheduleGenerationDispatcher } from './jobs/schedule-generation-dispatcher.service';
 import { LlmJobDispatcher } from './jobs/llm-job-dispatcher.service';
 import { LlmJobWorker } from './jobs/llm-job.worker';
+import { OverbreakScanWorker } from './jobs/overbreak-scan.worker';
 
 /**
  * ApplicationModule
@@ -232,6 +233,7 @@ const DomainServices = [
   // Reusa los CommandHandlers existentes via CommandBus.
   LlmJobDispatcher,
   LlmJobWorker,
+  OverbreakScanWorker,
 ];
 
 const PolicyDomainProviders = [

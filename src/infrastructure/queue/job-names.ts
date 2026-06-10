@@ -37,6 +37,12 @@ export const JOB_LLM_CREATE_POLICY = 'llm.create_policy';
  */
 export const JOB_IMPORTS_EXTRACT = 'imports.extract';
 
+/**
+ * Job recurrente (cron): cierra descansos que pasaron el límite y no se ficharon
+ * de vuelta → inserta un break_end 'auto' marcado overbreak. Ver OverbreakScanWorker.
+ */
+export const JOB_TIMECLOCK_OVERBREAK_SCAN = 'timeclock.overbreak_scan';
+
 /** Tipos válidos para identificar el job en WS events / store frontend.
  * Mantener sync con las constantes de queue de arriba. */
 export type LlmJobType =

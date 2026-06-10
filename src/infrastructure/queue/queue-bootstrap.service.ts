@@ -7,6 +7,7 @@ import {
   JOB_LLM_CREATE_RULE,
   JOB_LLM_UPDATE_RULE_TEXT,
   JOB_IMPORTS_EXTRACT,
+  JOB_TIMECLOCK_OVERBREAK_SCAN,
 } from './job-names';
 
 /**
@@ -107,6 +108,21 @@ export class QueueBootstrapService implements OnModuleInit {
     });
     this.logger.log(
       `Imports extract queue ready: ${JOB_IMPORTS_EXTRACT} (standard, retry=0, expire=900s)`,
+    );
+
+    // ─── Timeclock overbreak scan (cron) ─────────────────────────────
+    // Cierra descansos pasados del límite que el empleado no fichó de vuelta.
+    // Recurrente cada 5 min; standard + retry=0 + expire corto.
+    await boss.createQueue(JOB_TIMECLOCK_OVERBREAK_SCAN, {
+      policy: 'standard',
+      retryLimit: 0,
+      expireInSeconds: 120,
+    });
+    // schedule() es idempotente por nombre — re-llamarlo en cada restart
+    // actualiza el cron, no duplica.
+    await boss.schedule(JOB_TIMECLOCK_OVERBREAK_SCAN, '*/5 * * * *');
+    this.logger.log(
+      `Overbreak scan scheduled: ${JOB_TIMECLOCK_OVERBREAK_SCAN} (*/5 * * * *)`,
     );
   }
 }
