@@ -17,6 +17,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -126,6 +127,22 @@ export class UpdateTeamPreferencesDto {
   @IsOptional()
   @IsBoolean()
   absencesTrackingEnabled?: boolean;
+
+  @IsOptional()
+  @IsIn(['none', 'daily', 'weekly', 'both'])
+  overtimeMode?: 'none' | 'daily' | 'weekly' | 'both';
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(24)
+  overtimeDailyThresholdHours?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(168)
+  overtimeWeeklyThresholdHours?: number;
 }
 
 export interface TeamPreferencesResponse {
@@ -134,6 +151,9 @@ export interface TeamPreferencesResponse {
   availabilityChangeNoticeDays: number;
   shiftConfirmationRequired: boolean;
   absencesTrackingEnabled: boolean;
+  overtimeMode: 'none' | 'daily' | 'weekly' | 'both';
+  overtimeDailyThresholdHours: number;
+  overtimeWeeklyThresholdHours: number;
 }
 
 interface CapabilityInfo {
@@ -511,7 +531,7 @@ export class SettingsController {
     const { data, error } = await this.supabase
       .from('companies')
       .select(
-        'schedule_visibility_mode, availability_visibility, availability_change_notice_days, shift_confirmation_required, absences_tracking_enabled',
+        'schedule_visibility_mode, availability_visibility, availability_change_notice_days, shift_confirmation_required, absences_tracking_enabled, overtime_mode, overtime_daily_threshold_hours, overtime_weekly_threshold_hours',
       )
       .eq('id', companyId)
       .maybeSingle();
@@ -528,6 +548,12 @@ export class SettingsController {
         (data.shift_confirmation_required as boolean) ?? false,
       absencesTrackingEnabled:
         (data.absences_tracking_enabled as boolean) ?? true,
+      overtimeMode:
+        (data.overtime_mode as 'none' | 'daily' | 'weekly' | 'both') ?? 'none',
+      overtimeDailyThresholdHours:
+        Number(data.overtime_daily_threshold_hours ?? 8),
+      overtimeWeeklyThresholdHours:
+        Number(data.overtime_weekly_threshold_hours ?? 40),
     };
   }
 
@@ -553,6 +579,15 @@ export class SettingsController {
     }
     if (body.absencesTrackingEnabled !== undefined) {
       updates.absences_tracking_enabled = body.absencesTrackingEnabled;
+    }
+    if (body.overtimeMode !== undefined) {
+      updates.overtime_mode = body.overtimeMode;
+    }
+    if (body.overtimeDailyThresholdHours !== undefined) {
+      updates.overtime_daily_threshold_hours = body.overtimeDailyThresholdHours;
+    }
+    if (body.overtimeWeeklyThresholdHours !== undefined) {
+      updates.overtime_weekly_threshold_hours = body.overtimeWeeklyThresholdHours;
     }
     if (Object.keys(updates).length === 0) return;
 
