@@ -13,7 +13,8 @@ export type EntityType =
   | 'rule'
   | 'task'
   | 'shift_assignment_break'
-  | 'shift_membership';
+  | 'shift_membership'
+  | 'time_clock_event';
 
 export type AuditAction = 'create' | 'update' | 'delete';
 

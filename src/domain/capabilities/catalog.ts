@@ -104,6 +104,13 @@ export const CAPABILITIES = {
       'Run multi-modal data imports (employees, shifts, time-off via upload/Excel/external agent)',
     defaultRoles: ['owner'],
   },
+
+  // Attendance / timeclock ──────────────────────────────────────────
+  'timeclock:correct': {
+    description:
+      'Add/edit time clock punches (corrections, reason required) + apply correction requests',
+    defaultRoles: ['owner', 'manager'],
+  },
 } as const;
 
 export type Capability = keyof typeof CAPABILITIES;
@@ -118,6 +125,7 @@ export const SCOPED_CAPABILITIES: ReadonlySet<Capability> = new Set([
   'absences:approve',
   'incidents:manage',
   'dayoffs:approve',
+  'timeclock:correct',
 ]);
 
 /** Devuelve el set default de capabilities por rol — usado para seeds. */

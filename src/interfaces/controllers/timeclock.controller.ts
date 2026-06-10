@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
@@ -24,6 +25,10 @@ import {
   evaluateGpsClock,
   type GeofenceConfig,
 } from '../../domain/services/timeclock-evaluation';
+import {
+  ENTITY_AUDIT_SERVICE,
+  type IEntityAuditService,
+} from '../../domain/audit/entity-audit.service';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 import { CreateClockEventDto } from '../dtos/create-clock-event.dto';
 
@@ -154,11 +159,48 @@ function toDTO(r: ClockEventRow): ClockEventDTO {
  *   lost). Tenant + employee come from the JWT, never the client.
  * GET  /timeclock/me     — the employee's own punches in a date range.
  */
+/** Alta manual de un fichaje por el manager (corrección: ej. el empleado olvidó
+ *  marcar). Exige razón. Sin GPS/selfie. */
+class ManualClockEventDto {
+  @IsString()
+  employeeId!: string;
+
+  @IsIn(['in', 'out', 'break_start', 'break_end'])
+  type!: string;
+
+  @IsString()
+  occurredAt!: string;
+
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  shiftAssignmentId?: string;
+
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+}
+
+/** Edición de la hora de un fichaje existente. Exige razón. */
+class EditClockTimeDto {
+  @IsString()
+  occurredAt!: string;
+
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+}
+
 @Controller('timeclock')
 export class TimeclockController {
   constructor(
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
     private readonly tenantFeatures: TenantFeatureService,
+    @Inject(ENTITY_AUDIT_SERVICE)
+    private readonly audit: IEntityAuditService,
   ) {}
 
   @Post('events')
@@ -596,6 +638,109 @@ export class TimeclockController {
     if (error) throw new Error(error.message);
     if (!data) throw new NotFoundException(`Punch ${id} not found`);
     return { ok: true };
+  }
+
+  /**
+   * POST /timeclock/events/manual — el manager agrega un fichaje que faltó
+   * (corrección). Exige razón; sin GPS/selfie. Queda como source='manager',
+   * validation_status='valid', con la razón en source_metadata + audit log.
+   */
+  @Post('events/manual')
+  @Requires('timeclock:correct')
+  @HttpCode(HttpStatus.CREATED)
+  async addManualEvent(
+    @Body() dto: ManualClockEventDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<ClockEventDTO> {
+    const now = new Date().toISOString();
+    const { data: inserted, error } = await this.supabase
+      .from('time_clock_events')
+      .insert({
+        company_id: companyId,
+        employee_id: dto.employeeId,
+        shift_assignment_id: dto.shiftAssignmentId ?? null,
+        location_id: dto.locationId ?? null,
+        client_uuid: `manual-${randomUUID()}`,
+        type: dto.type,
+        source: 'manager',
+        source_metadata: {
+          correction_reason: dto.reason,
+          corrected_by: user?.userId ?? null,
+          corrected_at: now,
+        },
+        occurred_at: dto.occurredAt,
+        validation_status: 'valid',
+        anomaly_reason: null,
+      })
+      .select(EVENT_COLS)
+      .single<ClockEventRow>();
+    if (error) throw new Error(error.message);
+    await this.audit.log({
+      companyId,
+      entityType: 'time_clock_event',
+      entityId: inserted.id,
+      action: 'create',
+      changes: {
+        type: { before: null, after: dto.type },
+        occurred_at: { before: null, after: dto.occurredAt },
+        reason: { before: null, after: dto.reason },
+      },
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
+    return toDTO(inserted);
+  }
+
+  /**
+   * PATCH /timeclock/events/:id/time — corrige la hora de un fichaje existente.
+   * Exige razón. No borra: queda la razón en source_metadata + audit (antes→después).
+   */
+  @Patch('events/:id/time')
+  @Requires('timeclock:correct')
+  async editEventTime(
+    @Param('id') id: string,
+    @Body() dto: EditClockTimeDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<ClockEventDTO> {
+    const { data: current } = await this.supabase
+      .from('time_clock_events')
+      .select('occurred_at, source_metadata')
+      .eq('company_id', companyId)
+      .eq('id', id)
+      .maybeSingle<{ occurred_at: string; source_metadata: Record<string, unknown> | null }>();
+    if (!current) throw new NotFoundException(`Punch ${id} not found`);
+    const before = current.occurred_at;
+    const { data: updated, error } = await this.supabase
+      .from('time_clock_events')
+      .update({
+        occurred_at: dto.occurredAt,
+        source_metadata: {
+          ...(current.source_metadata ?? {}),
+          correction_reason: dto.reason,
+          corrected_by: user?.userId ?? null,
+          corrected_at: new Date().toISOString(),
+        },
+      })
+      .eq('company_id', companyId)
+      .eq('id', id)
+      .select(EVENT_COLS)
+      .single<ClockEventRow>();
+    if (error) throw new Error(error.message);
+    await this.audit.log({
+      companyId,
+      entityType: 'time_clock_event',
+      entityId: id,
+      action: 'update',
+      changes: {
+        occurred_at: { before, after: dto.occurredAt },
+        reason: { before: null, after: dto.reason },
+      },
+      actorUserId: user?.userId ?? null,
+      actorEmployeeId: user?.employeeId ?? null,
+    });
+    return toDTO(updated);
   }
 
   private async findByClientUuid(
