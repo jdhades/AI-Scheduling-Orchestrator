@@ -153,15 +153,20 @@ export class TimeclockController {
       companyId,
       dto.locationId,
     );
-    const evaluation = evaluateGpsClock(
-      { lat: dto.gps.lat, lng: dto.gps.lng, accuracy: dto.gps.accuracy },
-      geofence,
-    );
+    // Los DESCANSOS no se validan por geofence/GPS — no tiene sentido "fuera
+    // del área" / "GPS impreciso" en un break. Solo in/out se validan contra la
+    // sucursal/locación. (La única anomalía de un break es el overbreak, abajo.)
+    const isBreak = dto.type === 'break_start' || dto.type === 'break_end';
+    const evaluation = isBreak
+      ? { validationStatus: 'valid' as const, anomalyReason: null }
+      : evaluateGpsClock(
+          { lat: dto.gps.lat, lng: dto.gps.lng, accuracy: dto.gps.accuracy },
+          geofence,
+        );
 
     // Overbreak: si el break_end supera el límite del descanso, se marca para
-    // revisión del manager (anomaly 'overbreak' + minutos de exceso). No pisa
-    // una anomalía de GPS si ya la había.
-    let validationStatus = evaluation.validationStatus;
+    // revisión del manager (anomaly 'overbreak' + minutos de exceso).
+    let validationStatus: string = evaluation.validationStatus;
     let anomalyReason = evaluation.anomalyReason;
     let overbreakMinutes: number | null = null;
     if (dto.type === 'break_end') {
