@@ -18,7 +18,7 @@ export interface GpsClockInput extends LatLng {
   accuracy: number;
 }
 
-export type ClockAnomaly = 'outside_geofence' | 'low_accuracy' | null;
+export type ClockAnomaly = 'outside_geofence' | 'low_accuracy' | 'overbreak' | null;
 
 export interface ClockEvaluation {
   validationStatus: 'valid' | 'pending_review';

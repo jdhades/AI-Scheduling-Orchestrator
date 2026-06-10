@@ -47,6 +47,8 @@ interface ReviewItemDTO extends ClockEventDTO {
   reviewNote: string | null;
   /** URL firmada (1h) de la selfie, si hay bucket + foto. */
   photoSignedUrl: string | null;
+  /** Minutos de exceso del descanso (anomaly 'overbreak'). null si no aplica. */
+  overbreakMinutes: number | null;
 }
 
 interface ReviewRow extends ClockEventRow {
@@ -87,6 +89,7 @@ interface ClockEventRow {
     accuracy?: number;
     photo_url?: string;
     break_limit_minutes?: number | null;
+    overbreak_minutes?: number | null;
   } | null;
   occurred_at: string;
   recorded_at: string;
@@ -155,6 +158,24 @@ export class TimeclockController {
       geofence,
     );
 
+    // Overbreak: si el break_end supera el límite del descanso, se marca para
+    // revisión del manager (anomaly 'overbreak' + minutos de exceso). No pisa
+    // una anomalía de GPS si ya la había.
+    let validationStatus = evaluation.validationStatus;
+    let anomalyReason = evaluation.anomalyReason;
+    let overbreakMinutes: number | null = null;
+    if (dto.type === 'break_end') {
+      overbreakMinutes = await this.detectOverbreakMinutes(
+        companyId,
+        user.employeeId,
+        dto.occurredAt,
+      );
+      if (overbreakMinutes && validationStatus === 'valid') {
+        validationStatus = 'pending_review';
+        anomalyReason = 'overbreak';
+      }
+    }
+
     const { data: inserted, error } = await this.supabase
       .from('time_clock_events')
       .insert({
@@ -171,10 +192,11 @@ export class TimeclockController {
           accuracy: dto.gps.accuracy,
           photo_url: dto.gps.photoUrl ?? null,
           break_limit_minutes: dto.breakLimitMinutes ?? null,
+          overbreak_minutes: overbreakMinutes,
         },
         occurred_at: dto.occurredAt,
-        validation_status: evaluation.validationStatus,
-        anomaly_reason: evaluation.anomalyReason,
+        validation_status: validationStatus,
+        anomaly_reason: anomalyReason,
       })
       .select(EVENT_COLS)
       .single<ClockEventRow>();
@@ -188,6 +210,45 @@ export class TimeclockController {
       throw new Error(error.message);
     }
     return toDTO(inserted);
+  }
+
+  /**
+   * Minutos de overbreak de un break_end: busca el break_start abierto del día
+   * (con su break_limit_minutes) y devuelve cuánto se pasó del límite. null si
+   * no hay límite, no hay descanso abierto, o no se pasó.
+   */
+  private async detectOverbreakMinutes(
+    companyId: string,
+    employeeId: string,
+    breakEndIso: string,
+  ): Promise<number | null> {
+    const day = breakEndIso.slice(0, 10);
+    const { data } = await this.supabase
+      .from('time_clock_events')
+      .select('type, occurred_at, source_metadata')
+      .eq('company_id', companyId)
+      .eq('employee_id', employeeId)
+      .gte('occurred_at', `${day}T00:00:00.000Z`)
+      .order('occurred_at', { ascending: true });
+    let openStart: string | null = null;
+    let limit: number | null = null;
+    for (const e of (data ?? []) as Array<{
+      type: string;
+      occurred_at: string;
+      source_metadata: { break_limit_minutes?: number | null } | null;
+    }>) {
+      if (e.type === 'break_start') {
+        openStart = e.occurred_at;
+        limit = e.source_metadata?.break_limit_minutes ?? null;
+      } else if (e.type === 'break_end' || e.type === 'out' || e.type === 'in') {
+        openStart = null;
+        limit = null;
+      }
+    }
+    if (!openStart || limit == null) return null;
+    const actualMin = (Date.parse(breakEndIso) - Date.parse(openStart)) / 60000;
+    const overrun = Math.round(actualMin - limit);
+    return overrun > 0 ? overrun : null;
   }
 
   @Get('me')
@@ -275,6 +336,7 @@ export class TimeclockController {
           reviewedAt: r.reviewed_at ?? null,
           reviewNote: r.review_note ?? null,
           photoSignedUrl,
+          overbreakMinutes: (r.source_metadata ?? {}).overbreak_minutes ?? null,
         };
       }),
     );
