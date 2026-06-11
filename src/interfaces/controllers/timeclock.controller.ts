@@ -63,6 +63,8 @@ interface TimesheetRowDTO {
   /** IDs de los eventos in/out (para editar la hora). null si no hay. */
   clockInId: string | null;
   clockOutId: string | null;
+  /** Razón si el fichaje fue corregido manualmente (badge "Corregido"). */
+  correctionReason: string | null;
   breakCount: number;
   breakMinutes: number;
   /** (salida − entrada) − descansos. 0 si falta entrada o salida. */
@@ -492,14 +494,22 @@ export class TimeclockController {
     const empIds = [...new Set(shifts.map((s) => s.employee_id))];
     const { data: events } = await this.supabase
       .from('time_clock_events')
-      .select('id, employee_id, type, occurred_at, validation_status')
+      .select('id, employee_id, type, occurred_at, validation_status, source_metadata')
       .eq('company_id', companyId)
       .in('employee_id', empIds)
       .gte('occurred_at', `${from}T00:00:00.000Z`)
       .lte('occurred_at', `${to}T23:59:59.999Z`)
       .neq('validation_status', 'disputed')
       .order('occurred_at', { ascending: true })
-      .returns<Array<{ id: string; employee_id: string; type: string; occurred_at: string }>>();
+      .returns<
+        Array<{
+          id: string;
+          employee_id: string;
+          type: string;
+          occurred_at: string;
+          source_metadata: Record<string, unknown> | null;
+        }>
+      >();
 
     // 3. Lookups: empleado→nombre/depto, depto→nombre/sucursal, sucursal, template, localidad.
     const tplIds = [...new Set(shifts.map((s) => s.template_id))];
@@ -542,7 +552,10 @@ export class TimeclockController {
       const k = `${s.employee_id}|${s.date}`;
       (shiftsByKey.get(k) ?? shiftsByKey.set(k, []).get(k)!).push(s);
     }
-    const eventsByShift = new Map<string, Array<{ id: string; type: string; occurred_at: string }>>();
+    const eventsByShift = new Map<
+      string,
+      Array<{ id: string; type: string; occurred_at: string; source_metadata: Record<string, unknown> | null }>
+    >();
     for (const e of events ?? []) {
       const k = `${e.employee_id}|${dayOf(e.occurred_at)}`;
       const candidates = shiftsByKey.get(k);
@@ -575,10 +588,16 @@ export class TimeclockController {
       const evs = (eventsByShift.get(s.id) ?? []).slice().sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
       const ins = evs.filter((e) => e.type === 'in');
       const outs = evs.filter((e) => e.type === 'out');
-      const clockIn = ins[0]?.occurred_at ?? null;
-      const clockOut = outs[outs.length - 1]?.occurred_at ?? null;
-      const clockInId = ins[0]?.id ?? null;
-      const clockOutId = outs[outs.length - 1]?.id ?? null;
+      const inEv = ins[0];
+      const outEv = outs[outs.length - 1];
+      const clockIn = inEv?.occurred_at ?? null;
+      const clockOut = outEv?.occurred_at ?? null;
+      const clockInId = inEv?.id ?? null;
+      const clockOutId = outEv?.id ?? null;
+      const correctionReason =
+        ((inEv?.source_metadata?.correction_reason as string | undefined) ??
+          (outEv?.source_metadata?.correction_reason as string | undefined)) ||
+        null;
       let breakCount = 0;
       let breakMs = 0;
       let openBreak: string | null = null;
@@ -606,6 +625,7 @@ export class TimeclockController {
         clockOut,
         clockInId,
         clockOutId,
+        correctionReason,
         breakCount,
         breakMinutes: Math.round(breakMs / 60000),
         workedMinutes: Math.max(0, Math.round(workedMs / 60000)),
@@ -668,9 +688,9 @@ export class TimeclockController {
         employee_id: dto.employeeId,
         shift_assignment_id: dto.shiftAssignmentId ?? null,
         location_id: dto.locationId ?? null,
-        client_uuid: `manual-${randomUUID()}`,
+        client_uuid: randomUUID(),
         type: dto.type,
-        source: 'manager',
+        source: 'manual',
         source_metadata: {
           correction_reason: dto.reason,
           corrected_by: user?.userId ?? null,
