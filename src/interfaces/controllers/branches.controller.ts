@@ -13,7 +13,17 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
@@ -48,6 +58,26 @@ export class CreateBranchDto {
   @IsString()
   @MaxLength(300)
   address?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  geofenceLat?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  geofenceLng?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(1)
+  geofenceRadiusM?: number | null;
 }
 
 export class UpdateBranchDto {
@@ -64,6 +94,26 @@ export class UpdateBranchDto {
   @IsString()
   @MaxLength(300)
   address?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  geofenceLat?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  geofenceLng?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(1)
+  geofenceRadiusM?: number | null;
 }
 
 interface BranchRow {
@@ -71,6 +121,9 @@ interface BranchRow {
   name: string;
   timezone: string;
   address: string | null;
+  geofenceLat: number | null;
+  geofenceLng: number | null;
+  geofenceRadiusM: number | null;
   createdAt: string;
   departmentCount: number;
 }
@@ -91,7 +144,7 @@ export class BranchesController {
   async list(@CurrentUser() user: AuthContext): Promise<BranchRow[]> {
     let query = this.supabase
       .from('branches')
-      .select('id, name, timezone, address, created_at, departments(count)')
+      .select('id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at, departments(count)')
       .eq('company_id', user.companyId)
       .order('created_at', { ascending: true });
 
@@ -111,6 +164,9 @@ export class BranchesController {
       name: b.name as string,
       timezone: b.timezone as string,
       address: (b.address as string | null) ?? null,
+      geofenceLat: (b.geofence_lat as number | null) ?? null,
+      geofenceLng: (b.geofence_lng as number | null) ?? null,
+      geofenceRadiusM: (b.geofence_radius_m as number | null) ?? null,
       createdAt: b.created_at as string,
       departmentCount:
         Array.isArray(b.departments) && b.departments[0]
@@ -133,8 +189,11 @@ export class BranchesController {
         name: dto.name.trim(),
         timezone: dto.timezone?.trim() || 'UTC',
         address: dto.address?.trim() || null,
+        geofence_lat: dto.geofenceLat ?? null,
+        geofence_lng: dto.geofenceLng ?? null,
+        geofence_radius_m: dto.geofenceRadiusM ?? null,
       })
-      .select('id, name, timezone, address, created_at')
+      .select('id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at')
       .single();
     if (error) {
       if ((error as { code?: string }).code === '23505') {
@@ -147,6 +206,9 @@ export class BranchesController {
       name: data.name as string,
       timezone: data.timezone as string,
       address: (data.address as string | null) ?? null,
+      geofenceLat: (data.geofence_lat as number | null) ?? null,
+      geofenceLng: (data.geofence_lng as number | null) ?? null,
+      geofenceRadiusM: (data.geofence_radius_m as number | null) ?? null,
       createdAt: data.created_at as string,
       departmentCount: 0,
     };
@@ -164,6 +226,9 @@ export class BranchesController {
     if (dto.timezone !== undefined)
       patch.timezone = dto.timezone.trim() || 'UTC';
     if (dto.address !== undefined) patch.address = dto.address.trim() || null;
+    if (dto.geofenceLat !== undefined) patch.geofence_lat = dto.geofenceLat;
+    if (dto.geofenceLng !== undefined) patch.geofence_lng = dto.geofenceLng;
+    if (dto.geofenceRadiusM !== undefined) patch.geofence_radius_m = dto.geofenceRadiusM;
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('No fields to update');
     }
@@ -172,7 +237,7 @@ export class BranchesController {
       .update(patch)
       .eq('id', id)
       .eq('company_id', companyId)
-      .select('id, name, timezone, address, created_at, departments(count)')
+      .select('id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at, departments(count)')
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Branch not found');
@@ -181,6 +246,9 @@ export class BranchesController {
       name: data.name as string,
       timezone: data.timezone as string,
       address: (data.address as string | null) ?? null,
+      geofenceLat: (data.geofence_lat as number | null) ?? null,
+      geofenceLng: (data.geofence_lng as number | null) ?? null,
+      geofenceRadiusM: (data.geofence_radius_m as number | null) ?? null,
       createdAt: data.created_at as string,
       departmentCount:
         Array.isArray(data.departments) && data.departments[0]
