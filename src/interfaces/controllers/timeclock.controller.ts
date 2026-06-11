@@ -73,6 +73,24 @@ interface TimesheetRowDTO {
   incomplete: boolean;
 }
 
+/** Un descanso real (break_start→break_end) comparado con el planificado. */
+interface BreakDetailDTO {
+  id: string;
+  employeeId: string;
+  employeeName: string | null;
+  date: string;
+  plannedStart: string | null;
+  plannedMinutes: number | null;
+  actualStart: string;
+  actualEnd: string | null;
+  actualMinutes: number | null;
+  /** actual − planificado (min). + = empezó tarde / duró de más. */
+  startDeviationMin: number | null;
+  durationDeviationMin: number | null;
+  overbreak: boolean;
+  autoClosed: boolean;
+}
+
 interface ReviewItemDTO extends ClockEventDTO {
   employeeId: string;
   employeeName: string | null;
@@ -699,6 +717,144 @@ export class TimeclockController {
     }
     rows.sort((a, b) => a.date.localeCompare(b.date) || a.scheduledStart.localeCompare(b.scheduledStart));
     return rows;
+  }
+
+  /**
+   * GET /timeclock/breaks?from=&to=&employeeId= — detalle de descansos: empareja
+   * break_start→break_end y los compara con el descanso planificado más cercano
+   * (plan vs real + desvíos). Útil para revisar overbreaks / descansos fuera de hora.
+   */
+  @Get('breaks')
+  @Requires('schedule:write')
+  async breakDetail(
+    @CurrentCompany() companyId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('employeeId') employeeId?: string,
+  ): Promise<BreakDetailDTO[]> {
+    if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      throw new BadRequestException('from & to (YYYY-MM-DD) are required');
+    }
+    const fromIso = `${from}T00:00:00.000Z`;
+    const toIso = `${to}T23:59:59.999Z`;
+
+    // 1. Eventos de descanso del rango.
+    let eq = this.supabase
+      .from('time_clock_events')
+      .select('id, employee_id, type, occurred_at, source_metadata')
+      .eq('company_id', companyId)
+      .in('type', ['break_start', 'break_end'])
+      .gte('occurred_at', fromIso)
+      .lte('occurred_at', toIso)
+      .neq('validation_status', 'disputed')
+      .order('occurred_at', { ascending: true });
+    if (employeeId) eq = eq.eq('employee_id', employeeId);
+    const { data: events, error } = await eq.returns<
+      Array<{
+        id: string;
+        employee_id: string;
+        type: string;
+        occurred_at: string;
+        source_metadata: Record<string, unknown> | null;
+      }>
+    >();
+    if (error) throw new Error(error.message);
+    const evs = events ?? [];
+    if (evs.length === 0) return [];
+
+    // 2. Emparejar break_start→break_end por empleado (en orden).
+    interface Pair {
+      id: string;
+      employeeId: string;
+      start: string;
+      end: string | null;
+      meta: Record<string, unknown> | null;
+    }
+    const open = new Map<string, Pair>();
+    const pairs: Pair[] = [];
+    for (const e of evs) {
+      if (e.type === 'break_start') {
+        const p: Pair = { id: e.id, employeeId: e.employee_id, start: e.occurred_at, end: null, meta: e.source_metadata };
+        open.set(e.employee_id, p);
+        pairs.push(p);
+      } else if (e.type === 'break_end') {
+        const p = open.get(e.employee_id);
+        if (p && !p.end) {
+          p.end = e.occurred_at;
+          p.meta = { ...(p.meta ?? {}), ...(e.source_metadata ?? {}) };
+          open.delete(e.employee_id);
+        }
+      }
+    }
+
+    // 3. Descansos planificados del rango (vía assignments).
+    const empIds = [...new Set(pairs.map((p) => p.employeeId))];
+    const { data: assigns } = await this.supabase
+      .from('shift_assignments')
+      .select('id, employee_id, date')
+      .eq('company_id', companyId)
+      .gte('date', from)
+      .lte('date', to)
+      .in('employee_id', empIds)
+      .returns<Array<{ id: string; employee_id: string; date: string }>>();
+    const asgEmp = new Map((assigns ?? []).map((a) => [a.id, a.employee_id]));
+    const asgIds = (assigns ?? []).map((a) => a.id);
+    const { data: planned } = asgIds.length
+      ? await this.supabase
+          .from('shift_assignment_breaks')
+          .select('assignment_id, start_time, end_time')
+          .eq('company_id', companyId)
+          .in('assignment_id', asgIds)
+          .returns<Array<{ assignment_id: string; start_time: string; end_time: string }>>()
+      : { data: [] as Array<{ assignment_id: string; start_time: string; end_time: string }> };
+    // Planificados por empleado.
+    const plannedByEmp = new Map<string, Array<{ start: string; minutes: number }>>();
+    for (const pb of planned ?? []) {
+      const emp = asgEmp.get(pb.assignment_id);
+      if (!emp) continue;
+      const minutes = Math.round((Date.parse(pb.end_time) - Date.parse(pb.start_time)) / 60000);
+      (plannedByEmp.get(emp) ?? plannedByEmp.set(emp, []).get(emp)!).push({ start: pb.start_time, minutes });
+    }
+
+    // 4. Nombres.
+    const { data: emps } = await this.supabase.from('employees').select('id, name').in('id', empIds);
+    const empName = new Map(((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]));
+
+    // 5. Armar el detalle, matcheando cada par con el plan más cercano.
+    return pairs.map((p) => {
+      const actualStartMs = Date.parse(p.start);
+      const actualMinutes = p.end ? Math.round((Date.parse(p.end) - actualStartMs) / 60000) : null;
+      const candidates = plannedByEmp.get(p.employeeId) ?? [];
+      let best: { start: string; minutes: number } | null = null;
+      let bestDist = Infinity;
+      for (const c of candidates) {
+        const dist = Math.abs(Date.parse(c.start) - actualStartMs);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = c;
+        }
+      }
+      const plannedMinutes = best?.minutes ?? null;
+      const startDeviationMin = best ? Math.round((actualStartMs - Date.parse(best.start)) / 60000) : null;
+      const durationDeviationMin =
+        plannedMinutes != null && actualMinutes != null ? actualMinutes - plannedMinutes : null;
+      const overbreakMeta = (p.meta ?? {}).overbreak_minutes as number | undefined;
+      return {
+        id: p.id,
+        employeeId: p.employeeId,
+        employeeName: empName.get(p.employeeId) ?? null,
+        date: p.start.slice(0, 10),
+        plannedStart: best?.start ?? null,
+        plannedMinutes,
+        actualStart: p.start,
+        actualEnd: p.end,
+        actualMinutes,
+        startDeviationMin,
+        durationDeviationMin,
+        overbreak: (overbreakMeta ?? 0) > 0 || (durationDeviationMin ?? 0) > 0,
+        autoClosed: Boolean((p.meta ?? {}).auto_closed),
+      };
+    });
   }
 
   /**
