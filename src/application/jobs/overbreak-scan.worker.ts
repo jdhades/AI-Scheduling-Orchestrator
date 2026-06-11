@@ -108,7 +108,9 @@ export class OverbreakScanWorker implements OnApplicationBootstrap {
       const { error } = await this.supabase.from('time_clock_events').insert({
         company_id: cand.company_id,
         employee_id: cand.employee_id,
-        client_uuid: `auto-overbreak-${cand.id}`,
+        // El id del break_start (UUID) como client_uuid: determinístico (idempotente
+        // vía UNIQUE) y válido como UUID. NO usar prefijos string → la columna es UUID.
+        client_uuid: cand.id,
         type: 'break_end',
         source: 'auto',
         source_metadata: {
