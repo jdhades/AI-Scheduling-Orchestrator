@@ -1073,6 +1073,26 @@ export class TimeclockController {
     return this.toCorrectionDTO(data, null);
   }
 
+  /** GET /timeclock/correction-requests/mine — las solicitudes de corrección del
+   *  empleado actual (cualquier estado), para que vea la respuesta del manager. */
+  @Get('correction-requests/mine')
+  async myCorrectionRequests(
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<CorrectionRequestDTO[]> {
+    if (!user?.employeeId) return [];
+    const { data, error } = await this.supabase
+      .from('timeclock_correction_requests')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('employee_id', user.employeeId)
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .returns<CorrectionRow[]>();
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => this.toCorrectionDTO(r, null));
+  }
+
   /** GET /timeclock/correction-requests?status=pending — cola para resolver. */
   @Get('correction-requests')
   @Requires('timeclock:correct')
