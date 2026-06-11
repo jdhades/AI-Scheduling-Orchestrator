@@ -1,5 +1,7 @@
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
+import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
   Body,
   Controller,
@@ -7,6 +9,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -32,6 +35,17 @@ export class CreateIncidentDto {
   message?: string;
 
   /** URL al archivo evidencia (imagen/PDF). Puede ir vacío en MVP. */
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  mediaUrl?: string;
+}
+
+/** El empleado reporta un incidente propio (sin permiso de manager). */
+export class ReportIncidentDto {
+  @IsOptional()
+  @IsString()
+  message?: string;
+
   @IsOptional()
   @IsUrl({ require_tld: false })
   mediaUrl?: string;
@@ -83,6 +97,23 @@ export class IncidentsController {
         dto.message ?? '',
         dto.mediaUrl ?? '',
       ),
+    );
+    return { success: true };
+  }
+
+  /** POST /incidents/report — el empleado reporta un incidente propio. */
+  @Post('report')
+  @HttpCode(HttpStatus.CREATED)
+  async report(
+    @Body() dto: ReportIncidentDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ success: boolean }> {
+    if (!user?.employeeId) {
+      throw new NotFoundException('No employee is linked to this account');
+    }
+    await this.commandBus.execute(
+      new CreateIncidentCommand(companyId, user.employeeId, dto.message ?? '', dto.mediaUrl ?? ''),
     );
     return { success: true };
   }
