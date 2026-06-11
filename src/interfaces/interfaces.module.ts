@@ -19,6 +19,7 @@ import { IncidentsController } from './controllers/incidents.controller';
 import { ShiftSwapRequestsController } from './controllers/shift-swap-requests.controller';
 import { AbsenceReportsController } from './controllers/absence-reports.controller';
 import { DayOffRequestsController } from './controllers/day-off-requests.controller';
+import { ApprovalsController } from './controllers/approvals.controller';
 import { ShiftPreferencesController } from './controllers/shift-preferences.controller';
 import { ScopeTargetsController } from './controllers/scope-targets.controller';
 import { DepartmentsController } from './controllers/departments.controller';
@@ -119,6 +120,7 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ShiftSwapRequestsController,
     AbsenceReportsController,
     DayOffRequestsController,
+    ApprovalsController,
     ShiftPreferencesController,
     ScopeTargetsController,
     DepartmentsController,
