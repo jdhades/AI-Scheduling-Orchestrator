@@ -199,6 +199,71 @@ class EditClockTimeDto {
   reason!: string;
 }
 
+/** Solicitud de corrección (empleado o manager sin permiso). */
+class CreateCorrectionRequestDto {
+  @IsOptional()
+  @IsString()
+  employeeId?: string;
+
+  @IsIn(['in', 'out', 'break_start', 'break_end'])
+  type!: string;
+
+  @IsString()
+  occurredAt!: string;
+
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  targetEventId?: string;
+
+  @IsOptional()
+  @IsString()
+  shiftAssignmentId?: string;
+}
+
+class ResolveCorrectionDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+interface CorrectionRow {
+  id: string;
+  company_id: string;
+  employee_id: string;
+  requested_by_employee_id: string | null;
+  target_event_id: string | null;
+  proposed_type: string;
+  proposed_occurred_at: string;
+  shift_assignment_id: string | null;
+  reason: string;
+  status: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolve_note: string | null;
+  created_at: string;
+}
+
+interface CorrectionRequestDTO {
+  id: string;
+  employeeId: string;
+  employeeName: string | null;
+  requestedByEmployeeId: string | null;
+  targetEventId: string | null;
+  proposedType: string;
+  proposedOccurredAt: string;
+  shiftAssignmentId: string | null;
+  reason: string;
+  status: string;
+  resolvedAt: string | null;
+  resolveNote: string | null;
+  createdAt: string;
+}
+
 @Controller('timeclock')
 export class TimeclockController {
   constructor(
@@ -768,6 +833,209 @@ export class TimeclockController {
       actorEmployeeId: user?.employeeId ?? null,
     });
     return toDTO(updated);
+  }
+
+  // ─── Solicitudes de corrección (F4c) ─────────────────────────────────────
+
+  /** POST /timeclock/correction-requests — crea una solicitud (empleado o manager
+   *  sin permiso). Cae como 'pending' a la cola. */
+  @Post('correction-requests')
+  @HttpCode(HttpStatus.CREATED)
+  async createCorrectionRequest(
+    @Body() dto: CreateCorrectionRequestDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<CorrectionRequestDTO> {
+    const employeeId = dto.employeeId ?? user?.employeeId;
+    if (!employeeId) throw new BadRequestException('No employee for the request');
+    const { data, error } = await this.supabase
+      .from('timeclock_correction_requests')
+      .insert({
+        company_id: companyId,
+        employee_id: employeeId,
+        requested_by_employee_id: user?.employeeId ?? null,
+        target_event_id: dto.targetEventId ?? null,
+        proposed_type: dto.type,
+        proposed_occurred_at: dto.occurredAt,
+        shift_assignment_id: dto.shiftAssignmentId ?? null,
+        reason: dto.reason,
+      })
+      .select('*')
+      .single<CorrectionRow>();
+    if (error) throw new Error(error.message);
+    return this.toCorrectionDTO(data, null);
+  }
+
+  /** GET /timeclock/correction-requests?status=pending — cola para resolver. */
+  @Get('correction-requests')
+  @Requires('timeclock:correct')
+  async listCorrectionRequests(
+    @CurrentCompany() companyId: string,
+    @Query('status') status = 'pending',
+  ): Promise<CorrectionRequestDTO[]> {
+    const { data, error } = await this.supabase
+      .from('timeclock_correction_requests')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('status', status)
+      .order('created_at', { ascending: false })
+      .limit(200)
+      .returns<CorrectionRow[]>();
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    if (!rows.length) return [];
+    const empIds = [...new Set(rows.map((r) => r.employee_id))];
+    const { data: emps } = await this.supabase.from('employees').select('id, name').in('id', empIds);
+    const names = new Map(((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]));
+    return rows.map((r) => this.toCorrectionDTO(r, names.get(r.employee_id) ?? null));
+  }
+
+  /** POST /timeclock/correction-requests/:id/apply — aplica (crea/edita el evento)
+   *  y marca la solicitud como applied. */
+  @Post('correction-requests/:id/apply')
+  @Requires('timeclock:correct')
+  @HttpCode(HttpStatus.OK)
+  async applyCorrectionRequest(
+    @Param('id') id: string,
+    @Body() dto: ResolveCorrectionDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ ok: true }> {
+    const { data: req } = await this.supabase
+      .from('timeclock_correction_requests')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('id', id)
+      .maybeSingle<CorrectionRow>();
+    if (!req) throw new NotFoundException('Request not found');
+    if (req.status !== 'pending') throw new BadRequestException('Request already resolved');
+    const now = new Date().toISOString();
+    const meta = {
+      correction_reason: req.reason,
+      corrected_by: user?.userId ?? null,
+      corrected_at: now,
+      from_request: id,
+    };
+
+    if (req.target_event_id) {
+      const { data: cur } = await this.supabase
+        .from('time_clock_events')
+        .select('occurred_at, source_metadata')
+        .eq('company_id', companyId)
+        .eq('id', req.target_event_id)
+        .maybeSingle<{ occurred_at: string; source_metadata: Record<string, unknown> | null }>();
+      const before = cur?.occurred_at ?? null;
+      await this.supabase
+        .from('time_clock_events')
+        .update({
+          occurred_at: req.proposed_occurred_at,
+          source_metadata: { ...(cur?.source_metadata ?? {}), ...meta },
+        })
+        .eq('company_id', companyId)
+        .eq('id', req.target_event_id);
+      await this.audit.log({
+        companyId,
+        entityType: 'time_clock_event',
+        entityId: req.target_event_id,
+        action: 'update',
+        changes: {
+          occurred_at: { before, after: req.proposed_occurred_at },
+          reason: { before: null, after: req.reason },
+        },
+        actorUserId: user?.userId ?? null,
+        actorEmployeeId: user?.employeeId ?? null,
+      });
+    } else {
+      const { data: ins } = await this.supabase
+        .from('time_clock_events')
+        .insert({
+          company_id: companyId,
+          employee_id: req.employee_id,
+          shift_assignment_id: req.shift_assignment_id ?? null,
+          client_uuid: randomUUID(),
+          type: req.proposed_type,
+          source: 'manual',
+          source_metadata: meta,
+          occurred_at: req.proposed_occurred_at,
+          validation_status: 'valid',
+          anomaly_reason: null,
+        })
+        .select('id')
+        .single<{ id: string }>();
+      if (ins) {
+        await this.audit.log({
+          companyId,
+          entityType: 'time_clock_event',
+          entityId: ins.id,
+          action: 'create',
+          changes: {
+            type: { before: null, after: req.proposed_type },
+            occurred_at: { before: null, after: req.proposed_occurred_at },
+            reason: { before: null, after: req.reason },
+          },
+          actorUserId: user?.userId ?? null,
+          actorEmployeeId: user?.employeeId ?? null,
+        });
+      }
+    }
+
+    await this.supabase
+      .from('timeclock_correction_requests')
+      .update({
+        status: 'applied',
+        resolved_by: user?.userId ?? null,
+        resolved_at: now,
+        resolve_note: dto.note ?? null,
+      })
+      .eq('company_id', companyId)
+      .eq('id', id);
+    return { ok: true };
+  }
+
+  /** POST /timeclock/correction-requests/:id/reject — rechaza con nota. */
+  @Post('correction-requests/:id/reject')
+  @Requires('timeclock:correct')
+  @HttpCode(HttpStatus.OK)
+  async rejectCorrectionRequest(
+    @Param('id') id: string,
+    @Body() dto: ResolveCorrectionDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<{ ok: true }> {
+    const { data, error } = await this.supabase
+      .from('timeclock_correction_requests')
+      .update({
+        status: 'rejected',
+        resolved_by: user?.userId ?? null,
+        resolved_at: new Date().toISOString(),
+        resolve_note: dto.note ?? null,
+      })
+      .eq('company_id', companyId)
+      .eq('id', id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new NotFoundException('Pending request not found');
+    return { ok: true };
+  }
+
+  private toCorrectionDTO(r: CorrectionRow, employeeName: string | null): CorrectionRequestDTO {
+    return {
+      id: r.id,
+      employeeId: r.employee_id,
+      employeeName,
+      requestedByEmployeeId: r.requested_by_employee_id ?? null,
+      targetEventId: r.target_event_id ?? null,
+      proposedType: r.proposed_type,
+      proposedOccurredAt: r.proposed_occurred_at,
+      shiftAssignmentId: r.shift_assignment_id ?? null,
+      reason: r.reason,
+      status: r.status,
+      resolvedAt: r.resolved_at ?? null,
+      resolveNote: r.resolve_note ?? null,
+      createdAt: r.created_at,
+    };
   }
 
   private async findByClientUuid(
