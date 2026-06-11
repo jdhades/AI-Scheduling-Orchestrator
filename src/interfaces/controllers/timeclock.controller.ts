@@ -135,6 +135,19 @@ const EVENT_COLS =
 
 const REVIEW_COLS = `${EVENT_COLS}, employee_id, location_id, reviewed_at, review_note`;
 
+/** Minutos desde medianoche del instante `iso` en la zona horaria `tz`. */
+function wallMinutesInTz(iso: string, tz: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  return (h % 24) * 60 + m;
+}
+
 interface ClockEventRow {
   id: string;
   type: string;
@@ -816,9 +829,36 @@ export class TimeclockController {
       (plannedByEmp.get(emp) ?? plannedByEmp.set(emp, []).get(emp)!).push({ start: pb.start_time, minutes });
     }
 
-    // 4. Nombres.
-    const { data: emps } = await this.supabase.from('employees').select('id, name').in('id', empIds);
-    const empName = new Map(((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]));
+    // 4. Nombres + zona horaria de la sucursal (empleado→depto→sucursal→tz),
+    //    para alinear el wall-clock del planificado con el instante real.
+    const { data: emps } = await this.supabase
+      .from('employees')
+      .select('id, name, department_id')
+      .in('id', empIds);
+    const empName = new Map(
+      ((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]),
+    );
+    const empDept = new Map(
+      ((emps ?? []) as Array<{ id: string; department_id: string | null }>).map((e) => [
+        e.id,
+        e.department_id ?? null,
+      ]),
+    );
+    const deptIds = [...new Set([...empDept.values()].filter(Boolean))] as string[];
+    const { data: depts2 } = deptIds.length
+      ? await this.supabase.from('departments').select('id, branch_id').in('id', deptIds)
+      : { data: [] as Array<{ id: string; branch_id: string | null }> };
+    const deptBranch = new Map((depts2 ?? []).map((d) => [d.id as string, (d.branch_id as string | null) ?? null]));
+    const branchIds2 = [...new Set([...deptBranch.values()].filter(Boolean))] as string[];
+    const { data: branches2 } = branchIds2.length
+      ? await this.supabase.from('branches').select('id, timezone').in('id', branchIds2)
+      : { data: [] as Array<{ id: string; timezone: string }> };
+    const branchTz = new Map((branches2 ?? []).map((b) => [b.id as string, (b.timezone as string) || 'UTC']));
+    const tzOf = (empId: string): string => {
+      const dept = empDept.get(empId);
+      const branch = dept ? deptBranch.get(dept) : null;
+      return (branch ? branchTz.get(branch) : null) ?? 'UTC';
+    };
 
     // 5. Armar el detalle, matcheando cada par con el plan más cercano.
     return pairs.map((p) => {
@@ -835,7 +875,18 @@ export class TimeclockController {
         }
       }
       const plannedMinutes = best?.minutes ?? null;
-      const startDeviationMin = best ? Math.round((actualStartMs - Date.parse(best.start)) / 60000) : null;
+      // Desvío de inicio comparando wall-clock: el real se convierte a la tz de
+      // la sucursal; el planificado se guarda como wall-clock-UTC.
+      let startDeviationMin: number | null = null;
+      if (best) {
+        const actualWall = wallMinutesInTz(p.start, tzOf(p.employeeId));
+        const pd = new Date(best.start);
+        const plannedWall = pd.getUTCHours() * 60 + pd.getUTCMinutes();
+        let dev = actualWall - plannedWall;
+        if (dev > 720) dev -= 1440;
+        else if (dev < -720) dev += 1440;
+        startDeviationMin = dev;
+      }
       const durationDeviationMin =
         plannedMinutes != null && actualMinutes != null ? actualMinutes - plannedMinutes : null;
       const overbreakMeta = (p.meta ?? {}).overbreak_minutes as number | undefined;
