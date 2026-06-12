@@ -14,6 +14,8 @@ import { ReplacementAssignedEvent } from '../events/replacement-assigned.event';
 import { IncidentResolvedEvent } from '../events/incident-resolved.event';
 
 export enum IncidentType {
+  /** Reporte libre del empleado (sin tipo), el texto va en `message`. */
+  GENERAL = 'GENERAL',
   MEDICAL_LEAVE = 'MEDICAL_LEAVE',
   EMERGENCY_LEAVE = 'EMERGENCY_LEAVE',
   SHIFT_SWAP_REQUEST = 'SHIFT_SWAP_REQUEST',
@@ -38,6 +40,7 @@ export enum IncidentStatus {
 
 export class Incident extends AggregateRoot {
   private _evidenceUrl: string | null = null;
+  private _message: string | null = null;
   private _ocrText: string | null = null;
   private _ocrConfidence: number | null = null;
   private _validated: boolean = false;
@@ -76,6 +79,10 @@ export class Incident extends AggregateRoot {
   get evidenceUrl(): string | null {
     return this._evidenceUrl;
   }
+  /** Texto libre del empleado (reporte sin OCR). */
+  get message(): string | null {
+    return this._message;
+  }
   get ocrText(): string | null {
     return this._ocrText;
   }
@@ -109,6 +116,7 @@ export class Incident extends AggregateRoot {
     type: IncidentType;
     status: IncidentStatus;
     evidenceUrl: string | null;
+    message: string | null;
     ocrText: string | null;
     ocrConfidence: number | null;
     validated: boolean;
@@ -126,6 +134,7 @@ export class Incident extends AggregateRoot {
       row.createdAt,
     );
     incident._evidenceUrl = row.evidenceUrl;
+    incident._message = row.message;
     incident._ocrText = row.ocrText;
     incident._ocrConfidence = row.ocrConfidence;
     incident._validated = row.validated;
@@ -147,6 +156,7 @@ export class Incident extends AggregateRoot {
     companyId: string,
     employeeId: string,
     type: IncidentType,
+    message: string | null = null,
   ): Incident {
     const id = IncidentId.create();
     const incident = new Incident(
@@ -157,6 +167,7 @@ export class Incident extends AggregateRoot {
       IncidentStatus.REPORTED,
       new Date(),
     );
+    incident._message = message;
 
     incident.apply(
       new IncidentReportedEvent(id.value, companyId, employeeId, {
@@ -317,7 +328,9 @@ export class Incident extends AggregateRoot {
     if (
       this._status !== IncidentStatus.REPLACEMENT_ASSIGNED &&
       this._status !== IncidentStatus.VALIDATED &&
-      this._status !== IncidentStatus.REPAIR_IN_PROGRESS
+      this._status !== IncidentStatus.REPAIR_IN_PROGRESS &&
+      // Reporte libre del empleado (sin OCR): el manager lo resuelve directo.
+      this._status !== IncidentStatus.REPORTED
     ) {
       throw new DomainError(
         'Invalid state transition: Cannot resolve from current status.',

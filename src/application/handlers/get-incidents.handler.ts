@@ -22,6 +22,7 @@ export class GetIncidentsHandler implements IQueryHandler<GetIncidentsQuery> {
       employeeId: i.employeeId,
       type: i.type,
       status: i.status,
+      message: i.message,
       evidenceUrl: i.evidenceUrl,
       validated: i.validated,
       ocrConfidence: i.ocrConfidence,

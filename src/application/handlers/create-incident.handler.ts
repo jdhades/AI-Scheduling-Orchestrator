@@ -15,18 +15,24 @@ export class CreateIncidentHandler implements ICommandHandler<CreateIncidentComm
 
   async execute(command: CreateIncidentCommand): Promise<void> {
     const { companyId, employeeId, message, mediaUrl } = command;
+    const hasMedia = !!mediaUrl;
 
-    // 1 & 2. Generate IncidentId and create Aggregate (status defaults to REPORTED)
-    // Here we hardcode MEDICAL_LEAVE for now as per Scenario 5 primary use case
-    // The "message" could be processed by LLM to infer the type, but since a certificate is sent, assume MEDICAL_LEAVE.
+    // Dos flujos sobre el mismo command:
+    // - CON media (WhatsApp, certificado): medical-leave → OCR (PENDING_OCR).
+    // - SIN media (POST /incidents/report desde la app): reporte libre del
+    //   empleado, tipo GENERAL; guardamos su `message` y queda REPORTED para
+    //   que el manager lo vea y lo resuelva/rechace (no pasa por OCR).
     const incident = Incident.reportIncident(
       companyId,
       employeeId,
-      IncidentType.MEDICAL_LEAVE,
+      hasMedia ? IncidentType.MEDICAL_LEAVE : IncidentType.GENERAL,
+      hasMedia ? null : message || null,
     );
 
-    // 3. Attach evidenceUrl and state moves to PENDING_OCR
-    incident.attachEvidence(mediaUrl);
+    if (hasMedia) {
+      // Attach evidenceUrl → state moves to PENDING_OCR.
+      incident.attachEvidence(mediaUrl);
+    }
 
     // 5. Persist the incident entity state
     await this.incidentRepository.save(incident);

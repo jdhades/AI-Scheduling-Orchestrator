@@ -34,6 +34,7 @@ export class IncidentRepository {
       type: incident.type,
       status: incident.status,
       evidence_url: incident.evidenceUrl,
+      message: incident.message,
       ocr_text: incident.ocrText,
       ocr_confidence: incident.ocrConfidence,
       validated: incident.validated,
@@ -87,6 +88,7 @@ export class IncidentRepository {
       type: row.type as IncidentType,
       status: row.status as IncidentStatus,
       evidenceUrl: (row.evidence_url as string) ?? null,
+      message: (row.message as string) ?? null,
       ocrText: (row.ocr_text as string) ?? null,
       ocrConfidence:
         row.ocr_confidence != null ? Number(row.ocr_confidence) : null,
