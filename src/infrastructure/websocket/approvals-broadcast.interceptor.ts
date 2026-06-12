@@ -54,6 +54,7 @@ export class ApprovalsBroadcastInterceptor implements NestInterceptor {
     if (path.includes('/day-off-requests')) return 'dayoff';
     if (path.includes('/absence-reports')) return 'absence';
     if (path.includes('/incidents')) return 'incident';
+    if (path.includes('/timeclock/correction-requests')) return 'correction';
     return null;
   }
 }
