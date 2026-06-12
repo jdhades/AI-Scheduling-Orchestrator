@@ -145,11 +145,18 @@ export class AbsenceReportCreator {
     // semantic rule(s) para el scheduler. El manager ve TODAS las
     // ausencias reportadas en el listado /approvals/absences.
     const deletedIds = sideEffects.deleted.map((d) => d.id);
+    // El reporte solo puede referenciar un assignment que TODAVÍA exista (FK).
+    // El flujo borra los turnos del día de la ausencia, así que el hint del
+    // empleado (o cualquier deletedId) apunta a un turno ya borrado → guardarlo
+    // viola absence_reports_assignment_fkey. Lo dejamos solo si sobrevivió.
+    const hint = input.assignmentIdHint ?? null;
+    const assignmentId =
+      hint && !deletedIds.includes(hint) ? hint : null;
     const report = AbsenceReport.create({
       id: randomUUID(),
       companyId,
       employeeId,
-      assignmentId: input.assignmentIdHint ?? deletedIds[0] ?? null,
+      assignmentId,
       reason,
       startDate,
       endDate,
