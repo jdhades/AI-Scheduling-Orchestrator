@@ -113,8 +113,10 @@ export class ApprovalShiftEnricher {
   private toRef(r: AssignmentRow, names: Map<string, string>): ApprovalShiftRef {
     return {
       date: r.date,
-      start: r.actual_start_time,
-      end: r.actual_end_time,
+      // Normalizar a ISO UTC limpio (igual que la agenda) — el valor crudo de
+      // Postgres lo parsea distinto Hermes (RN) y desfasa las horas.
+      start: new Date(r.actual_start_time).toISOString(),
+      end: new Date(r.actual_end_time).toISOString(),
       role: r.template_id ? names.get(r.template_id) ?? null : null,
     };
   }
