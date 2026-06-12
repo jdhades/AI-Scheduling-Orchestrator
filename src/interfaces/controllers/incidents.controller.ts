@@ -28,6 +28,7 @@ import { GetIncidentByIdQuery } from '../../application/queries/get-incident-by-
 import { IsNotEmpty, IsOptional, IsString, IsUrl, Matches } from 'class-validator';
 import type { IncidentStatus } from '../../domain/aggregates/incident.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
+import { ApprovalShiftEnricher } from '../../application/services/approval-shift-enricher.service';
 
 // TODO(dry): ISO_DATE está duplicado en ~8 controllers/dtos; extraer a un util
 // compartido en un pass dedicado.
@@ -97,7 +98,26 @@ export class IncidentsController {
     private readonly managerScope: ManagerScopeService,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
+    private readonly shiftEnricher: ApprovalShiftEnricher,
   ) {}
+
+  /** Agrega `shift` a cada incidente por (empleado, startDate) — como absence. */
+  private async withShift(
+    companyId: string,
+    rows: Array<Record<string, unknown>>,
+  ): Promise<unknown[]> {
+    const pairs = rows
+      .filter((r) => typeof r.startDate === 'string')
+      .map((r) => ({ employeeId: r.employeeId as string, date: r.startDate as string }));
+    const byKey = await this.shiftEnricher.byEmployeeDates(companyId, pairs);
+    return rows.map((r) => ({
+      ...r,
+      shift:
+        typeof r.startDate === 'string'
+          ? byKey.get(`${r.employeeId as string}|${r.startDate as string}`) ?? null
+          : null,
+    }));
+  }
 
   @Post()
   @Requires('incidents:manage')
@@ -186,14 +206,16 @@ export class IncidentsController {
           statusList && statusList.length === 1 ? statusList[0] : statusList,
       }),
     );
-    if (managerEmployeeId) {
-      const scope = await this.managerScope.getEmployeeIdsForManager(
-        companyId,
-        managerEmployeeId,
-      );
-      return rows.filter((r) => scope.has(r.employeeId));
-    }
-    return rows;
+    const visible = managerEmployeeId
+      ? await (async () => {
+          const scope = await this.managerScope.getEmployeeIdsForManager(
+            companyId,
+            managerEmployeeId,
+          );
+          return rows.filter((r: { employeeId: string }) => scope.has(r.employeeId));
+        })()
+      : rows;
+    return this.withShift(companyId, visible as Array<Record<string, unknown>>);
   }
 
   @Get(':id')
