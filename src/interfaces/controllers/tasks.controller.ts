@@ -19,9 +19,14 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
 } from 'class-validator';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+
+// TODO(dry): ISO_DATE duplicado en varios controllers; extraer a util.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
@@ -124,6 +129,29 @@ const targetFromDto = (dto: CreateTaskDto): TaskTarget => {
   return { type: 'employee', employeeId: dto.employeeId! };
 };
 
+export class CompleteTaskDto {
+  /** Día del completado (YYYY-MM-DD, tz del empleado). */
+  @Matches(ISO_DATE, { message: 'date must be YYYY-MM-DD' })
+  date!: string;
+}
+
+/** Tarea del empleado para un día, con flag de hecho-hoy. */
+interface TodayTaskDto {
+  id: string;
+  title: string;
+  description: string | null;
+  /** 'template' = tarea de turno (compartida) | 'employee' = personal. */
+  kind: 'template' | 'employee';
+  doneToday: boolean;
+}
+
+interface MyTasksTodayResponse {
+  tasks: TodayTaskDto[];
+  /** Enforcement del check (configurable por el manager). */
+  requireOnShift: boolean;
+  requireOnSite: boolean;
+}
+
 /**
  * TasksController
  *
@@ -147,6 +175,8 @@ export class TasksController {
     @Inject(TASK_REPOSITORY) private readonly tasks: ITaskRepository,
     @Inject(ENTITY_AUDIT_SERVICE)
     private readonly audit: IEntityAuditService,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   /** Snapshot serializable usado por el audit log. */
@@ -339,5 +369,122 @@ export class TasksController {
       isDone,
     });
     return rows.map(toDto);
+  }
+
+  // ─── Fase E — tareas del día (reinicio diario) ──────────────────────
+
+  /**
+   * GET /tasks/mine/today?date=YYYY-MM-DD — tareas del empleado para ese día:
+   * las del/los turno(s) que cubre (target=template, compartidas) + las
+   * personales, con flag `doneToday`. Incluye el modo de enforcement del check.
+   */
+  @Get('tasks/mine/today')
+  async myTasksToday(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @Query('date') date?: string,
+  ): Promise<MyTasksTodayResponse> {
+    if (!user?.employeeId) throw new ForbiddenException('No employee linked');
+    if (!date || !ISO_DATE.test(date)) {
+      throw new BadRequestException('date must be YYYY-MM-DD');
+    }
+    const employeeId = user.employeeId;
+
+    // Templates que el empleado cubre ese día.
+    const { data: assigns } = await this.supabase
+      .from('shift_assignments')
+      .select('template_id')
+      .eq('company_id', companyId)
+      .eq('employee_id', employeeId)
+      .eq('date', date);
+    const templateIds = [
+      ...new Set(
+        ((assigns ?? []) as Array<{ template_id: string | null }>)
+          .map((a) => a.template_id)
+          .filter((t): t is string => !!t),
+      ),
+    ];
+
+    const shiftTasks = (
+      await Promise.all(
+        templateIds.map((tid) => this.tasks.findByTemplateId(tid, companyId, {})),
+      )
+    ).flat();
+    const personalTasks = await this.tasks.findByEmployeeId(employeeId, companyId, {});
+    const byId = new Map<string, Task>();
+    for (const t of [...shiftTasks, ...personalTasks]) byId.set(t.id, t);
+    const all = [...byId.values()];
+
+    const doneSet = new Set<string>();
+    if (all.length) {
+      const { data: comps } = await this.supabase
+        .from('task_completions')
+        .select('task_id')
+        .eq('company_id', companyId)
+        .eq('date', date)
+        .in('task_id', all.map((t) => t.id));
+      for (const c of (comps ?? []) as Array<{ task_id: string }>) {
+        doneSet.add(c.task_id);
+      }
+    }
+
+    const { data: company } = await this.supabase
+      .from('companies')
+      .select('task_check_require_on_shift, task_check_require_on_site')
+      .eq('id', companyId)
+      .maybeSingle<{
+        task_check_require_on_shift: boolean;
+        task_check_require_on_site: boolean;
+      }>();
+
+    return {
+      requireOnShift: company?.task_check_require_on_shift ?? true,
+      requireOnSite: company?.task_check_require_on_site ?? true,
+      tasks: all.map((t) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        kind: t.target.type,
+        doneToday: doneSet.has(t.id),
+      })),
+    };
+  }
+
+  /** POST /tasks/:id/complete — marca la tarea hecha para el día (idempotente). */
+  @Post('tasks/:id/complete')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async complete(
+    @Param('id') id: string,
+    @Body() body: CompleteTaskDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    if (!user?.employeeId) throw new ForbiddenException('No employee linked');
+    const { error } = await this.supabase.from('task_completions').upsert(
+      {
+        company_id: companyId,
+        task_id: id,
+        date: body.date,
+        completed_by_employee_id: user.employeeId,
+      },
+      { onConflict: 'task_id,date', ignoreDuplicates: true },
+    );
+    if (error) throw new BadRequestException(error.message);
+  }
+
+  /** POST /tasks/:id/uncomplete — desmarca la tarea de ese día. */
+  @Post('tasks/:id/uncomplete')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async uncomplete(
+    @Param('id') id: string,
+    @Body() body: CompleteTaskDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    await this.supabase
+      .from('task_completions')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('task_id', id)
+      .eq('date', body.date);
   }
 }

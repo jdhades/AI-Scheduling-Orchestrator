@@ -143,6 +143,16 @@ export class UpdateTeamPreferencesDto {
   @Min(0)
   @Max(168)
   overtimeWeeklyThresholdHours?: number;
+
+  /** Tareas: el empleado debe estar fichado para checkear. */
+  @IsOptional()
+  @IsBoolean()
+  taskCheckRequireOnShift?: boolean;
+
+  /** Tareas: el empleado debe estar en el sitio (geofence) para checkear. */
+  @IsOptional()
+  @IsBoolean()
+  taskCheckRequireOnSite?: boolean;
 }
 
 export interface TeamPreferencesResponse {
@@ -154,6 +164,8 @@ export interface TeamPreferencesResponse {
   overtimeMode: 'none' | 'daily' | 'weekly' | 'both';
   overtimeDailyThresholdHours: number;
   overtimeWeeklyThresholdHours: number;
+  taskCheckRequireOnShift: boolean;
+  taskCheckRequireOnSite: boolean;
 }
 
 interface CapabilityInfo {
@@ -531,7 +543,7 @@ export class SettingsController {
     const { data, error } = await this.supabase
       .from('companies')
       .select(
-        'schedule_visibility_mode, availability_visibility, availability_change_notice_days, shift_confirmation_required, absences_tracking_enabled, overtime_mode, overtime_daily_threshold_hours, overtime_weekly_threshold_hours',
+        'schedule_visibility_mode, availability_visibility, availability_change_notice_days, shift_confirmation_required, absences_tracking_enabled, overtime_mode, overtime_daily_threshold_hours, overtime_weekly_threshold_hours, task_check_require_on_shift, task_check_require_on_site',
       )
       .eq('id', companyId)
       .maybeSingle();
@@ -554,6 +566,10 @@ export class SettingsController {
         Number(data.overtime_daily_threshold_hours ?? 8),
       overtimeWeeklyThresholdHours:
         Number(data.overtime_weekly_threshold_hours ?? 40),
+      taskCheckRequireOnShift:
+        (data.task_check_require_on_shift as boolean) ?? true,
+      taskCheckRequireOnSite:
+        (data.task_check_require_on_site as boolean) ?? true,
     };
   }
 
@@ -588,6 +604,12 @@ export class SettingsController {
     }
     if (body.overtimeWeeklyThresholdHours !== undefined) {
       updates.overtime_weekly_threshold_hours = body.overtimeWeeklyThresholdHours;
+    }
+    if (body.taskCheckRequireOnShift !== undefined) {
+      updates.task_check_require_on_shift = body.taskCheckRequireOnShift;
+    }
+    if (body.taskCheckRequireOnSite !== undefined) {
+      updates.task_check_require_on_site = body.taskCheckRequireOnSite;
     }
     if (Object.keys(updates).length === 0) return;
 
