@@ -30,6 +30,10 @@ import { ManagerNotificationService } from '../../application/services/manager-n
 import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
+import {
+  ApprovalShiftEnricher,
+  type ApprovalShiftRef,
+} from '../../application/services/approval-shift-enricher.service';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -66,6 +70,7 @@ export class DayOffRequestsController {
     private readonly managerScope: ManagerScopeService,
     private readonly absenceCreator: AbsenceReportCreator,
     private readonly managerNotifications: ManagerNotificationService,
+    private readonly shiftEnricher: ApprovalShiftEnricher,
   ) {}
 
   @Post()
@@ -114,16 +119,30 @@ export class DayOffRequestsController {
       fromDate,
       toDate,
     });
-    if (managerEmployeeId) {
-      const scope = await this.managerScope.getEmployeeIdsForManager(
-        companyId,
-        managerEmployeeId,
-      );
-      return rows
-        .filter((r) => scope.has(r.employeeId))
-        .map((r) => this.toDto(r));
-    }
-    return rows.map((r) => this.toDto(r));
+    const visible = managerEmployeeId
+      ? await (async () => {
+          const scope = await this.managerScope.getEmployeeIdsForManager(
+            companyId,
+            managerEmployeeId,
+          );
+          return rows.filter((r) => scope.has(r.employeeId));
+        })()
+      : rows;
+    return this.enrichAndMap(companyId, visible);
+  }
+
+  /** Agrega a cada día-libre el turno que el empleado pierde ese día (o null). */
+  private async enrichAndMap(
+    companyId: string,
+    rows: DayOffRequest[],
+  ): Promise<object[]> {
+    const shiftByKey = await this.shiftEnricher.byEmployeeDates(
+      companyId,
+      rows.map((r) => ({ employeeId: r.employeeId, date: r.date })),
+    );
+    return rows.map((r) =>
+      this.toDto(r, shiftByKey.get(`${r.employeeId}|${r.date}`) ?? null),
+    );
   }
 
   @Get(':id')
@@ -133,7 +152,7 @@ export class DayOffRequestsController {
   ): Promise<object> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
-    return this.toDto(r);
+    return (await this.enrichAndMap(companyId, [r]))[0];
   }
 
   /**
@@ -217,7 +236,7 @@ export class DayOffRequestsController {
     );
   }
 
-  private toDto(r: DayOffRequest): object {
+  private toDto(r: DayOffRequest, shift: ApprovalShiftRef | null = null): object {
     return {
       id: r.id,
       companyId: r.companyId,
@@ -226,6 +245,8 @@ export class DayOffRequestsController {
       reason: r.reason,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
+      /** Turno que el empleado pierde ese día, o null = sin turno. */
+      shift,
     };
   }
 }

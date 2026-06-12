@@ -32,6 +32,10 @@ import {
 import { AbsenceReport } from '../../domain/aggregates/absence-report.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
 import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
+import {
+  ApprovalShiftEnricher,
+  type ApprovalShiftRef,
+} from '../../application/services/approval-shift-enricher.service';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -92,6 +96,7 @@ export class AbsenceReportsController {
     private readonly repo: IAbsenceReportRepository,
     private readonly managerScope: ManagerScopeService,
     private readonly creator: AbsenceReportCreator,
+    private readonly shiftEnricher: ApprovalShiftEnricher,
   ) {}
 
   @Post()
@@ -144,16 +149,43 @@ export class AbsenceReportsController {
       isUrgent: isUrgent === undefined ? undefined : isUrgent === 'true',
       fromISO,
     });
-    if (managerEmployeeId) {
-      const scope = await this.managerScope.getEmployeeIdsForManager(
-        companyId,
-        managerEmployeeId,
-      );
-      return rows
-        .filter((r) => scope.has(r.employeeId))
-        .map((r) => this.toDto(r));
-    }
-    return rows.map((r) => this.toDto(r));
+    const visible = managerEmployeeId
+      ? await (async () => {
+          const scope = await this.managerScope.getEmployeeIdsForManager(
+            companyId,
+            managerEmployeeId,
+          );
+          return rows.filter((r) => scope.has(r.employeeId));
+        })()
+      : rows;
+    return this.enrichAndMap(companyId, visible);
+  }
+
+  /**
+   * Agrega el turno al que aplica la ausencia: el del assignment si vino el
+   * hint, si no el del empleado en startDate (o null si no tenía turno).
+   */
+  private async enrichAndMap(
+    companyId: string,
+    rows: AbsenceReport[],
+  ): Promise<object[]> {
+    const byAssignment = await this.shiftEnricher.byAssignmentIds(
+      companyId,
+      rows.map((r) => r.assignmentId),
+    );
+    const byDate = await this.shiftEnricher.byEmployeeDates(
+      companyId,
+      rows
+        .filter((r) => !r.assignmentId)
+        .map((r) => ({ employeeId: r.employeeId, date: r.startDate })),
+    );
+    return rows.map((r) => {
+      const shift =
+        (r.assignmentId ? byAssignment.get(r.assignmentId) : undefined) ??
+        byDate.get(`${r.employeeId}|${r.startDate}`) ??
+        null;
+      return this.toDto(r, shift);
+    });
   }
 
   @Get(':id')
@@ -163,7 +195,7 @@ export class AbsenceReportsController {
   ): Promise<object> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`AbsenceReport ${id} not found`);
-    return this.toDto(r);
+    return (await this.enrichAndMap(companyId, [r]))[0];
   }
 
   /**
@@ -187,7 +219,7 @@ export class AbsenceReportsController {
     await this.repo.softDelete(id, companyId);
   }
 
-  private toDto(r: AbsenceReport): object {
+  private toDto(r: AbsenceReport, shift: ApprovalShiftRef | null = null): object {
     return {
       id: r.id,
       companyId: r.companyId,
@@ -198,6 +230,8 @@ export class AbsenceReportsController {
       startDate: r.startDate,
       endDate: r.endDate,
       reportedAt: r.reportedAt.toISOString(),
+      /** Turno al que aplica la ausencia, o null = sin turno. */
+      shift,
     };
   }
 }

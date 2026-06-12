@@ -5,6 +5,7 @@ import { LocationsController } from './controllers/locations.controller';
 import { ChatController } from './controllers/chat.controller';
 import { PushController } from './controllers/push.controller';
 import { PushService } from '../infrastructure/notifications/push.service';
+import { ApprovalShiftEnricher } from '../application/services/approval-shift-enricher.service';
 import { HandshakeController } from './controllers/handshake.controller';
 import { ScheduleController } from './controllers/schedule.controller';
 import { RuleController } from './controllers/rule.controller';
@@ -183,6 +184,8 @@ import { WhatsAppIncidentController } from './controllers/whatsapp-incident.cont
     ImportStorageService,
     ImportsExtractWorker,
     PushService,
+    // Enriquecedor de turnos para las cards de Approvals (swap/dayoff/absence).
+    ApprovalShiftEnricher,
   ],
   // Los providers del subsistema CompanyPolicy (registry, interpreters,
   // rephrase service, creator) viven en ApplicationModule junto al resto

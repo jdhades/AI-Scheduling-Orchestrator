@@ -29,6 +29,10 @@ import {
 } from '../../domain/aggregates/shift-swap-request.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
 import { ManagerNotificationService } from '../../application/services/manager-notification.service';
+import {
+  ApprovalShiftEnricher,
+  type ApprovalShiftRef,
+} from '../../application/services/approval-shift-enricher.service';
 
 export class CreateShiftSwapRequestDto {
   @IsString()
@@ -66,6 +70,7 @@ export class ShiftSwapRequestsController {
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
     private readonly managerNotifications: ManagerNotificationService,
+    private readonly shiftEnricher: ApprovalShiftEnricher,
   ) {}
 
   @Post()
@@ -172,16 +177,52 @@ export class ShiftSwapRequestsController {
     // Phase 15.2 — filter por manager: si vino el query, filtramos a los
     // requests cuyo `requesterId` esté en el scope del manager (su depto
     // + depts sin manager asignado).
-    if (managerEmployeeId) {
-      const scope = await this.managerScope.getEmployeeIdsForManager(
-        companyId,
-        managerEmployeeId,
-      );
-      return rows
-        .filter((r) => scope.has(r.requesterId))
-        .map((r) => this.toDto(r));
-    }
-    return rows.map((r) => this.toDto(r));
+    const visible = managerEmployeeId
+      ? await (async () => {
+          const scope = await this.managerScope.getEmployeeIdsForManager(
+            companyId,
+            managerEmployeeId,
+          );
+          return rows.filter((r) => scope.has(r.requesterId));
+        })()
+      : rows;
+    return this.enrichAndMap(companyId, visible);
+  }
+
+  /**
+   * Agrega a cada swap el turno que se intercambia (del requester) y si el
+   * target tiene turno ese día (null = sin turno → al aprobar, el target
+   * simplemente toma el turno y el requester queda libre).
+   */
+  private async enrichAndMap(
+    companyId: string,
+    rows: ShiftSwapRequest[],
+  ): Promise<object[]> {
+    const shiftByAssignment = await this.shiftEnricher.byAssignmentIds(
+      companyId,
+      rows.map((r) => r.assignmentId),
+    );
+    const targetPairs = rows
+      .map((r) => {
+        const shift = r.assignmentId
+          ? shiftByAssignment.get(r.assignmentId)
+          : undefined;
+        return shift ? { employeeId: r.targetId, date: shift.date } : null;
+      })
+      .filter((p): p is { employeeId: string; date: string } => p !== null);
+    const targetShiftByKey = await this.shiftEnricher.byEmployeeDates(
+      companyId,
+      targetPairs,
+    );
+    return rows.map((r) => {
+      const shift = r.assignmentId
+        ? shiftByAssignment.get(r.assignmentId) ?? null
+        : null;
+      const targetShift = shift
+        ? targetShiftByKey.get(`${r.targetId}|${shift.date}`) ?? null
+        : null;
+      return this.toDto(r, shift, targetShift);
+    });
   }
 
   @Get(':id')
@@ -191,7 +232,7 @@ export class ShiftSwapRequestsController {
   ): Promise<object> {
     const req = await this.repo.findById(id, companyId);
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
-    return this.toDto(req);
+    return (await this.enrichAndMap(companyId, [req]))[0];
   }
 
   @Post(':id/approve')
@@ -236,7 +277,11 @@ export class ShiftSwapRequestsController {
     );
   }
 
-  private toDto(r: ShiftSwapRequest): object {
+  private toDto(
+    r: ShiftSwapRequest,
+    shift: ApprovalShiftRef | null = null,
+    targetShift: ApprovalShiftRef | null = null,
+  ): object {
     return {
       id: r.id,
       companyId: r.companyId,
@@ -246,6 +291,10 @@ export class ShiftSwapRequestsController {
       status: r.status,
       approvedBy: r.approvedBy,
       createdAt: r.createdAt.toISOString(),
+      /** Turno que se intercambia (del requester). */
+      shift,
+      /** Turno del target ese día, o null = sin turno. */
+      targetShift,
     };
   }
 }
