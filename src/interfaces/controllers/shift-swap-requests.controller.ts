@@ -6,6 +6,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -275,6 +276,30 @@ export class ShiftSwapRequestsController {
       req.requesterId,
       'Tu pedido de intercambio de turno fue rechazado.',
     );
+  }
+
+  /** DELETE /:id — el solicitante cancela su propio pedido mientras esté pending. */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    if (!user?.employeeId) throw new ForbiddenException('No employee linked');
+    const req = await this.repo.findById(id, companyId);
+    if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
+    if (req.requesterId !== user.employeeId) {
+      throw new ForbiddenException('Cannot cancel another employee request');
+    }
+    if (req.status !== 'pending') {
+      throw new BadRequestException('Request already resolved');
+    }
+    await this.supabase
+      .from('shift_swap_requests')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('id', id);
   }
 
   private toDto(

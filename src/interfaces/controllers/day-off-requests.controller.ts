@@ -3,8 +3,10 @@ import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.d
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -15,6 +17,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { IsNotEmpty, IsString, Matches } from 'class-validator';
 import { randomUUID } from 'crypto';
 import {
@@ -71,6 +74,8 @@ export class DayOffRequestsController {
     private readonly absenceCreator: AbsenceReportCreator,
     private readonly managerNotifications: ManagerNotificationService,
     private readonly shiftEnricher: ApprovalShiftEnricher,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   @Post()
@@ -234,6 +239,30 @@ export class DayOffRequestsController {
       r.employeeId,
       `Tu pedido de día libre para el ${r.date} fue rechazado por tu manager.`,
     );
+  }
+
+  /** DELETE /:id — el empleado cancela su propio pedido mientras esté pending. */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    if (!user?.employeeId) throw new ForbiddenException('No employee linked');
+    const r = await this.repo.findById(id, companyId);
+    if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
+    if (r.employeeId !== user.employeeId) {
+      throw new ForbiddenException('Cannot cancel another employee request');
+    }
+    if (r.status !== 'pending') {
+      throw new BadRequestException('Request already resolved');
+    }
+    await this.supabase
+      .from('day_off_requests')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('id', id);
   }
 
   private toDto(r: DayOffRequest, shift: ApprovalShiftRef | null = null): object {

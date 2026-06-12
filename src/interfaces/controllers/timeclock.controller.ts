@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -1091,6 +1092,36 @@ export class TimeclockController {
       .returns<CorrectionRow[]>();
     if (error) throw new Error(error.message);
     return (data ?? []).map((r) => this.toCorrectionDTO(r, null));
+  }
+
+  /** DELETE /timeclock/correction-requests/:id — el empleado cancela su propia
+   *  solicitud mientras esté pending. */
+  @Delete('correction-requests/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancelCorrectionRequest(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    if (!user?.employeeId) throw new ForbiddenException('No employee linked');
+    const { data } = await this.supabase
+      .from('timeclock_correction_requests')
+      .select('employee_id, status')
+      .eq('company_id', companyId)
+      .eq('id', id)
+      .maybeSingle<{ employee_id: string; status: string }>();
+    if (!data) throw new NotFoundException('Request not found');
+    if (data.employee_id !== user.employeeId) {
+      throw new ForbiddenException('Cannot cancel another employee request');
+    }
+    if (data.status !== 'pending') {
+      throw new BadRequestException('Request already resolved');
+    }
+    await this.supabase
+      .from('timeclock_correction_requests')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('id', id);
   }
 
   /** GET /timeclock/correction-requests?status=pending — cola para resolver. */

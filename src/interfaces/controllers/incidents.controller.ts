@@ -3,17 +3,22 @@ import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.d
 import { Requires } from '../../infrastructure/auth/decorators/requires.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
   HttpStatus,
+  Inject,
   NotFoundException,
   Param,
   Post,
   Query,
 } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CreateIncidentCommand } from '../../application/commands/create-incident.command';
 import { RejectIncidentCommand } from '../../application/commands/reject-incident.command';
@@ -90,6 +95,8 @@ export class IncidentsController {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly managerScope: ManagerScopeService,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   @Post()
@@ -131,6 +138,35 @@ export class IncidentsController {
       ),
     );
     return { success: true };
+  }
+
+  /** DELETE /:id — el empleado cancela su propio reporte mientras esté 'reported'. */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    if (!user?.employeeId) throw new ForbiddenException('No employee linked');
+    const { data } = await this.supabase
+      .from('incidents')
+      .select('employee_id, status')
+      .eq('company_id', companyId)
+      .eq('id', id)
+      .maybeSingle<{ employee_id: string; status: string }>();
+    if (!data) throw new NotFoundException(`Incident ${id} not found`);
+    if (data.employee_id !== user.employeeId) {
+      throw new ForbiddenException('Cannot cancel another employee report');
+    }
+    if (data.status !== 'reported') {
+      throw new BadRequestException('Incident already in progress');
+    }
+    await this.supabase
+      .from('incidents')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('id', id);
   }
 
   @Get()
