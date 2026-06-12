@@ -20,9 +20,13 @@ import { RejectIncidentCommand } from '../../application/commands/reject-inciden
 import { ResolveIncidentCommand } from '../../application/commands/resolve-incident.command';
 import { GetIncidentsQuery } from '../../application/queries/get-incidents.query';
 import { GetIncidentByIdQuery } from '../../application/queries/get-incident-by-id.query';
-import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUrl, Matches } from 'class-validator';
 import type { IncidentStatus } from '../../domain/aggregates/incident.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
+
+// TODO(dry): ISO_DATE está duplicado en ~8 controllers/dtos; extraer a un util
+// compartido en un pass dedicado.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class CreateIncidentDto {
   @IsString()
@@ -49,6 +53,11 @@ export class ReportIncidentDto {
   @IsOptional()
   @IsUrl({ require_tld: false })
   mediaUrl?: string;
+
+  /** Día al que se refiere (YYYY-MM-DD). Puede ser pasado (informativo). */
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'occurredOn must be YYYY-MM-DD' })
+  occurredOn?: string;
 }
 
 export class RejectIncidentDto {
@@ -113,7 +122,13 @@ export class IncidentsController {
       throw new NotFoundException('No employee is linked to this account');
     }
     await this.commandBus.execute(
-      new CreateIncidentCommand(companyId, user.employeeId, dto.message ?? '', dto.mediaUrl ?? ''),
+      new CreateIncidentCommand(
+        companyId,
+        user.employeeId,
+        dto.message ?? '',
+        dto.mediaUrl ?? '',
+        dto.occurredOn ?? null,
+      ),
     );
     return { success: true };
   }

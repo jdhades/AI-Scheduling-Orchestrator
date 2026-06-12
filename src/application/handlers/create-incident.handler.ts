@@ -14,7 +14,7 @@ export class CreateIncidentHandler implements ICommandHandler<CreateIncidentComm
   ) {}
 
   async execute(command: CreateIncidentCommand): Promise<void> {
-    const { companyId, employeeId, message, mediaUrl } = command;
+    const { companyId, employeeId, message, mediaUrl, occurredOn } = command;
     const hasMedia = !!mediaUrl;
 
     // Dos flujos sobre el mismo command:
@@ -27,6 +27,7 @@ export class CreateIncidentHandler implements ICommandHandler<CreateIncidentComm
       employeeId,
       hasMedia ? IncidentType.MEDICAL_LEAVE : IncidentType.GENERAL,
       hasMedia ? null : message || null,
+      !hasMedia && occurredOn ? new Date(`${occurredOn}T00:00:00Z`) : null,
     );
 
     if (hasMedia) {

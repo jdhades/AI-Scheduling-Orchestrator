@@ -157,6 +157,7 @@ export class Incident extends AggregateRoot {
     employeeId: string,
     type: IncidentType,
     message: string | null = null,
+    occurredOn: Date | null = null,
   ): Incident {
     const id = IncidentId.create();
     const incident = new Incident(
@@ -168,6 +169,7 @@ export class Incident extends AggregateRoot {
       new Date(),
     );
     incident._message = message;
+    incident._startDate = occurredOn;
 
     incident.apply(
       new IncidentReportedEvent(id.value, companyId, employeeId, {
