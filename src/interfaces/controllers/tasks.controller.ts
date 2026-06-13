@@ -152,6 +152,25 @@ interface MyTasksTodayResponse {
   requireOnSite: boolean;
 }
 
+/** Estado de una tarea del día para la vista del manager. */
+interface TaskStatusItem {
+  id: string;
+  title: string;
+  kind: 'template' | 'employee';
+  /** Nombre del template (turno) o del empleado dueño de la tarea. */
+  targetLabel: string;
+  done: boolean;
+  completedByName: string | null;
+  completedAt: string | null;
+}
+
+interface TasksTodayStatusResponse {
+  date: string;
+  doneCount: number;
+  totalCount: number;
+  tasks: TaskStatusItem[];
+}
+
 /**
  * TasksController
  *
@@ -486,5 +505,141 @@ export class TasksController {
       .eq('company_id', companyId)
       .eq('task_id', id)
       .eq('date', body.date);
+  }
+
+  /**
+   * GET /tasks/today/status?date=YYYY-MM-DD — vista del manager: estado de
+   * completado de las tareas del día. Incluye las de turno cuyos templates
+   * tienen asignación ese día (turno activo) + todas las personales. Solo
+   * owner/manager; el empleado usa /tasks/mine/today.
+   */
+  @Get('tasks/today/status')
+  async todayStatus(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+    @Query('date') date?: string,
+  ): Promise<TasksTodayStatusResponse> {
+    if (user?.role === 'employee') {
+      throw new ForbiddenException('Managers only');
+    }
+    if (!date || !ISO_DATE.test(date)) {
+      throw new BadRequestException('date must be YYYY-MM-DD');
+    }
+
+    // Templates con asignación ese día → sus tareas de turno están "activas".
+    const { data: assigns } = await this.supabase
+      .from('shift_assignments')
+      .select('template_id')
+      .eq('company_id', companyId)
+      .eq('date', date);
+    const activeTemplateIds = new Set(
+      ((assigns ?? []) as Array<{ template_id: string | null }>)
+        .map((a) => a.template_id)
+        .filter((t): t is string => !!t),
+    );
+
+    const allTasks = await this.tasks.findByCompany(companyId, {});
+    const relevant = allTasks.filter(
+      (t) =>
+        t.target.type === 'employee' ||
+        (t.target.type === 'template' &&
+          activeTemplateIds.has(t.target.shiftTemplateId)),
+    );
+
+    // Completions del día → quién y cuándo.
+    const compByTask = new Map<string, { by: string | null; at: string }>();
+    if (relevant.length) {
+      const { data: comps } = await this.supabase
+        .from('task_completions')
+        .select('task_id, completed_by_employee_id, completed_at')
+        .eq('company_id', companyId)
+        .eq('date', date)
+        .in(
+          'task_id',
+          relevant.map((t) => t.id),
+        );
+      for (const c of (comps ?? []) as Array<{
+        task_id: string;
+        completed_by_employee_id: string | null;
+        completed_at: string;
+      }>) {
+        compByTask.set(c.task_id, {
+          by: c.completed_by_employee_id,
+          at: c.completed_at,
+        });
+      }
+    }
+
+    // Resolver nombres: templates (label) + empleados (target personal + quién completó).
+    const templateIds = [
+      ...new Set(
+        relevant.flatMap((t) =>
+          t.target.type === 'template' ? [t.target.shiftTemplateId] : [],
+        ),
+      ),
+    ];
+    const employeeIds = [
+      ...new Set([
+        ...relevant.flatMap((t) =>
+          t.target.type === 'employee' ? [t.target.employeeId] : [],
+        ),
+        ...[...compByTask.values()]
+          .map((c) => c.by)
+          .filter((id): id is string => !!id),
+      ]),
+    ];
+
+    const tplName = new Map<string, string>();
+    if (templateIds.length) {
+      const { data } = await this.supabase
+        .from('shift_templates')
+        .select('id, name')
+        .in('id', templateIds);
+      for (const r of (data ?? []) as Array<{ id: string; name: string }>) {
+        tplName.set(r.id, r.name);
+      }
+    }
+    const empName = new Map<string, string>();
+    if (employeeIds.length) {
+      const { data } = await this.supabase
+        .from('employees')
+        .select('id, name')
+        .in('id', employeeIds);
+      for (const r of (data ?? []) as Array<{ id: string; name: string }>) {
+        empName.set(r.id, r.name);
+      }
+    }
+
+    const items: TaskStatusItem[] = relevant.map((t) => {
+      const comp = compByTask.get(t.id);
+      const targetLabel =
+        t.target.type === 'template'
+          ? (tplName.get(t.target.shiftTemplateId) ?? '—')
+          : (empName.get(t.target.employeeId) ?? '—');
+      return {
+        id: t.id,
+        title: t.title,
+        kind: t.target.type,
+        targetLabel,
+        done: !!comp,
+        completedByName: comp?.by ? (empName.get(comp.by) ?? null) : null,
+        completedAt: comp?.at ?? null,
+      };
+    });
+    // Pendientes primero; dentro de cada grupo, por nombre.
+    items.sort((a, b) =>
+      a.done === b.done
+        ? a.targetLabel.localeCompare(b.targetLabel)
+        : a.done
+          ? 1
+          : -1,
+    );
+
+    return {
+      date,
+      doneCount: items.filter((i) => i.done).length,
+      totalCount: items.length,
+      tasks: items,
+    };
   }
 }
