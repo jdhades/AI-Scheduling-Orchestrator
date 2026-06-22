@@ -42,8 +42,9 @@ export class PgBossService implements OnModuleInit, OnApplicationShutdown {
       connectionString,
       // Mantenemos el schema separado del resto del esquema de la app.
       schema: 'pgboss',
-      // pg-boss internal pool. 5 es de sobra para single-instance.
-      max: 5,
+      // pg-boss internal pool. 5 es de sobra para single-instance; subible por
+      // env (PGBOSS_POOL_MAX) al escalar workers/instancias.
+      max: parseInt(process.env.PGBOSS_POOL_MAX ?? '5', 10) || 5,
       // v12 requiere flag explícito: crear el schema y correr migraciones
       // si la versión del schema en BD es vieja. Idempotentes.
       createSchema: true,

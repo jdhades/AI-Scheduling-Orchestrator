@@ -15,6 +15,7 @@ import * as express from 'express';
 import helmet from 'helmet';
 import { ValidationPipe } from '@nestjs/common';
 import { PostgresExceptionFilter } from './infrastructure/filters/postgres-exception.filter';
+import { RedisIoAdapter } from './infrastructure/websocket/redis-io.adapter';
 
 async function bootstrap() {
   // `rawBody: true` retiene el Buffer original del body para que el
@@ -149,6 +150,20 @@ async function bootstrap() {
     credentials: true,
     allowedHeaders: 'Content-Type, Accept, Authorization, X-Company-Id',
   });
+
+  // Realtime multi-instancia: solo con WS_REDIS_ADAPTER=true. Sin esto, el
+  // gateway usa el adapter en memoria de socket.io (correcto en instancia
+  // única). Recién hace falta al correr 2+ instancias de la API — ver
+  // RedisIoAdapter. Reusa el Redis ya configurado (REDIS_HOST/REDIS_PORT).
+  if (process.env.WS_REDIS_ADAPTER === 'true') {
+    const redisIoAdapter = new RedisIoAdapter(app);
+    await redisIoAdapter.connectToRedis();
+    app.useWebSocketAdapter(redisIoAdapter);
+    console.log(
+      '✅ WS_REDIS_ADAPTER=true — socket.io usando Redis adapter (multi-instancia).',
+    );
+  }
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
