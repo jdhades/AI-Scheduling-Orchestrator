@@ -29,7 +29,7 @@ import {
   type DayOffRequestStatus,
 } from '../../domain/aggregates/day-off-request.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
-import { ManagerNotificationService } from '../../application/services/manager-notification.service';
+import { EmployeeNotifier } from '../notifications/employee-notifier.service';
 import { AbsenceReportCreator } from '../../domain/services/absence-report-creator.service';
 import { EMPLOYEE_REPOSITORY } from '../../domain/repositories/employee.repository';
 import type { IEmployeeRepository } from '../../domain/repositories/employee.repository';
@@ -72,7 +72,7 @@ export class DayOffRequestsController {
     private readonly employeeRepo: IEmployeeRepository,
     private readonly managerScope: ManagerScopeService,
     private readonly absenceCreator: AbsenceReportCreator,
-    private readonly managerNotifications: ManagerNotificationService,
+    private readonly employeeNotifier: EmployeeNotifier,
     private readonly shiftEnricher: ApprovalShiftEnricher,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
@@ -209,12 +209,13 @@ export class DayOffRequestsController {
       ruleSource: 'day-off',
     });
 
-    // Notificar al empleado del approve. Fire-and-forget — el aggregate
-    // ya está persistido; un fail del provider no debe romper el endpoint.
-    void this.managerNotifications.notifyEmployee(
+    // Notificar al empleado del approve por WhatsApp + push (deep-link a
+    // solicitudes). Fire-and-forget — el aggregate ya está persistido.
+    this.employeeNotifier.notify(
       companyId,
       r.employeeId,
       `Tu pedido de día libre para el ${r.date} fue APROBADO.`,
+      { title: 'Solicitud aprobada', data: { type: 'approval' } },
     );
 
     return {
@@ -234,10 +235,11 @@ export class DayOffRequestsController {
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
     r.reject();
     await this.repo.save(r);
-    void this.managerNotifications.notifyEmployee(
+    this.employeeNotifier.notify(
       companyId,
       r.employeeId,
       `Tu pedido de día libre para el ${r.date} fue rechazado por tu manager.`,
+      { title: 'Solicitud rechazada', data: { type: 'approval' } },
     );
   }
 

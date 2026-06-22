@@ -29,7 +29,7 @@ import {
   type ShiftSwapRequestStatus,
 } from '../../domain/aggregates/shift-swap-request.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
-import { ManagerNotificationService } from '../../application/services/manager-notification.service';
+import { EmployeeNotifier } from '../notifications/employee-notifier.service';
 import {
   ApprovalShiftEnricher,
   type ApprovalShiftRef,
@@ -70,7 +70,7 @@ export class ShiftSwapRequestsController {
     private readonly managerScope: ManagerScopeService,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
-    private readonly managerNotifications: ManagerNotificationService,
+    private readonly employeeNotifier: EmployeeNotifier,
     private readonly shiftEnricher: ApprovalShiftEnricher,
   ) {}
 
@@ -248,15 +248,17 @@ export class ShiftSwapRequestsController {
     req.accept();
     await this.repo.save(req);
     // Avisar a ambas partes — el solicitante y el target del swap.
-    void this.managerNotifications.notifyEmployee(
+    this.employeeNotifier.notify(
       companyId,
       req.requesterId,
       'Tu pedido de intercambio de turno fue APROBADO.',
+      { title: 'Solicitud aprobada', data: { type: 'approval' } },
     );
-    void this.managerNotifications.notifyEmployee(
+    this.employeeNotifier.notify(
       companyId,
       req.targetId,
       'El intercambio de turno que te involucraba fue APROBADO.',
+      { title: 'Solicitud aprobada', data: { type: 'approval' } },
     );
   }
 
@@ -271,10 +273,11 @@ export class ShiftSwapRequestsController {
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
     req.reject();
     await this.repo.save(req);
-    void this.managerNotifications.notifyEmployee(
+    this.employeeNotifier.notify(
       companyId,
       req.requesterId,
       'Tu pedido de intercambio de turno fue rechazado.',
+      { title: 'Solicitud rechazada', data: { type: 'approval' } },
     );
   }
 
