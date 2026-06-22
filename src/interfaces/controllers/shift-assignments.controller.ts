@@ -48,6 +48,7 @@ import {
 } from '../../domain/repositories/shift-assignment.repository';
 import type { ShiftAssignment } from '../../domain/aggregates/shift-assignment.aggregate';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { PushService } from '../../infrastructure/notifications/push.service';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -136,6 +137,7 @@ export class ShiftAssignmentsController {
     private readonly audit: IEntityAuditService,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
+    private readonly push: PushService,
   ) {}
 
   /** Best-effort recompute de fairness_history tras mutar una assignment.
@@ -207,6 +209,13 @@ export class ShiftAssignmentsController {
         assignment.employeeId,
         assignment.date,
       );
+      // Avisar por push al empleado del turno nuevo (manual o clonado).
+      // Best-effort; no afecta la respuesta.
+      void this.push.sendToEmployees(companyId, [assignment.employeeId], {
+        title: 'Nuevo turno',
+        body: `Te asignaron un turno el ${assignment.date}.`,
+        data: { type: 'schedule' },
+      });
       return { assignment: this.toDto(assignment) };
     } catch (err) {
       if (err instanceof CreateAssignmentConflictError) {
@@ -255,6 +264,12 @@ export class ShiftAssignmentsController {
       existing.date,
     );
     this.notificationsGateway.notifyAssignmentChanged(companyId);
+    // Avisar al empleado que su turno se canceló (best-effort).
+    void this.push.sendToEmployees(companyId, [existing.employeeId], {
+      title: 'Turno cancelado',
+      body: `Se canceló tu turno del ${existing.date}.`,
+      data: { type: 'schedule' },
+    });
   }
 
   @Patch(':id')
@@ -336,6 +351,21 @@ export class ShiftAssignmentsController {
           previous.employeeId,
           previous.date,
         );
+      }
+      // Push al empleado del turno movido (best-effort). Si cambió de empleado,
+      // avisar también al anterior que ya no lo tiene.
+      const moved = result.assignment;
+      void this.push.sendToEmployees(companyId, [moved.employeeId], {
+        title: 'Turno actualizado',
+        body: `Tu turno quedó para el ${moved.date}.`,
+        data: { type: 'schedule' },
+      });
+      if (previous && previous.employeeId !== moved.employeeId) {
+        void this.push.sendToEmployees(companyId, [previous.employeeId], {
+          title: 'Turno reasignado',
+          body: `El turno del ${previous.date} ya no está a tu nombre.`,
+          data: { type: 'schedule' },
+        });
       }
       return {
         assignment: this.toDto(result.assignment),
