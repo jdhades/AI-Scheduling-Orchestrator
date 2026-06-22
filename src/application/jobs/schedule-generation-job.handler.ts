@@ -20,6 +20,8 @@ import {
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
 import { ScheduleGenerationRunsService } from '../../domain/services/schedule-generation-runs.service';
 import { LLMUsageLogger } from '../../infrastructure/observability/llm-usage-logger.service';
+import { PushService } from '../../infrastructure/notifications/push.service';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * ScheduleGenerationJobHandler
@@ -54,6 +56,9 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
     private readonly notificationsGateway: NotificationsGateway,
     private readonly runsService: ScheduleGenerationRunsService,
     private readonly usageLogger: LLMUsageLogger,
+    private readonly push: PushService,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -210,6 +215,12 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
       warnings: result.warnings,
     });
 
+    // Avisar por push a los empleados con turno esa semana que su horario ya
+    // está publicado. Fire-and-forget: nunca afecta el resultado del job.
+    // (v1: se dispara en cada generación exitosa; dedupe por regeneración =
+    // refinamiento futuro.)
+    void this._pushScheduleReady(payload.companyId, payload.weekStart);
+
     // Notificar al originador (solo WhatsApp por ahora; HTTP usa polling).
     if (payload.source.type === 'whatsapp') {
       const message = this._formatSuccessReply(
@@ -229,6 +240,44 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
           `Job=${job.id} success but Twilio outbound failed: ${(sendErr as Error).message}`,
         );
       }
+    }
+  }
+
+  /**
+   * Push best-effort a los empleados con asignación en la semana generada.
+   * Errores se loguean y se tragan — los assignments ya están persistidos.
+   */
+  private async _pushScheduleReady(
+    companyId: string,
+    weekStart: string,
+  ): Promise<void> {
+    try {
+      const end = new Date(`${weekStart}T00:00:00Z`);
+      end.setUTCDate(end.getUTCDate() + 6);
+      const weekEnd = end.toISOString().slice(0, 10);
+      const { data } = await this.supabase
+        .from('shift_assignments')
+        .select('employee_id')
+        .eq('company_id', companyId)
+        .gte('date', weekStart)
+        .lte('date', weekEnd);
+      const ids = [
+        ...new Set(
+          ((data ?? []) as Array<{ employee_id: string | null }>)
+            .map((r) => r.employee_id)
+            .filter((id): id is string => !!id),
+        ),
+      ];
+      if (ids.length === 0) return;
+      await this.push.sendToEmployees(companyId, ids, {
+        title: 'Horario publicado',
+        body: `Ya está disponible tu horario de la semana del ${weekStart}.`,
+        data: { type: 'schedule' },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `Job push (schedule ready) failed: ${(e as Error).message}`,
+      );
     }
   }
 
