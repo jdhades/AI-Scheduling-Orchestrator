@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TwilioService } from './twilio.service';
 import { EmailService } from './email.service';
+import { PushService } from './push.service';
 import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service';
+import { SupabaseModule } from '../supabase/supabase.module';
 
 /**
  * NotificationsModule
@@ -16,7 +18,7 @@ import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service
  * que el backend dispara directo.
  */
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, SupabaseModule],
   providers: [
     // TwilioService como provider directo + aliased también como
     // NOTIFICATION_SERVICE. El alias mantiene el contract con domain
@@ -29,7 +31,10 @@ import { NOTIFICATION_SERVICE } from '../../domain/services/notification.service
       useExisting: TwilioService,
     },
     EmailService,
+    // Push (Expo) — disponible para application (schedule/incidents) e
+    // interfaces (chat/approvals) sin duplicar el provider.
+    PushService,
   ],
-  exports: [NOTIFICATION_SERVICE, TwilioService, EmailService],
+  exports: [NOTIFICATION_SERVICE, TwilioService, EmailService, PushService],
 })
 export class NotificationsModule {}
