@@ -137,7 +137,9 @@ export class GetCompanyScheduleHandler implements IQueryHandler<
     );
     // Nombres de localidad (feature Locations) — un fetch por tenant para
     // mostrar el nombre en la celda sin N queries.
-    const locIds = [...new Set(filtered.map((a) => a.locationId).filter(Boolean))] as string[];
+    const locIds = [
+      ...new Set(filtered.map((a) => a.locationId).filter(Boolean)),
+    ] as string[];
     const { data: locRows } = locIds.length
       ? await this.supabase
           .from('locations')
@@ -178,7 +180,9 @@ export class GetCompanyScheduleHandler implements IQueryHandler<
         breaks: breaksByAssignmentId.get(a.id) ?? [],
         confirmedAt: confirmedById.get(a.id) ?? null,
         locationId: a.locationId,
-        locationName: a.locationId ? (locNameById.get(a.locationId) ?? null) : null,
+        locationName: a.locationId
+          ? (locNameById.get(a.locationId) ?? null)
+          : null,
       };
     });
   }

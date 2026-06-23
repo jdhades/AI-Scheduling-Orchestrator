@@ -144,7 +144,9 @@ export class BranchesController {
   async list(@CurrentUser() user: AuthContext): Promise<BranchRow[]> {
     let query = this.supabase
       .from('branches')
-      .select('id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at, departments(count)')
+      .select(
+        'id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at, departments(count)',
+      )
       .eq('company_id', user.companyId)
       .order('created_at', { ascending: true });
 
@@ -193,7 +195,9 @@ export class BranchesController {
         geofence_lng: dto.geofenceLng ?? null,
         geofence_radius_m: dto.geofenceRadiusM ?? null,
       })
-      .select('id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at')
+      .select(
+        'id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at',
+      )
       .single();
     if (error) {
       if ((error as { code?: string }).code === '23505') {
@@ -228,7 +232,8 @@ export class BranchesController {
     if (dto.address !== undefined) patch.address = dto.address.trim() || null;
     if (dto.geofenceLat !== undefined) patch.geofence_lat = dto.geofenceLat;
     if (dto.geofenceLng !== undefined) patch.geofence_lng = dto.geofenceLng;
-    if (dto.geofenceRadiusM !== undefined) patch.geofence_radius_m = dto.geofenceRadiusM;
+    if (dto.geofenceRadiusM !== undefined)
+      patch.geofence_radius_m = dto.geofenceRadiusM;
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('No fields to update');
     }
@@ -237,7 +242,9 @@ export class BranchesController {
       .update(patch)
       .eq('id', id)
       .eq('company_id', companyId)
-      .select('id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at, departments(count)')
+      .select(
+        'id, name, timezone, address, geofence_lat, geofence_lng, geofence_radius_m, created_at, departments(count)',
+      )
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Branch not found');

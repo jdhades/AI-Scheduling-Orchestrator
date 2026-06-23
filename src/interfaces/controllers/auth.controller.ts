@@ -510,7 +510,10 @@ export class AuthController {
           schema: (s: string) => {
             from: (t: string) => {
               select: (cols: string) => {
-                eq: (col: string, val: string) => {
+                eq: (
+                  col: string,
+                  val: string,
+                ) => {
                   limit: (n: number) => {
                     maybeSingle: () => Promise<{
                       data: { id: string } | null;

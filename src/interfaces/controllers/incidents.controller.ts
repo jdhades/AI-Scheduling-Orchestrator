@@ -25,7 +25,13 @@ import { RejectIncidentCommand } from '../../application/commands/reject-inciden
 import { ResolveIncidentCommand } from '../../application/commands/resolve-incident.command';
 import { GetIncidentsQuery } from '../../application/queries/get-incidents.query';
 import { GetIncidentByIdQuery } from '../../application/queries/get-incident-by-id.query';
-import { IsNotEmpty, IsOptional, IsString, IsUrl, Matches } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Matches,
+} from 'class-validator';
 import type { IncidentStatus } from '../../domain/aggregates/incident.aggregate';
 import { ManagerScopeService } from '../../application/services/manager-scope.service';
 import { ApprovalShiftEnricher } from '../../application/services/approval-shift-enricher.service';
@@ -108,13 +114,16 @@ export class IncidentsController {
   ): Promise<unknown[]> {
     const pairs = rows
       .filter((r) => typeof r.startDate === 'string')
-      .map((r) => ({ employeeId: r.employeeId as string, date: r.startDate as string }));
+      .map((r) => ({
+        employeeId: r.employeeId as string,
+        date: r.startDate as string,
+      }));
     const byKey = await this.shiftEnricher.byEmployeeDates(companyId, pairs);
     return rows.map((r) => ({
       ...r,
       shift:
         typeof r.startDate === 'string'
-          ? byKey.get(`${r.employeeId as string}|${r.startDate as string}`) ?? null
+          ? (byKey.get(`${r.employeeId as string}|${r.startDate}`) ?? null)
           : null,
     }));
   }
@@ -212,7 +221,9 @@ export class IncidentsController {
             companyId,
             managerEmployeeId,
           );
-          return rows.filter((r: { employeeId: string }) => scope.has(r.employeeId));
+          return rows.filter((r: { employeeId: string }) =>
+            scope.has(r.employeeId),
+          );
         })()
       : rows;
     return this.withShift(companyId, visible as Array<Record<string, unknown>>);

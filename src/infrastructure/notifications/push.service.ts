@@ -105,9 +105,9 @@ export class PushService {
     }>;
     if (tokenRows.length === 0) return;
     const localeOf = new Map(
-      ((localesRes.data ?? []) as Array<{ id: string; locale: string | null }>).map(
-        (e) => [e.id, e.locale || DEFAULT_LOCALE],
-      ),
+      (
+        (localesRes.data ?? []) as Array<{ id: string; locale: string | null }>
+      ).map((e) => [e.id, e.locale || DEFAULT_LOCALE]),
     );
 
     await this.dispatch(
@@ -115,8 +115,8 @@ export class PushService {
         const lang = localeOf.get(r.employee_id) ?? DEFAULT_LOCALE;
         return {
           to: r.token,
-          title: this.i18n.t(n.titleKey, { lang, args: n.args }) as string,
-          body: this.i18n.t(n.bodyKey, { lang, args: n.args }) as string,
+          title: this.i18n.t(n.titleKey, { lang, args: n.args }),
+          body: this.i18n.t(n.bodyKey, { lang, args: n.args }),
           data: n.data ?? {},
           sound: 'default' as const,
         };
@@ -130,7 +130,10 @@ export class PushService {
       try {
         await fetch(PushService.EXPO_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
           body: JSON.stringify(messages.slice(i, i + 100)),
         });
       } catch (e) {

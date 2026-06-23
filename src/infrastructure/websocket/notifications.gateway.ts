@@ -125,7 +125,12 @@ export class NotificationsGateway
   }
 
   /** Broadcasts a typing indicator for a room. */
-  notifyChatTyping(companyId: string, roomId: string, employeeId: string, name: string) {
+  notifyChatTyping(
+    companyId: string,
+    roomId: string,
+    employeeId: string,
+    name: string,
+  ) {
     this.emitToCompany(companyId, 'ChatTyping', { roomId, employeeId, name });
   }
 
@@ -137,11 +142,17 @@ export class NotificationsGateway
   @SubscribeMessage('chat:typing')
   onChatTyping(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { roomId?: string; employeeId?: string; name?: string },
+    @MessageBody()
+    body: { roomId?: string; employeeId?: string; name?: string },
   ): void {
     const companyId = client.data?.companyId as string | undefined;
     if (!companyId || !body?.roomId || !body?.employeeId) return;
-    this.notifyChatTyping(companyId, body.roomId, body.employeeId, body.name ?? '');
+    this.notifyChatTyping(
+      companyId,
+      body.roomId,
+      body.employeeId,
+      body.name ?? '',
+    );
   }
 
   /**

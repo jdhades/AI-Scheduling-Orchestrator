@@ -43,7 +43,9 @@ export class EmployeeNotifier {
         .eq('company_id', companyId)
         .maybeSingle<{ locale: string | null }>();
       const lang = data?.locale || DEFAULT_LOCALE;
-      const body = this.i18n.t(msg.bodyKey, { lang, args: msg.args }) as string;
+      // String(): tsc ve i18n.t() como `unknown` (necesita coerción) y eslint
+      // lo ve como string (rechaza `as string`). String() satisface a ambos.
+      const body = String(this.i18n.t(msg.bodyKey, { lang, args: msg.args }));
       await this.whatsapp.notifyEmployee(companyId, employeeId, body);
     })();
   }

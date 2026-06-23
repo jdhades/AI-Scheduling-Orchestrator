@@ -18,7 +18,11 @@ export interface GpsClockInput extends LatLng {
   accuracy: number;
 }
 
-export type ClockAnomaly = 'outside_geofence' | 'low_accuracy' | 'overbreak' | null;
+export type ClockAnomaly =
+  | 'outside_geofence'
+  | 'low_accuracy'
+  | 'overbreak'
+  | null;
 
 export interface ClockEvaluation {
   validationStatus: 'valid' | 'pending_review';
@@ -37,7 +41,8 @@ export function haversineMeters(a: LatLng, b: LatLng): number {
   const lat1 = toRad(a.lat);
   const lat2 = toRad(b.lat);
   const h =
-    Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+    Math.sin(dLat / 2) ** 2 +
+    Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
@@ -62,14 +67,22 @@ export function evaluateGpsClock(
   requiredAccuracyM: number = DEFAULT_REQUIRED_ACCURACY_M,
 ): ClockEvaluation {
   if (input.accuracy > requiredAccuracyM) {
-    return { validationStatus: 'pending_review', anomalyReason: 'low_accuracy', distanceM: null };
+    return {
+      validationStatus: 'pending_review',
+      anomalyReason: 'low_accuracy',
+      distanceM: null,
+    };
   }
   if (!geofence) {
     return { validationStatus: 'valid', anomalyReason: null, distanceM: null };
   }
   const distanceM = haversineMeters(input, geofence);
   if (distanceM > geofence.radiusM) {
-    return { validationStatus: 'pending_review', anomalyReason: 'outside_geofence', distanceM };
+    return {
+      validationStatus: 'pending_review',
+      anomalyReason: 'outside_geofence',
+      distanceM,
+    };
   }
   return { validationStatus: 'valid', anomalyReason: null, distanceM };
 }

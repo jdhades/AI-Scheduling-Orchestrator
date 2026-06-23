@@ -284,7 +284,7 @@ export class ImportReverterService {
     //      nombre del negocio como location. Si tiene depts/employees
     //      enganchados (caso legítimo donde el revert dejó algo atrás),
     //      la branch se preserva.
-    const createdBranchIds = (snapshot.createdBranchIds ?? []) as string[];
+    const createdBranchIds = snapshot.createdBranchIds ?? [];
     for (const branchId of createdBranchIds) {
       const { count: deptCount } = await this.supabase
         .from('departments')

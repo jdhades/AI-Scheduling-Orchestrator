@@ -152,5 +152,4 @@ export class ImportsExtractWorker implements OnApplicationBootstrap {
       );
     }
   }
-
 }

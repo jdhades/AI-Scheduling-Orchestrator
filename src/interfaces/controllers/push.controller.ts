@@ -35,7 +35,9 @@ export class UnregisterDeviceDto {
  */
 @Controller('push')
 export class PushController {
-  constructor(@Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.NO_CONTENT)

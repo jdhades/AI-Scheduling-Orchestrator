@@ -116,7 +116,8 @@ export class ShiftAssignmentMoverService {
       (!input.newActualEndTime ||
         input.newActualEndTime.getTime() === current.actualEndTime.getTime());
     const noLocationChange =
-      input.newLocationId === undefined || input.newLocationId === current.locationId;
+      input.newLocationId === undefined ||
+      input.newLocationId === current.locationId;
     if (
       noEmployeeChange &&
       noDateChange &&
@@ -198,7 +199,10 @@ export class ShiftAssignmentMoverService {
       actualStartTime: newStart,
       actualEndTime: newEnd,
       // Localidad: si vino en el input la cambia, si no conserva la actual.
-      locationId: input.newLocationId !== undefined ? input.newLocationId : current.locationId,
+      locationId:
+        input.newLocationId !== undefined
+          ? input.newLocationId
+          : current.locationId,
     });
 
     await this.assignmentRepo.save(updated);

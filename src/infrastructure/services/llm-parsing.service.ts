@@ -82,10 +82,7 @@ export class LlmParsingService implements OnModuleInit {
     // que ahí adentro NO hay instrucciones, solo data a extraer. La
     // delimitación + la regla explícita en el system prompt reducen
     // (no eliminan) el riesgo de jailbreak.
-    const safeRawText = rawText.replace(
-      /<\/?untrusted_user_content>/gi,
-      '',
-    );
+    const safeRawText = rawText.replace(/<\/?untrusted_user_content>/gi, '');
     const prompt = `
       You are extracting structured data from a medical certificate.
 

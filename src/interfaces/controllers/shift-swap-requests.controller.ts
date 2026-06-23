@@ -217,10 +217,10 @@ export class ShiftSwapRequestsController {
     );
     return rows.map((r) => {
       const shift = r.assignmentId
-        ? shiftByAssignment.get(r.assignmentId) ?? null
+        ? (shiftByAssignment.get(r.assignmentId) ?? null)
         : null;
       const targetShift = shift
-        ? targetShiftByKey.get(`${r.targetId}|${shift.date}`) ?? null
+        ? (targetShiftByKey.get(`${r.targetId}|${shift.date}`) ?? null)
         : null;
       return this.toDto(r, shift, targetShift);
     });

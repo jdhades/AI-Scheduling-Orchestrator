@@ -112,7 +112,11 @@ interface RoomDTO {
   type: 'dm' | 'group';
   title: string;
   memberCount: number;
-  lastMessage: { content: string; createdAt: string; senderName: string | null } | null;
+  lastMessage: {
+    content: string;
+    createdAt: string;
+    senderName: string | null;
+  } | null;
   unreadCount: number;
   updatedAt: string;
 }
@@ -141,7 +145,11 @@ export class ChatController {
     return user.employeeId;
   }
 
-  private async ensureMember(roomId: string, employeeId: string, companyId: string): Promise<void> {
+  private async ensureMember(
+    roomId: string,
+    employeeId: string,
+    companyId: string,
+  ): Promise<void> {
     const { data } = await this.supabase
       .from('chat_room_members')
       .select('room_id')
@@ -149,7 +157,8 @@ export class ChatController {
       .eq('employee_id', employeeId)
       .eq('company_id', companyId)
       .maybeSingle();
-    if (!data) throw new ForbiddenException('You are not a member of this room');
+    if (!data)
+      throw new ForbiddenException('You are not a member of this room');
   }
 
   /**
@@ -168,7 +177,10 @@ export class ChatController {
       .eq('company_id', companyId)
       .neq('id', me)
       .order('name', { ascending: true });
-    return (data ?? []).map((e) => ({ id: e.id as string, name: e.name as string }));
+    return (data ?? []).map((e) => ({
+      id: e.id as string,
+      name: e.name as string,
+    }));
   }
 
   // ── Rooms ───────────────────────────────────────────────────────────
@@ -186,7 +198,10 @@ export class ChatController {
     const roomIds = (myMems ?? []).map((m) => m.room_id as string);
     if (roomIds.length === 0) return [];
     const lastReadByRoom = new Map(
-      (myMems ?? []).map((m) => [m.room_id as string, (m.last_read_at as string) ?? null]),
+      (myMems ?? []).map((m) => [
+        m.room_id as string,
+        (m.last_read_at as string) ?? null,
+      ]),
     );
 
     const [{ data: rooms }, { data: allMems }] = await Promise.all([
@@ -199,12 +214,16 @@ export class ChatController {
         .select('room_id, employee_id')
         .in('room_id', roomIds),
     ]);
-    const memberIds = [...new Set((allMems ?? []).map((m) => m.employee_id as string))];
+    const memberIds = [
+      ...new Set((allMems ?? []).map((m) => m.employee_id as string)),
+    ];
     const { data: emps } = await this.supabase
       .from('employees')
       .select('id, name')
       .in('id', memberIds);
-    const empName = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
+    const empName = new Map(
+      (emps ?? []).map((e) => [e.id as string, e.name as string]),
+    );
     const membersByRoom = new Map<string, string[]>();
     for (const m of allMems ?? []) {
       const arr = membersByRoom.get(m.room_id as string) ?? [];
@@ -269,8 +288,10 @@ export class ChatController {
     const me = this.meId(user);
 
     if (dto.type === 'dm') {
-      if (!dto.memberId) throw new BadRequestException('memberId is required for a dm');
-      if (dto.memberId === me) throw new BadRequestException('Cannot start a dm with yourself');
+      if (!dto.memberId)
+        throw new BadRequestException('memberId is required for a dm');
+      if (dto.memberId === me)
+        throw new BadRequestException('Cannot start a dm with yourself');
       await this.assertEmployees(companyId, [dto.memberId]);
       const existing = await this.findDm(companyId, me, dto.memberId);
       if (existing) return { id: existing };
@@ -283,10 +304,16 @@ export class ChatController {
     }
 
     // group
-    if (!dto.name?.trim()) throw new BadRequestException('name is required for a group');
+    if (!dto.name?.trim())
+      throw new BadRequestException('name is required for a group');
     const others = [...new Set(dto.memberIds ?? [])].filter((id) => id !== me);
     await this.assertEmployees(companyId, others);
-    const roomId = await this.insertRoom(companyId, 'group', dto.name.trim(), me);
+    const roomId = await this.insertRoom(
+      companyId,
+      'group',
+      dto.name.trim(),
+      me,
+    );
     await this.addMembers(roomId, companyId, [
       { employeeId: me, role: 'admin' },
       ...others.map((employeeId) => ({ employeeId, role: 'member' as const })),
@@ -316,11 +343,18 @@ export class ChatController {
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     const rows = data ?? [];
-    const senderIds = [...new Set(rows.map((r) => r.sender_id as string).filter(Boolean))];
+    const senderIds = [
+      ...new Set(rows.map((r) => r.sender_id as string).filter(Boolean)),
+    ];
     const { data: emps } = senderIds.length
-      ? await this.supabase.from('employees').select('id, name').in('id', senderIds)
+      ? await this.supabase
+          .from('employees')
+          .select('id, name')
+          .in('id', senderIds)
       : { data: [] as { id: string; name: string }[] };
-    const empName = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
+    const empName = new Map(
+      (emps ?? []).map((e) => [e.id as string, e.name as string]),
+    );
     // Devolvemos ascendente (viejo → nuevo) para render directo.
     return Promise.all(
       rows
@@ -330,11 +364,18 @@ export class ChatController {
           id: r.id as string,
           roomId: r.room_id as string,
           senderId: (r.sender_id as string) ?? null,
-          senderName: r.sender_id ? (empName.get(r.sender_id as string) ?? null) : null,
+          senderName: r.sender_id
+            ? (empName.get(r.sender_id as string) ?? null)
+            : null,
           content: r.content as string,
           createdAt: r.created_at as string,
-          attachmentUrl: await this.signAttachment((r.attachment_path as string) ?? null),
-          attachmentType: ((r.attachment_type as string) ?? null) as 'image' | 'file' | null,
+          attachmentUrl: await this.signAttachment(
+            (r.attachment_path as string) ?? null,
+          ),
+          attachmentType: ((r.attachment_type as string) ?? null) as
+            | 'image'
+            | 'file'
+            | null,
           attachmentName: (r.attachment_name as string) ?? null,
         })),
     );
@@ -448,7 +489,9 @@ export class ChatController {
     const { data: emps } = ids.length
       ? await this.supabase.from('employees').select('id, name').in('id', ids)
       : { data: [] as { id: string; name: string }[] };
-    const name = new Map((emps ?? []).map((e) => [e.id as string, e.name as string]));
+    const name = new Map(
+      (emps ?? []).map((e) => [e.id as string, e.name as string]),
+    );
     return (mems ?? []).map((m) => ({
       id: m.employee_id as string,
       name: name.get(m.employee_id as string) ?? '',
@@ -473,7 +516,8 @@ export class ChatController {
       .eq('company_id', companyId)
       .maybeSingle();
     if (!room) throw new NotFoundException('Room not found');
-    if (room.type !== 'group') throw new BadRequestException('Only group rooms have members');
+    if (room.type !== 'group')
+      throw new BadRequestException('Only group rooms have members');
     const ids = [...new Set(dto.memberIds)].filter(Boolean);
     await this.assertEmployees(companyId, ids);
     await this.addMembers(
@@ -563,13 +607,18 @@ export class ChatController {
       companyId,
       (emps ?? []).map((e) => ({
         employeeId: e.id as string,
-        role: ((e.id as string) === me ? 'admin' : 'member') as 'admin' | 'member',
+        role: (e.id as string) === me ? 'admin' : 'member',
       })),
     );
 
     const { data: inserted, error: msgErr } = await this.supabase
       .from('chat_messages')
-      .insert({ company_id: companyId, room_id: roomId, sender_id: me, content })
+      .insert({
+        company_id: companyId,
+        room_id: roomId,
+        sender_id: me,
+        content,
+      })
       .select(MSG_COLS)
       .single();
     if (msgErr) throw new Error(msgErr.message);
@@ -583,7 +632,9 @@ export class ChatController {
   }
 
   // ── helpers ─────────────────────────────────────────────────────────
-  private async findAnnouncementsRoom(companyId: string): Promise<string | null> {
+  private async findAnnouncementsRoom(
+    companyId: string,
+  ): Promise<string | null> {
     const { data } = await this.supabase
       .from('chat_rooms')
       .select('id')
@@ -619,8 +670,13 @@ export class ChatController {
       senderName,
       content: row.content as string,
       createdAt: row.created_at as string,
-      attachmentUrl: await this.signAttachment((row.attachment_path as string) ?? null),
-      attachmentType: ((row.attachment_type as string) ?? null) as 'image' | 'file' | null,
+      attachmentUrl: await this.signAttachment(
+        (row.attachment_path as string) ?? null,
+      ),
+      attachmentType: ((row.attachment_type as string) ?? null) as
+        | 'image'
+        | 'file'
+        | null,
       attachmentName: (row.attachment_name as string) ?? null,
     };
   }
@@ -634,7 +690,10 @@ export class ChatController {
     return data?.signedUrl ?? null;
   }
 
-  private async assertEmployees(companyId: string, ids: string[]): Promise<void> {
+  private async assertEmployees(
+    companyId: string,
+    ids: string[],
+  ): Promise<void> {
     if (ids.length === 0) return;
     const { data } = await this.supabase
       .from('employees')
@@ -643,10 +702,15 @@ export class ChatController {
       .in('id', ids);
     const valid = new Set((data ?? []).map((e) => e.id as string));
     const bad = ids.filter((i) => !valid.has(i));
-    if (bad.length) throw new BadRequestException(`Unknown employee(s): ${bad.join(', ')}`);
+    if (bad.length)
+      throw new BadRequestException(`Unknown employee(s): ${bad.join(', ')}`);
   }
 
-  private async findDm(companyId: string, me: string, other: string): Promise<string | null> {
+  private async findDm(
+    companyId: string,
+    me: string,
+    other: string,
+  ): Promise<string | null> {
     const { data: myMems } = await this.supabase
       .from('chat_room_members')
       .select('room_id')
@@ -697,7 +761,10 @@ export class ChatController {
     }));
     const { error } = await this.supabase
       .from('chat_room_members')
-      .upsert(rows, { onConflict: 'room_id,employee_id', ignoreDuplicates: true });
+      .upsert(rows, {
+        onConflict: 'room_id,employee_id',
+        ignoreDuplicates: true,
+      });
     if (error) throw new Error(error.message);
   }
 }

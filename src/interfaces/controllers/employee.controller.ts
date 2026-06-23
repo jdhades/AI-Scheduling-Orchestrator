@@ -37,7 +37,11 @@ import { RegisterEmployeeDto } from '../dtos/register-employee.dto';
 import { GetEmployeeCalendarDto } from '../dtos/get-employee-calendar.dto';
 import { UpdateEmployeeDto } from '../dtos/update-employee.dto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { EmailService } from '../../infrastructure/notifications/email.service';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
@@ -505,16 +509,9 @@ export class EmployeeController {
     if (!user?.employeeId) {
       throw new NotFoundException('No employee is linked to this account');
     }
-    const emp = (await this.queryBus.execute(
+    const emp = await this.queryBus.execute(
       new GetEmployeeByIdQuery(user.employeeId, companyId),
-    )) as {
-      id: string;
-      name: string;
-      role: string | null;
-      phone: string | null;
-      departmentId: string | null;
-      locale: string | null;
-    };
+    );
     const [{ data: empRow }, { data: co }] = await Promise.all([
       this.supabase
         .from('employees')
@@ -649,7 +646,8 @@ export class EmployeeController {
         .eq('employee_id', user.employeeId)
         .eq('company_id', companyId),
     ]);
-    const mode = (emp?.location_mode as string) === 'fixed' ? 'fixed' : 'rotate';
+    const mode =
+      (emp?.location_mode as string) === 'fixed' ? 'fixed' : 'rotate';
     type LocRow = {
       id: string;
       branch_id: string;
@@ -660,7 +658,9 @@ export class EmployeeController {
       is_active: boolean;
     };
     // supabase types the to-one embed as an array; normalize array-or-object.
-    const typed = (rows ?? []) as unknown as Array<{ locations: LocRow | LocRow[] | null }>;
+    const typed = (rows ?? []) as unknown as Array<{
+      locations: LocRow | LocRow[] | null;
+    }>;
     const locations: EmployeeLocationDTO[] = typed
       .map((r) => (Array.isArray(r.locations) ? r.locations[0] : r.locations))
       .filter((l): l is LocRow => !!l && l.is_active)
@@ -796,7 +796,9 @@ export class EmployeeController {
     const validLoc = new Set((locs ?? []).map((l) => l.id as string));
     const badLoc = locIds.filter((i) => !validLoc.has(i));
     if (badLoc.length) {
-      throw new BadRequestException(`Unknown location(s): ${badLoc.join(', ')}`);
+      throw new BadRequestException(
+        `Unknown location(s): ${badLoc.join(', ')}`,
+      );
     }
     const { data: emps } = await this.supabase
       .from('employees')
@@ -816,7 +818,10 @@ export class EmployeeController {
     );
     const { error } = await this.supabase
       .from('employee_locations')
-      .upsert(rows, { onConflict: 'employee_id,location_id', ignoreDuplicates: true });
+      .upsert(rows, {
+        onConflict: 'employee_id,location_id',
+        ignoreDuplicates: true,
+      });
     if (error) throw new Error(error.message);
 
     if (dto.mode) {

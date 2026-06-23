@@ -159,9 +159,7 @@ export class ImportsController {
       limit: 1,
     });
     const blocking = recent.find(
-      (r) =>
-        r.committedAt !== null &&
-        r.committedAt.toISOString() > cutoff,
+      (r) => r.committedAt !== null && r.committedAt.toISOString() > cutoff,
     );
     if (blocking) {
       throw new ConflictException({

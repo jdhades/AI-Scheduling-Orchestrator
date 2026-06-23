@@ -426,10 +426,16 @@ export class TasksController {
 
     const shiftTasks = (
       await Promise.all(
-        templateIds.map((tid) => this.tasks.findByTemplateId(tid, companyId, {})),
+        templateIds.map((tid) =>
+          this.tasks.findByTemplateId(tid, companyId, {}),
+        ),
       )
     ).flat();
-    const personalTasks = await this.tasks.findByEmployeeId(employeeId, companyId, {});
+    const personalTasks = await this.tasks.findByEmployeeId(
+      employeeId,
+      companyId,
+      {},
+    );
     const byId = new Map<string, Task>();
     for (const t of [...shiftTasks, ...personalTasks]) byId.set(t.id, t);
     const all = [...byId.values()];
@@ -441,7 +447,10 @@ export class TasksController {
         .select('task_id')
         .eq('company_id', companyId)
         .eq('date', date)
-        .in('task_id', all.map((t) => t.id));
+        .in(
+          'task_id',
+          all.map((t) => t.id),
+        );
       for (const c of (comps ?? []) as Array<{ task_id: string }>) {
         doneSet.add(c.task_id);
       }

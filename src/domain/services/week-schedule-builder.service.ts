@@ -938,8 +938,12 @@ export class WeekScheduleBuilder {
         // Locations feature — desempate por modo del empleado:
         //   rotate → preferir la locación menos usada esta semana (distribuir);
         //   fixed  → preferir la más usada (anclar a una sola).
-        const la = a.slot.locationId ? (locationLoad?.get(a.slot.locationId) ?? 0) : 0;
-        const lb = b.slot.locationId ? (locationLoad?.get(b.slot.locationId) ?? 0) : 0;
+        const la = a.slot.locationId
+          ? (locationLoad?.get(a.slot.locationId) ?? 0)
+          : 0;
+        const lb = b.slot.locationId
+          ? (locationLoad?.get(b.slot.locationId) ?? 0)
+          : 0;
         if (la !== lb) return locationMode === 'fixed' ? lb - la : la - lb;
         // Tiebreak estable por locationId → ancla consistente para 'fixed'.
         const ida = a.slot.locationId ?? '';

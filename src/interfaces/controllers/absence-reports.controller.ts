@@ -219,7 +219,10 @@ export class AbsenceReportsController {
     await this.repo.softDelete(id, companyId);
   }
 
-  private toDto(r: AbsenceReport, shift: ApprovalShiftRef | null = null): object {
+  private toDto(
+    r: AbsenceReport,
+    shift: ApprovalShiftRef | null = null,
+  ): object {
     return {
       id: r.id,
       companyId: r.companyId,

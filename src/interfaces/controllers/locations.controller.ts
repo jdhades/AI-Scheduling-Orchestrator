@@ -147,7 +147,9 @@ export class LocationsController {
   private async ensureEnabled(companyId: string): Promise<void> {
     const on = await this.tenantFeatures.isEnabled(companyId, 'locations');
     if (!on) {
-      throw new ForbiddenException('The "locations" feature is not enabled for this company');
+      throw new ForbiddenException(
+        'The "locations" feature is not enabled for this company',
+      );
     }
   }
 
@@ -192,10 +194,14 @@ export class LocationsController {
       .single<LocationRow>();
     if (error) {
       if ((error as { code?: string }).code === '23505') {
-        throw new ConflictException(`A location named "${dto.name}" already exists in this branch`);
+        throw new ConflictException(
+          `A location named "${dto.name}" already exists in this branch`,
+        );
       }
       if ((error as { code?: string }).code === '23503') {
-        throw new BadRequestException(`Branch ${dto.branchId} does not exist in this company`);
+        throw new BadRequestException(
+          `Branch ${dto.branchId} does not exist in this company`,
+        );
       }
       throw new Error(error.message);
     }
@@ -210,11 +216,14 @@ export class LocationsController {
     @CurrentCompany() companyId: string,
   ): Promise<LocationDTO> {
     await this.ensureEnabled(companyId);
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
     if (dto.name !== undefined) patch.name = dto.name;
     if (dto.geofenceLat !== undefined) patch.geofence_lat = dto.geofenceLat;
     if (dto.geofenceLng !== undefined) patch.geofence_lng = dto.geofenceLng;
-    if (dto.geofenceRadiusM !== undefined) patch.geofence_radius_m = dto.geofenceRadiusM;
+    if (dto.geofenceRadiusM !== undefined)
+      patch.geofence_radius_m = dto.geofenceRadiusM;
     if (dto.isActive !== undefined) patch.is_active = dto.isActive;
     if (dto.address !== undefined) patch.address = dto.address;
 
@@ -227,7 +236,9 @@ export class LocationsController {
       .maybeSingle<LocationRow>();
     if (error) {
       if ((error as { code?: string }).code === '23505') {
-        throw new ConflictException(`A location with that name already exists in this branch`);
+        throw new ConflictException(
+          `A location with that name already exists in this branch`,
+        );
       }
       throw new Error(error.message);
     }

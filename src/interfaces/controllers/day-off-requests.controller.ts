@@ -267,7 +267,10 @@ export class DayOffRequestsController {
       .eq('id', id);
   }
 
-  private toDto(r: DayOffRequest, shift: ApprovalShiftRef | null = null): object {
+  private toDto(
+    r: DayOffRequest,
+    shift: ApprovalShiftRef | null = null,
+  ): object {
     return {
       id: r.id,
       companyId: r.companyId,

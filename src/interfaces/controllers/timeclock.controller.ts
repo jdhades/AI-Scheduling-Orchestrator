@@ -417,7 +417,11 @@ export class TimeclockController {
       if (e.type === 'break_start') {
         openStart = e.occurred_at;
         limit = e.source_metadata?.break_limit_minutes ?? null;
-      } else if (e.type === 'break_end' || e.type === 'out' || e.type === 'in') {
+      } else if (
+        e.type === 'break_end' ||
+        e.type === 'out' ||
+        e.type === 'in'
+      ) {
         openStart = null;
         limit = null;
       }
@@ -476,41 +480,80 @@ export class TimeclockController {
     if (list.length === 0) return [];
 
     const empIds = [...new Set(list.map((r) => r.employee_id))];
-    const locIds = [...new Set(list.map((r) => r.location_id).filter(Boolean))] as string[];
+    const locIds = [
+      ...new Set(list.map((r) => r.location_id).filter(Boolean)),
+    ] as string[];
     const [{ data: emps }, { data: locs }] = await Promise.all([
-      this.supabase.from('employees').select('id, name, department_id').in('id', empIds),
+      this.supabase
+        .from('employees')
+        .select('id, name, department_id')
+        .in('id', empIds),
       locIds.length > 0
-        ? this.supabase.from('locations').select('id, name, address').in('id', locIds)
-        : Promise.resolve({ data: [] as { id: string; name: string; address: string | null }[] }),
+        ? this.supabase
+            .from('locations')
+            .select('id, name, address')
+            .in('id', locIds)
+        : Promise.resolve({
+            data: [] as { id: string; name: string; address: string | null }[],
+          }),
     ]);
     const empInfo = new Map(
-      ((emps ?? []) as Array<{ id: string; name: string; department_id: string | null }>).map(
-        (e) => [e.id, { name: e.name, departmentId: e.department_id ?? null }],
-      ),
+      (
+        (emps ?? []) as Array<{
+          id: string;
+          name: string;
+          department_id: string | null;
+        }>
+      ).map((e) => [
+        e.id,
+        { name: e.name, departmentId: e.department_id ?? null },
+      ]),
     );
     const locInfo = new Map(
-      ((locs ?? []) as { id: string; name: string; address: string | null }[]).map((l) => [
-        l.id,
-        { name: l.name, address: l.address ?? null },
-      ]),
+      (
+        (locs ?? []) as { id: string; name: string; address: string | null }[]
+      ).map((l) => [l.id, { name: l.name, address: l.address ?? null }]),
     );
 
     // Departamento + sucursal del empleado (para columnas + export).
-    const deptIds = [...new Set([...empInfo.values()].map((e) => e.departmentId).filter(Boolean))] as string[];
+    const deptIds = [
+      ...new Set(
+        [...empInfo.values()].map((e) => e.departmentId).filter(Boolean),
+      ),
+    ] as string[];
     const { data: depts } = deptIds.length
-      ? await this.supabase.from('departments').select('id, name, branch_id').in('id', deptIds)
-      : { data: [] as Array<{ id: string; name: string; branch_id: string | null }> };
+      ? await this.supabase
+          .from('departments')
+          .select('id, name, branch_id')
+          .in('id', deptIds)
+      : {
+          data: [] as Array<{
+            id: string;
+            name: string;
+            branch_id: string | null;
+          }>,
+        };
     const deptInfo = new Map(
       (depts ?? []).map((d) => [
         d.id as string,
-        { name: d.name as string, branchId: (d.branch_id as string | null) ?? null },
+        {
+          name: d.name as string,
+          branchId: (d.branch_id as string | null) ?? null,
+        },
       ]),
     );
-    const branchIds = [...new Set([...deptInfo.values()].map((d) => d.branchId).filter(Boolean))] as string[];
+    const branchIds = [
+      ...new Set([...deptInfo.values()].map((d) => d.branchId).filter(Boolean)),
+    ] as string[];
     const { data: branches } = branchIds.length
-      ? await this.supabase.from('branches').select('id, name').in('id', branchIds)
+      ? await this.supabase
+          .from('branches')
+          .select('id, name')
+          .in('id', branchIds)
       : { data: [] as Array<{ id: string; name: string }> };
-    const branchName = new Map((branches ?? []).map((b) => [b.id as string, b.name as string]));
+    const branchName = new Map(
+      (branches ?? []).map((b) => [b.id as string, b.name as string]),
+    );
 
     return Promise.all(
       list.map(async (r) => {
@@ -531,10 +574,16 @@ export class TimeclockController {
           employeeId: r.employee_id,
           employeeName: emp?.name ?? null,
           departmentName: dept?.name ?? null,
-          branchName: dept?.branchId ? (branchName.get(dept.branchId) ?? null) : null,
+          branchName: dept?.branchId
+            ? (branchName.get(dept.branchId) ?? null)
+            : null,
           locationId: r.location_id ?? null,
-          locationName: r.location_id ? (locInfo.get(r.location_id)?.name ?? null) : null,
-          locationAddress: r.location_id ? (locInfo.get(r.location_id)?.address ?? null) : null,
+          locationName: r.location_id
+            ? (locInfo.get(r.location_id)?.name ?? null)
+            : null,
+          locationAddress: r.location_id
+            ? (locInfo.get(r.location_id)?.address ?? null)
+            : null,
           reviewedAt: r.reviewed_at ?? null,
           reviewNote: r.review_note ?? null,
           photoSignedUrl,
@@ -560,14 +609,21 @@ export class TimeclockController {
     @Query('branchId') branchId?: string,
     @Query('departmentId') departmentId?: string,
   ): Promise<TimesheetRowDTO[]> {
-    if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    if (
+      !from ||
+      !to ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(to)
+    ) {
       throw new BadRequestException('from & to (YYYY-MM-DD) are required');
     }
 
     // 1. Turnos del rango.
     let sq = this.supabase
       .from('shift_assignments')
-      .select('id, employee_id, template_id, date, actual_start_time, actual_end_time, location_id')
+      .select(
+        'id, employee_id, template_id, date, actual_start_time, actual_end_time, location_id',
+      )
       .eq('company_id', companyId)
       .gte('date', from)
       .lte('date', to);
@@ -591,7 +647,9 @@ export class TimeclockController {
     const empIds = [...new Set(shifts.map((s) => s.employee_id))];
     const { data: events } = await this.supabase
       .from('time_clock_events')
-      .select('id, employee_id, type, occurred_at, validation_status, source_metadata')
+      .select(
+        'id, employee_id, type, occurred_at, validation_status, source_metadata',
+      )
       .eq('company_id', companyId)
       .in('employee_id', empIds)
       .gte('occurred_at', `${from}T00:00:00.000Z`)
@@ -610,37 +668,81 @@ export class TimeclockController {
 
     // 3. Lookups: empleado→nombre/depto, depto→nombre/sucursal, sucursal, template, localidad.
     const tplIds = [...new Set(shifts.map((s) => s.template_id))];
-    const locIds = [...new Set(shifts.map((s) => s.location_id).filter(Boolean))] as string[];
+    const locIds = [
+      ...new Set(shifts.map((s) => s.location_id).filter(Boolean)),
+    ] as string[];
     const [{ data: emps }, { data: tpls }, { data: locs }] = await Promise.all([
-      this.supabase.from('employees').select('id, name, department_id').in('id', empIds),
+      this.supabase
+        .from('employees')
+        .select('id, name, department_id')
+        .in('id', empIds),
       this.supabase.from('shift_templates').select('id, name').in('id', tplIds),
       locIds.length
         ? this.supabase.from('locations').select('id, name').in('id', locIds)
         : Promise.resolve({ data: [] as Array<{ id: string; name: string }> }),
     ]);
     const empInfo = new Map(
-      ((emps ?? []) as Array<{ id: string; name: string; department_id: string | null }>).map((e) => [
+      (
+        (emps ?? []) as Array<{
+          id: string;
+          name: string;
+          department_id: string | null;
+        }>
+      ).map((e) => [
         e.id,
         { name: e.name, departmentId: e.department_id ?? null },
       ]),
     );
-    const tplName = new Map(((tpls ?? []) as Array<{ id: string; name: string }>).map((tp) => [tp.id, tp.name]));
-    const locName = new Map(((locs ?? []) as Array<{ id: string; name: string }>).map((l) => [l.id, l.name]));
-    const deptIds = [...new Set([...empInfo.values()].map((e) => e.departmentId).filter(Boolean))] as string[];
+    const tplName = new Map(
+      ((tpls ?? []) as Array<{ id: string; name: string }>).map((tp) => [
+        tp.id,
+        tp.name,
+      ]),
+    );
+    const locName = new Map(
+      ((locs ?? []) as Array<{ id: string; name: string }>).map((l) => [
+        l.id,
+        l.name,
+      ]),
+    );
+    const deptIds = [
+      ...new Set(
+        [...empInfo.values()].map((e) => e.departmentId).filter(Boolean),
+      ),
+    ] as string[];
     const { data: depts } = deptIds.length
-      ? await this.supabase.from('departments').select('id, name, branch_id').in('id', deptIds)
-      : { data: [] as Array<{ id: string; name: string; branch_id: string | null }> };
+      ? await this.supabase
+          .from('departments')
+          .select('id, name, branch_id')
+          .in('id', deptIds)
+      : {
+          data: [] as Array<{
+            id: string;
+            name: string;
+            branch_id: string | null;
+          }>,
+        };
     const deptInfo = new Map(
       (depts ?? []).map((d) => [
         d.id as string,
-        { name: d.name as string, branchId: (d.branch_id as string | null) ?? null },
+        {
+          name: d.name as string,
+          branchId: (d.branch_id as string | null) ?? null,
+        },
       ]),
     );
-    const branchIds = [...new Set([...deptInfo.values()].map((d) => d.branchId).filter(Boolean))] as string[];
+    const branchIds = [
+      ...new Set([...deptInfo.values()].map((d) => d.branchId).filter(Boolean)),
+    ] as string[];
     const { data: branches } = branchIds.length
-      ? await this.supabase.from('branches').select('id, name').in('id', branchIds)
+      ? await this.supabase
+          .from('branches')
+          .select('id, name')
+          .in('id', branchIds)
       : { data: [] as Array<{ id: string; name: string }> };
-    const branchName = new Map((branches ?? []).map((b) => [b.id as string, b.name as string]));
+    const branchName = new Map(
+      (branches ?? []).map((b) => [b.id as string, b.name as string]),
+    );
 
     // 4. Agrupar eventos por empleado+día y asignar cada uno al turno más cercano.
     const dayOf = (iso: string) => iso.slice(0, 10);
@@ -651,7 +753,12 @@ export class TimeclockController {
     }
     const eventsByShift = new Map<
       string,
-      Array<{ id: string; type: string; occurred_at: string; source_metadata: Record<string, unknown> | null }>
+      Array<{
+        id: string;
+        type: string;
+        occurred_at: string;
+        source_metadata: Record<string, unknown> | null;
+      }>
     >();
     for (const e of events ?? []) {
       const k = `${e.employee_id}|${dayOf(e.occurred_at)}`;
@@ -659,7 +766,7 @@ export class TimeclockController {
       if (!candidates || candidates.length === 0) continue;
       // Turno más cercano por distancia del evento a [start, end].
       const t = Date.parse(e.occurred_at);
-      let best = candidates[0]!;
+      let best = candidates[0];
       let bestDist = Infinity;
       for (const s of candidates) {
         const a = Date.parse(s.actual_start_time);
@@ -670,7 +777,10 @@ export class TimeclockController {
           best = s;
         }
       }
-      (eventsByShift.get(best.id) ?? eventsByShift.set(best.id, []).get(best.id)!).push(e);
+      (
+        eventsByShift.get(best.id) ??
+        eventsByShift.set(best.id, []).get(best.id)!
+      ).push(e);
     }
 
     // 5. Armar filas + aplicar filtros de sucursal/depto (post-fetch).
@@ -682,7 +792,9 @@ export class TimeclockController {
       if (departmentId && emp?.departmentId !== departmentId) continue;
       if (branchId && rowBranchId !== branchId) continue;
 
-      const evs = (eventsByShift.get(s.id) ?? []).slice().sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+      const evs = (eventsByShift.get(s.id) ?? [])
+        .slice()
+        .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
       const ins = evs.filter((e) => e.type === 'in');
       const outs = evs.filter((e) => e.type === 'out');
       const inEv = ins[0];
@@ -706,7 +818,10 @@ export class TimeclockController {
           openBreak = null;
         }
       }
-      const workedMs = clockIn && clockOut ? Date.parse(clockOut) - Date.parse(clockIn) - breakMs : 0;
+      const workedMs =
+        clockIn && clockOut
+          ? Date.parse(clockOut) - Date.parse(clockIn) - breakMs
+          : 0;
       rows.push({
         shiftId: s.id,
         employeeId: s.employee_id,
@@ -715,7 +830,9 @@ export class TimeclockController {
         templateName: tplName.get(s.template_id) ?? '—',
         branchName: rowBranchId ? (branchName.get(rowBranchId) ?? null) : null,
         departmentName: dept?.name ?? null,
-        locationName: s.location_id ? (locName.get(s.location_id) ?? null) : null,
+        locationName: s.location_id
+          ? (locName.get(s.location_id) ?? null)
+          : null,
         scheduledStart: s.actual_start_time,
         scheduledEnd: s.actual_end_time,
         clockIn,
@@ -729,7 +846,11 @@ export class TimeclockController {
         incomplete: !clockIn || !clockOut,
       });
     }
-    rows.sort((a, b) => a.date.localeCompare(b.date) || a.scheduledStart.localeCompare(b.scheduledStart));
+    rows.sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        a.scheduledStart.localeCompare(b.scheduledStart),
+    );
     return rows;
   }
 
@@ -746,7 +867,12 @@ export class TimeclockController {
     @Query('to') to: string,
     @Query('employeeId') employeeId?: string,
   ): Promise<BreakDetailDTO[]> {
-    if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    if (
+      !from ||
+      !to ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(to)
+    ) {
       throw new BadRequestException('from & to (YYYY-MM-DD) are required');
     }
     const fromIso = `${from}T00:00:00.000Z`;
@@ -788,7 +914,13 @@ export class TimeclockController {
     const pairs: Pair[] = [];
     for (const e of evs) {
       if (e.type === 'break_start') {
-        const p: Pair = { id: e.id, employeeId: e.employee_id, start: e.occurred_at, end: null, meta: e.source_metadata };
+        const p: Pair = {
+          id: e.id,
+          employeeId: e.employee_id,
+          start: e.occurred_at,
+          end: null,
+          meta: e.source_metadata,
+        };
         open.set(e.employee_id, p);
         pairs.push(p);
       } else if (e.type === 'break_end') {
@@ -819,15 +951,35 @@ export class TimeclockController {
           .select('assignment_id, start_time, end_time')
           .eq('company_id', companyId)
           .in('assignment_id', asgIds)
-          .returns<Array<{ assignment_id: string; start_time: string; end_time: string }>>()
-      : { data: [] as Array<{ assignment_id: string; start_time: string; end_time: string }> };
+          .returns<
+            Array<{
+              assignment_id: string;
+              start_time: string;
+              end_time: string;
+            }>
+          >()
+      : {
+          data: [] as Array<{
+            assignment_id: string;
+            start_time: string;
+            end_time: string;
+          }>,
+        };
     // Planificados por empleado.
-    const plannedByEmp = new Map<string, Array<{ start: string; minutes: number }>>();
+    const plannedByEmp = new Map<
+      string,
+      Array<{ start: string; minutes: number }>
+    >();
     for (const pb of planned ?? []) {
       const emp = asgEmp.get(pb.assignment_id);
       if (!emp) continue;
-      const minutes = Math.round((Date.parse(pb.end_time) - Date.parse(pb.start_time)) / 60000);
-      (plannedByEmp.get(emp) ?? plannedByEmp.set(emp, []).get(emp)!).push({ start: pb.start_time, minutes });
+      const minutes = Math.round(
+        (Date.parse(pb.end_time) - Date.parse(pb.start_time)) / 60000,
+      );
+      (plannedByEmp.get(emp) ?? plannedByEmp.set(emp, []).get(emp)!).push({
+        start: pb.start_time,
+        minutes,
+      });
     }
 
     // 4. Nombres + zona horaria de la sucursal (empleado→depto→sucursal→tz),
@@ -837,24 +989,46 @@ export class TimeclockController {
       .select('id, name, department_id')
       .in('id', empIds);
     const empName = new Map(
-      ((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]),
-    );
-    const empDept = new Map(
-      ((emps ?? []) as Array<{ id: string; department_id: string | null }>).map((e) => [
+      ((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [
         e.id,
-        e.department_id ?? null,
+        e.name,
       ]),
     );
-    const deptIds = [...new Set([...empDept.values()].filter(Boolean))] as string[];
+    const empDept = new Map(
+      ((emps ?? []) as Array<{ id: string; department_id: string | null }>).map(
+        (e) => [e.id, e.department_id ?? null],
+      ),
+    );
+    const deptIds = [
+      ...new Set([...empDept.values()].filter(Boolean)),
+    ] as string[];
     const { data: depts2 } = deptIds.length
-      ? await this.supabase.from('departments').select('id, branch_id').in('id', deptIds)
+      ? await this.supabase
+          .from('departments')
+          .select('id, branch_id')
+          .in('id', deptIds)
       : { data: [] as Array<{ id: string; branch_id: string | null }> };
-    const deptBranch = new Map((depts2 ?? []).map((d) => [d.id as string, (d.branch_id as string | null) ?? null]));
-    const branchIds2 = [...new Set([...deptBranch.values()].filter(Boolean))] as string[];
+    const deptBranch = new Map(
+      (depts2 ?? []).map((d) => [
+        d.id as string,
+        (d.branch_id as string | null) ?? null,
+      ]),
+    );
+    const branchIds2 = [
+      ...new Set([...deptBranch.values()].filter(Boolean)),
+    ] as string[];
     const { data: branches2 } = branchIds2.length
-      ? await this.supabase.from('branches').select('id, timezone').in('id', branchIds2)
+      ? await this.supabase
+          .from('branches')
+          .select('id, timezone')
+          .in('id', branchIds2)
       : { data: [] as Array<{ id: string; timezone: string }> };
-    const branchTz = new Map((branches2 ?? []).map((b) => [b.id as string, (b.timezone as string) || 'UTC']));
+    const branchTz = new Map(
+      (branches2 ?? []).map((b) => [
+        b.id as string,
+        (b.timezone as string) || 'UTC',
+      ]),
+    );
     const tzOf = (empId: string): string => {
       const dept = empDept.get(empId);
       const branch = dept ? deptBranch.get(dept) : null;
@@ -864,7 +1038,9 @@ export class TimeclockController {
     // 5. Armar el detalle, matcheando cada par con el plan más cercano.
     return pairs.map((p) => {
       const actualStartMs = Date.parse(p.start);
-      const actualMinutes = p.end ? Math.round((Date.parse(p.end) - actualStartMs) / 60000) : null;
+      const actualMinutes = p.end
+        ? Math.round((Date.parse(p.end) - actualStartMs) / 60000)
+        : null;
       const candidates = plannedByEmp.get(p.employeeId) ?? [];
       let best: { start: string; minutes: number } | null = null;
       let bestDist = Infinity;
@@ -889,8 +1065,12 @@ export class TimeclockController {
         startDeviationMin = dev;
       }
       const durationDeviationMin =
-        plannedMinutes != null && actualMinutes != null ? actualMinutes - plannedMinutes : null;
-      const overbreakMeta = (p.meta ?? {}).overbreak_minutes as number | undefined;
+        plannedMinutes != null && actualMinutes != null
+          ? actualMinutes - plannedMinutes
+          : null;
+      const overbreakMeta = (p.meta ?? {}).overbreak_minutes as
+        | number
+        | undefined;
       return {
         id: p.id,
         employeeId: p.employeeId,
@@ -1009,7 +1189,10 @@ export class TimeclockController {
       .select('occurred_at, source_metadata')
       .eq('company_id', companyId)
       .eq('id', id)
-      .maybeSingle<{ occurred_at: string; source_metadata: Record<string, unknown> | null }>();
+      .maybeSingle<{
+        occurred_at: string;
+        source_metadata: Record<string, unknown> | null;
+      }>();
     if (!current) throw new NotFoundException(`Punch ${id} not found`);
     const before = current.occurred_at;
     const { data: updated, error } = await this.supabase
@@ -1055,7 +1238,8 @@ export class TimeclockController {
     @CurrentCompany() companyId: string,
   ): Promise<CorrectionRequestDTO> {
     const employeeId = dto.employeeId ?? user?.employeeId;
-    if (!employeeId) throw new BadRequestException('No employee for the request');
+    if (!employeeId)
+      throw new BadRequestException('No employee for the request');
     const { data, error } = await this.supabase
       .from('timeclock_correction_requests')
       .insert({
@@ -1143,9 +1327,19 @@ export class TimeclockController {
     const rows = data ?? [];
     if (!rows.length) return [];
     const empIds = [...new Set(rows.map((r) => r.employee_id))];
-    const { data: emps } = await this.supabase.from('employees').select('id, name').in('id', empIds);
-    const names = new Map(((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]));
-    return rows.map((r) => this.toCorrectionDTO(r, names.get(r.employee_id) ?? null));
+    const { data: emps } = await this.supabase
+      .from('employees')
+      .select('id, name')
+      .in('id', empIds);
+    const names = new Map(
+      ((emps ?? []) as Array<{ id: string; name: string }>).map((e) => [
+        e.id,
+        e.name,
+      ]),
+    );
+    return rows.map((r) =>
+      this.toCorrectionDTO(r, names.get(r.employee_id) ?? null),
+    );
   }
 
   /** POST /timeclock/correction-requests/:id/apply — aplica (crea/edita el evento)
@@ -1166,7 +1360,8 @@ export class TimeclockController {
       .eq('id', id)
       .maybeSingle<CorrectionRow>();
     if (!req) throw new NotFoundException('Request not found');
-    if (req.status !== 'pending') throw new BadRequestException('Request already resolved');
+    if (req.status !== 'pending')
+      throw new BadRequestException('Request already resolved');
     const now = new Date().toISOString();
     const meta = {
       correction_reason: req.reason,
@@ -1181,7 +1376,10 @@ export class TimeclockController {
         .select('occurred_at, source_metadata')
         .eq('company_id', companyId)
         .eq('id', req.target_event_id)
-        .maybeSingle<{ occurred_at: string; source_metadata: Record<string, unknown> | null }>();
+        .maybeSingle<{
+          occurred_at: string;
+          source_metadata: Record<string, unknown> | null;
+        }>();
       const before = cur?.occurred_at ?? null;
       await this.supabase
         .from('time_clock_events')
@@ -1278,7 +1476,10 @@ export class TimeclockController {
     return { ok: true };
   }
 
-  private toCorrectionDTO(r: CorrectionRow, employeeName: string | null): CorrectionRequestDTO {
+  private toCorrectionDTO(
+    r: CorrectionRow,
+    employeeName: string | null,
+  ): CorrectionRequestDTO {
     return {
       id: r.id,
       employeeId: r.employee_id,
@@ -1321,7 +1522,10 @@ export class TimeclockController {
     companyId: string,
     locationId?: string,
   ): Promise<{ geofence: GeofenceConfig | null; locationId: string | null }> {
-    if (locationId && (await this.tenantFeatures.isEnabled(companyId, 'locations'))) {
+    if (
+      locationId &&
+      (await this.tenantFeatures.isEnabled(companyId, 'locations'))
+    ) {
       const { data: allowed } = await this.supabase
         .from('employee_locations')
         .select('location_id')
@@ -1330,7 +1534,9 @@ export class TimeclockController {
         .eq('location_id', locationId)
         .maybeSingle();
       if (!allowed) {
-        throw new ForbiddenException('This location is not allowed for the employee');
+        throw new ForbiddenException(
+          'This location is not allowed for the employee',
+        );
       }
       const { data: loc } = await this.supabase
         .from('locations')
@@ -1349,7 +1555,10 @@ export class TimeclockController {
         };
       }
     }
-    return { geofence: await this.resolveGeofence(employeeId, companyId), locationId: null };
+    return {
+      geofence: await this.resolveGeofence(employeeId, companyId),
+      locationId: null,
+    };
   }
 
   /** employee → department → branch geofence (null if not fully configured). */

@@ -357,9 +357,7 @@ export class AdminDashboardController {
     @Query('days') daysRaw?: string,
   ): Promise<SolverStatsResponse> {
     const days = Math.max(1, Math.min(365, Number(daysRaw) || 30));
-    const since = new Date(
-      Date.now() - days * 24 * 3600_000,
-    ).toISOString();
+    const since = new Date(Date.now() - days * 24 * 3600_000).toISOString();
 
     const { data, error } = await this.supabase
       .from('schedule_generation_runs')
@@ -447,15 +445,11 @@ export class AdminDashboardController {
     @Query('days') daysRaw?: string,
   ): Promise<TenantActivityResponse> {
     const days = Math.max(1, Math.min(365, Number(daysRaw) || 30));
-    const since = new Date(
-      Date.now() - days * 24 * 3600_000,
-    ).toISOString();
+    const since = new Date(Date.now() - days * 24 * 3600_000).toISOString();
 
     const [allTenantsRes, recentSignupsRes, activeLoginsRes] =
       await Promise.all([
-        this.supabase
-          .from('companies')
-          .select('id, created_via, created_at'),
+        this.supabase.from('companies').select('id, created_via, created_at'),
         this.supabase
           .from('companies')
           .select('id, name, created_via, created_at')

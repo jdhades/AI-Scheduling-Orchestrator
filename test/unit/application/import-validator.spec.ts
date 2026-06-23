@@ -21,7 +21,7 @@ function payloadWithEmployeeReferencingMissingDept(): ImportPayload {
       ],
     },
     warnings: [],
-  } as ImportPayload;
+  };
 }
 
 describe('ImportValidatorService — ref differentiation', () => {

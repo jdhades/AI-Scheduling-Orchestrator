@@ -312,7 +312,9 @@ describe('WeekScheduleBuilder', () => {
       slots,
       semanticRules: [],
       allowedLocationsByEmployee: allowed,
-      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([['e1', 'rotate']]),
+      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([
+        ['e1', 'rotate'],
+      ]),
     });
     expect(rot.assignments).toHaveLength(4);
     expect(new Set(rot.assignments.map((a) => a.templateId)).size).toBe(2);
@@ -323,7 +325,9 @@ describe('WeekScheduleBuilder', () => {
       slots,
       semanticRules: [],
       allowedLocationsByEmployee: allowed,
-      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([['e1', 'fixed']]),
+      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([
+        ['e1', 'fixed'],
+      ]),
     });
     expect(fix.assignments).toHaveLength(4);
     expect(new Set(fix.assignments.map((a) => a.templateId)).size).toBe(1);
@@ -341,7 +345,9 @@ describe('WeekScheduleBuilder', () => {
       slots,
       semanticRules: [],
       allowedLocationsByEmployee: new Map([['e1', new Set(['L1', 'L2'])]]),
-      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([['e1', 'rotate']]),
+      locationModeByEmployee: new Map<string, 'fixed' | 'rotate'>([
+        ['e1', 'rotate'],
+      ]),
       // Históricamente cargado en L1 → debe elegir L2 (sB) esta vez.
       priorLocationLoadByEmployee: new Map([['e1', new Map([['L1', 3]])]]),
     });

@@ -562,10 +562,12 @@ export class SettingsController {
         (data.absences_tracking_enabled as boolean) ?? true,
       overtimeMode:
         (data.overtime_mode as 'none' | 'daily' | 'weekly' | 'both') ?? 'none',
-      overtimeDailyThresholdHours:
-        Number(data.overtime_daily_threshold_hours ?? 8),
-      overtimeWeeklyThresholdHours:
-        Number(data.overtime_weekly_threshold_hours ?? 40),
+      overtimeDailyThresholdHours: Number(
+        data.overtime_daily_threshold_hours ?? 8,
+      ),
+      overtimeWeeklyThresholdHours: Number(
+        data.overtime_weekly_threshold_hours ?? 40,
+      ),
       taskCheckRequireOnShift:
         (data.task_check_require_on_shift as boolean) ?? true,
       taskCheckRequireOnSite:
@@ -603,7 +605,8 @@ export class SettingsController {
       updates.overtime_daily_threshold_hours = body.overtimeDailyThresholdHours;
     }
     if (body.overtimeWeeklyThresholdHours !== undefined) {
-      updates.overtime_weekly_threshold_hours = body.overtimeWeeklyThresholdHours;
+      updates.overtime_weekly_threshold_hours =
+        body.overtimeWeeklyThresholdHours;
     }
     if (body.taskCheckRequireOnShift !== undefined) {
       updates.task_check_require_on_shift = body.taskCheckRequireOnShift;

@@ -79,12 +79,14 @@ export class ApprovalShiftEnricher {
 
   private async fetch(
     companyId: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     narrow: (q: any) => any,
   ): Promise<AssignmentRow[]> {
     const base = this.supabase
       .from('shift_assignments')
-      .select('id, employee_id, date, actual_start_time, actual_end_time, template_id')
+      .select(
+        'id, employee_id, date, actual_start_time, actual_end_time, template_id',
+      )
       .eq('company_id', companyId);
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { data, error } = await narrow(base);
@@ -97,7 +99,9 @@ export class ApprovalShiftEnricher {
     rows: AssignmentRow[],
   ): Promise<Map<string, string>> {
     const ids = [
-      ...new Set(rows.map((r) => r.template_id).filter((id): id is string => !!id)),
+      ...new Set(
+        rows.map((r) => r.template_id).filter((id): id is string => !!id),
+      ),
     ];
     if (!ids.length) return new Map();
     const { data } = await this.supabase
@@ -106,18 +110,24 @@ export class ApprovalShiftEnricher {
       .eq('company_id', companyId)
       .in('id', ids);
     return new Map(
-      ((data ?? []) as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]),
+      ((data ?? []) as Array<{ id: string; name: string }>).map((t) => [
+        t.id,
+        t.name,
+      ]),
     );
   }
 
-  private toRef(r: AssignmentRow, names: Map<string, string>): ApprovalShiftRef {
+  private toRef(
+    r: AssignmentRow,
+    names: Map<string, string>,
+  ): ApprovalShiftRef {
     return {
       date: r.date,
       // Normalizar a ISO UTC limpio (igual que la agenda) — el valor crudo de
       // Postgres lo parsea distinto Hermes (RN) y desfasa las horas.
       start: new Date(r.actual_start_time).toISOString(),
       end: new Date(r.actual_end_time).toISOString(),
-      role: r.template_id ? names.get(r.template_id) ?? null : null,
+      role: r.template_id ? (names.get(r.template_id) ?? null) : null,
     };
   }
 }

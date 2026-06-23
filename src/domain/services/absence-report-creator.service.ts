@@ -150,8 +150,7 @@ export class AbsenceReportCreator {
     // empleado (o cualquier deletedId) apunta a un turno ya borrado → guardarlo
     // viola absence_reports_assignment_fkey. Lo dejamos solo si sobrevivió.
     const hint = input.assignmentIdHint ?? null;
-    const assignmentId =
-      hint && !deletedIds.includes(hint) ? hint : null;
+    const assignmentId = hint && !deletedIds.includes(hint) ? hint : null;
     const report = AbsenceReport.create({
       id: randomUUID(),
       companyId,

@@ -211,12 +211,16 @@ export class ShiftAssignmentsController {
       );
       // Avisar por push al empleado del turno nuevo (manual o clonado).
       // Best-effort; no afecta la respuesta.
-      void this.push.sendLocalizedToEmployees(companyId, [assignment.employeeId], {
-        titleKey: 'push.assignment.created.title',
-        bodyKey: 'push.assignment.created.body',
-        args: { date: assignment.date },
-        data: { type: 'schedule' },
-      });
+      void this.push.sendLocalizedToEmployees(
+        companyId,
+        [assignment.employeeId],
+        {
+          titleKey: 'push.assignment.created.title',
+          bodyKey: 'push.assignment.created.body',
+          args: { date: assignment.date },
+          data: { type: 'schedule' },
+        },
+      );
       return { assignment: this.toDto(assignment) };
     } catch (err) {
       if (err instanceof CreateAssignmentConflictError) {
@@ -364,12 +368,16 @@ export class ShiftAssignmentsController {
         data: { type: 'schedule' },
       });
       if (previous && previous.employeeId !== moved.employeeId) {
-        void this.push.sendLocalizedToEmployees(companyId, [previous.employeeId], {
-          titleKey: 'push.assignment.reassigned.title',
-          bodyKey: 'push.assignment.reassigned.body',
-          args: { date: previous.date },
-          data: { type: 'schedule' },
-        });
+        void this.push.sendLocalizedToEmployees(
+          companyId,
+          [previous.employeeId],
+          {
+            titleKey: 'push.assignment.reassigned.title',
+            bodyKey: 'push.assignment.reassigned.body',
+            args: { date: previous.date },
+            data: { type: 'schedule' },
+          },
+        );
       }
       return {
         assignment: this.toDto(result.assignment),

@@ -293,7 +293,7 @@ Expected output format:
         const capacity = this.capacityLabel(t.requiredEmployees);
         const loc =
           locationsActive && t.locationId
-            ? locationNamesById!.get(t.locationId)
+            ? locationNamesById.get(t.locationId)
             : null;
         const locSuffix = loc ? ` @ ${loc}` : '';
         return `  - ${displayName}: ${t.startLabel} a ${t.endLabel} (${capacity})${locSuffix}`;
@@ -311,7 +311,7 @@ Expected output format:
               return `  - ${display}: any location`;
             }
             const names = [...allowed]
-              .map((id) => locationNamesById!.get(id) ?? id)
+              .map((id) => locationNamesById.get(id) ?? id)
               .sort();
             return `  - ${display}: allowed [${names.join(', ')}] · mode: ${mode}`;
           })
