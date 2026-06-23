@@ -31,6 +31,7 @@ import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.d
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
 import type { AuthContext } from '../../infrastructure/auth/auth-context';
 import { NotificationsGateway } from '../../infrastructure/websocket/notifications.gateway';
+import { PushService } from '../../infrastructure/notifications/push.service';
 import { ManagerNotificationService } from '../../application/services/manager-notification.service';
 
 export type ShiftPreferenceKind =
@@ -117,7 +118,28 @@ export class ShiftPreferencesController {
     @Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient,
     private readonly notifications: NotificationsGateway,
     private readonly managerNotifications: ManagerNotificationService,
+    private readonly push: PushService,
   ) {}
+
+  /** Push a managers/owners avisando que entró una preferencia nueva. La
+   *  gestionan en la web (Approvals → Preferencias); el push es un heads-up. */
+  private async pushManagersOfPreference(
+    companyId: string,
+    employeeName: string,
+  ): Promise<void> {
+    const { data } = await this.supabase
+      .from('employees')
+      .select('id')
+      .eq('company_id', companyId)
+      .in('role', ['manager', 'owner']);
+    const ids = (data ?? []).map((r) => r.id as string);
+    if (ids.length === 0) return;
+    await this.push.sendLocalizedToEmployees(companyId, ids, {
+      titleKey: 'push.preference.title',
+      bodyKey: 'push.preference.body',
+      args: { name: employeeName },
+    });
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -178,6 +200,8 @@ export class ShiftPreferencesController {
       user.employeeId,
       buildPrefMessage(employeeName, dto),
     );
+    // Push a los managers/owners (best-effort) — heads-up de preferencia nueva.
+    void this.pushManagersOfPreference(companyId, employeeName);
 
     return this.toRow(data);
   }

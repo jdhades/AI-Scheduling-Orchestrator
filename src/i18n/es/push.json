@@ -56,5 +56,9 @@
       "title": "Solicitud rechazada",
       "body": "Tu pedido de intercambio de turno fue rechazado."
     }
+  },
+  "preference": {
+    "title": "Nueva preferencia",
+    "body": "{name} cargó una preferencia de turno."
   }
 }

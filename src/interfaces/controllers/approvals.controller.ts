@@ -10,6 +10,7 @@ interface PendingCountsDTO {
   dayoffs: number;
   incidents: number;
   absences: number;
+  preferences: number;
   /** Suma de lo accionable (badge de la card Aprobaciones). */
   total: number;
 }
@@ -36,7 +37,7 @@ export class ApprovalsController {
         .select('id', { count: 'exact', head: true })
         .eq('company_id', companyId);
 
-    const [corrections, swaps, dayoffs, incidents, absences] =
+    const [corrections, swaps, dayoffs, incidents, absences, preferences] =
       await Promise.all([
         head('timeclock_correction_requests').eq('status', 'pending'),
         head('shift_swap_requests')
@@ -49,6 +50,9 @@ export class ApprovalsController {
         head('absence_reports')
           .is('deleted_at', null)
           .gte('reported_at', since),
+        // Preferencias sin accionar (el manager las convierte en regla o las
+        // resuelve manual → soft-delete). Activas = pendientes.
+        head('shift_preferences').is('deleted_at', null),
       ]);
 
     const c = corrections.count ?? 0;
@@ -56,12 +60,17 @@ export class ApprovalsController {
     const d = dayoffs.count ?? 0;
     const i = incidents.count ?? 0;
     const a = absences.count ?? 0;
+    const p = preferences.count ?? 0;
     return {
       corrections: c,
       swaps: s,
       dayoffs: d,
       incidents: i,
       absences: a,
+      preferences: p,
+      // `total` (badge principal) NO incluye preferencias: el móvil no tiene
+      // pantalla de prefs y las infla sin dónde resolverlas. El badge de prefs
+      // vive aparte en el sidebar web.
       total: c + s + d + i,
     };
   }

@@ -56,5 +56,9 @@
       "title": "Request rejected",
       "body": "Your shift swap request was rejected."
     }
+  },
+  "preference": {
+    "title": "New preference",
+    "body": "{name} set a shift preference."
   }
 }
