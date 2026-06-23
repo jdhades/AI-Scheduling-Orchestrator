@@ -185,12 +185,14 @@ export class OperationalBreakdownService {
           .from('day_off_requests')
           .select('employee_id')
           .eq('company_id', companyId)
+          .is('deleted_at', null)
           .gte('created_at', `${from}T00:00:00.000Z`)
           .lte('created_at', `${to}T23:59:59.999Z`),
         this.supabase
           .from('absence_reports')
           .select('employee_id')
           .eq('company_id', companyId)
+          .is('deleted_at', null)
           .gte('start_date', from)
           .lte('start_date', to),
       ]);
