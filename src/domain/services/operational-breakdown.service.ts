@@ -179,6 +179,7 @@ export class OperationalBreakdownService {
           .from('shift_swap_requests')
           .select('requester_id')
           .eq('company_id', companyId)
+          .is('deleted_at', null)
           .gte('created_at', `${from}T00:00:00.000Z`)
           .lte('created_at', `${to}T23:59:59.999Z`),
         this.supabase

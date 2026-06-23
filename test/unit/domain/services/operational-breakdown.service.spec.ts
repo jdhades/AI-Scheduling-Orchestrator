@@ -104,6 +104,7 @@ function supabaseStub(behavior: {
     const chain: any = {};
     chain.select = () => chain;
     chain.eq = () => chain;
+    chain.is = () => chain;
     chain.gte = () => chain;
     chain.lte = () => chain;
     chain.in = () => chain;

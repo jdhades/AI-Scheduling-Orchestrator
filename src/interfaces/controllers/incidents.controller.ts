@@ -191,9 +191,26 @@ export class IncidentsController {
     if (data.status !== 'reported') {
       throw new BadRequestException('Incident already in progress');
     }
+    // Soft-delete: conservar el incidente cancelado para reportes.
     await this.supabase
       .from('incidents')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('company_id', companyId)
+      .eq('id', id);
+  }
+
+  /** Atribución de resolución/rechazo (quién + cuándo) para reportes. */
+  private async recordResolution(
+    id: string,
+    companyId: string,
+    resolvedBy: string | null,
+  ): Promise<void> {
+    await this.supabase
+      .from('incidents')
+      .update({
+        resolved_by: resolvedBy,
+        resolved_at: new Date().toISOString(),
+      })
       .eq('company_id', companyId)
       .eq('id', id);
   }
@@ -248,10 +265,12 @@ export class IncidentsController {
     @Param('id') id: string,
     @Body() dto: RejectIncidentDto,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     await this.commandBus.execute(
       new RejectIncidentCommand(id, companyId, dto.reason),
     );
+    await this.recordResolution(id, companyId, user?.employeeId ?? null);
   }
 
   /**
@@ -265,9 +284,11 @@ export class IncidentsController {
     @Param('id') id: string,
     @Body() dto: ResolveIncidentDto,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     await this.commandBus.execute(
       new ResolveIncidentCommand(id, companyId, dto.details),
     );
+    await this.recordResolution(id, companyId, user?.employeeId ?? null);
   }
 }

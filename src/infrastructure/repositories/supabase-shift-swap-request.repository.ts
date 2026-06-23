@@ -50,6 +50,7 @@ export class SupabaseShiftSwapRequestRepository implements IShiftSwapRequestRepo
       .from('shift_swap_requests')
       .select('*')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (filter?.requesterId) q = q.eq('requester_id', filter.requesterId);
     if (filter?.targetId) q = q.eq('target_id', filter.targetId);

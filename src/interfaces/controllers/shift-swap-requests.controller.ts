@@ -242,11 +242,13 @@ export class ShiftSwapRequestsController {
   async approve(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const req = await this.repo.findById(id, companyId);
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
     req.accept();
     await this.repo.save(req);
+    await this.recordDecision(id, companyId, user?.employeeId ?? null);
     // Avisar a ambas partes — el solicitante y el target del swap.
     this.employeeNotifier.notify(companyId, req.requesterId, {
       titleKey: 'push.swap.approved.title',
@@ -266,16 +268,31 @@ export class ShiftSwapRequestsController {
   async reject(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const req = await this.repo.findById(id, companyId);
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
     req.reject();
     await this.repo.save(req);
+    await this.recordDecision(id, companyId, user?.employeeId ?? null);
     this.employeeNotifier.notify(companyId, req.requesterId, {
       titleKey: 'push.swap.rejected.title',
       bodyKey: 'push.swap.rejected.body',
       data: { type: 'approval' },
     });
+  }
+
+  /** Atribución de la decisión (approved_by + decided_at) para reportes. */
+  private async recordDecision(
+    id: string,
+    companyId: string,
+    decidedBy: string | null,
+  ): Promise<void> {
+    await this.supabase
+      .from('shift_swap_requests')
+      .update({ approved_by: decidedBy, decided_at: new Date().toISOString() })
+      .eq('company_id', companyId)
+      .eq('id', id);
   }
 
   /** DELETE /:id — el solicitante cancela su propio pedido mientras esté pending. */
@@ -295,9 +312,10 @@ export class ShiftSwapRequestsController {
     if (req.status !== 'pending') {
       throw new BadRequestException('Request already resolved');
     }
+    // Soft-delete: conservar el pedido cancelado para reportes.
     await this.supabase
       .from('shift_swap_requests')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('company_id', companyId)
       .eq('id', id);
   }

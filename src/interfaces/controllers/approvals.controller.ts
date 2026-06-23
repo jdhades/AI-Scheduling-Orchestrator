@@ -39,11 +39,13 @@ export class ApprovalsController {
     const [corrections, swaps, dayoffs, incidents, absences] =
       await Promise.all([
         head('timeclock_correction_requests').eq('status', 'pending'),
-        head('shift_swap_requests').eq('status', 'pending'),
-        head('day_off_requests').eq('status', 'pending'),
+        head('shift_swap_requests')
+          .is('deleted_at', null)
+          .eq('status', 'pending'),
+        head('day_off_requests').is('deleted_at', null).eq('status', 'pending'),
         // Reportes libres del empleado pendientes de acción del manager.
         // (El estado 'PENDING' no existe en el enum — era un bug, nunca contaba.)
-        head('incidents').eq('status', 'reported'),
+        head('incidents').is('deleted_at', null).eq('status', 'reported'),
         head('absence_reports')
           .is('deleted_at', null)
           .gte('reported_at', since),

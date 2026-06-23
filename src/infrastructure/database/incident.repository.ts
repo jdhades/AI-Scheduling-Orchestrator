@@ -67,6 +67,7 @@ export class IncidentRepository {
       .from('incidents')
       .select('*')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (filter?.employeeId) q = q.eq('employee_id', filter.employeeId);
     if (filter?.status) {
