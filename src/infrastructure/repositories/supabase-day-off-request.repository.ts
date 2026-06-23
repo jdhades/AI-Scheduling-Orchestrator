@@ -46,6 +46,7 @@ export class SupabaseDayOffRequestRepository implements IDayOffRequestRepository
       .from('day_off_requests')
       .select('*')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .order('date', { ascending: false });
     if (filter?.employeeId) q = q.eq('employee_id', filter.employeeId);
     if (filter?.status) {

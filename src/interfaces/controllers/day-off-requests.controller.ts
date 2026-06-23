@@ -177,6 +177,7 @@ export class DayOffRequestsController {
   async approve(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<{
     deletedAssignmentIds: string[];
     rulesCreated: Array<{
@@ -195,6 +196,8 @@ export class DayOffRequestsController {
 
     r.approve();
     await this.repo.save(r);
+    // Atribución de la decisión (para reportes: quién y cuándo).
+    await this.recordDecision(id, companyId, user?.employeeId ?? null);
 
     const sideEffects = await this.absenceCreator.applyUnavailability({
       companyId,
@@ -203,9 +206,7 @@ export class DayOffRequestsController {
       startDate: r.date,
       endDate: r.date,
       reason: `día libre aprobado${r.reason ? `: ${r.reason}` : ''}`,
-      // No JWT todavía → no podemos identificar al manager que aprueba.
-      // La rule queda con created_by NULL; la fuente queda en metadata.
-      createdByUserId: null,
+      createdByUserId: user?.userId ?? null,
       ruleSource: 'day-off',
     });
 
@@ -230,11 +231,13 @@ export class DayOffRequestsController {
   async reject(
     @Param('id') id: string,
     @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
     const r = await this.repo.findById(id, companyId);
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
     r.reject();
     await this.repo.save(r);
+    await this.recordDecision(id, companyId, user?.employeeId ?? null);
     this.employeeNotifier.notify(companyId, r.employeeId, {
       titleKey: 'push.dayoff.rejected.title',
       bodyKey: 'push.dayoff.rejected.body',
@@ -260,9 +263,24 @@ export class DayOffRequestsController {
     if (r.status !== 'pending') {
       throw new BadRequestException('Request already resolved');
     }
+    // Soft-delete: el pedido cancelado se conserva para reportes (pidió y
+    // retiró). El listado filtra deleted_at IS NULL.
     await this.supabase
       .from('day_off_requests')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('company_id', companyId)
+      .eq('id', id);
+  }
+
+  /** Registra quién y cuándo decidió (approve/reject) — para reportes. */
+  private async recordDecision(
+    id: string,
+    companyId: string,
+    decidedBy: string | null,
+  ): Promise<void> {
+    await this.supabase
+      .from('day_off_requests')
+      .update({ decided_by: decidedBy, decided_at: new Date().toISOString() })
       .eq('company_id', companyId)
       .eq('id', id);
   }

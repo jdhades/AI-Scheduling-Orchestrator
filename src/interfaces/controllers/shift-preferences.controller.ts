@@ -194,6 +194,7 @@ export class ShiftPreferencesController {
       .from('shift_preferences')
       .select('*')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .order('date', { ascending: true, nullsFirst: false });
 
     // Empleado regular ve solo las suyas. Manager/owner ven todas
@@ -234,9 +235,11 @@ export class ShiftPreferencesController {
     if (existing.employee_id !== user.employeeId) {
       throw new ForbiddenException('Cannot delete another employee preference');
     }
+    // Soft-delete: conservamos el registro para reportes/auditoría (cuántas
+    // veces el empleado pidió y retiró). El GET filtra deleted_at IS NULL.
     const { error: delErr } = await this.supabase
       .from('shift_preferences')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);
     if (delErr) throw new BadRequestException(delErr.message);
     this.notifications.notifyApprovalsChanged(companyId, 'shift_preference');
