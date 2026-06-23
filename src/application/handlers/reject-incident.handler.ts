@@ -27,11 +27,15 @@ export class RejectIncidentHandler implements ICommandHandler<RejectIncidentComm
     await this.incidentRepo.save(incident);
 
     // Avisar al empleado que reportó (best-effort; el aggregate ya persistió).
-    void this.push.sendToEmployees(command.companyId, [incident.employeeId], {
-      title: 'Incidente rechazado',
-      body: 'Tu incidente reportado fue rechazado por tu manager.',
-      data: { type: 'approval' },
-    });
+    void this.push.sendLocalizedToEmployees(
+      command.companyId,
+      [incident.employeeId],
+      {
+        titleKey: 'push.incident.rejected.title',
+        bodyKey: 'push.incident.rejected.body',
+        data: { type: 'approval' },
+      },
+    );
 
     for (const event of incident.getUncommittedEvents()) {
       this.eventBus.publish(event);

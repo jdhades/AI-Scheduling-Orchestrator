@@ -27,11 +27,15 @@ export class ResolveIncidentHandler implements ICommandHandler<ResolveIncidentCo
     await this.incidentRepo.save(incident);
 
     // Avisar al empleado que reportó (best-effort; el aggregate ya persistió).
-    void this.push.sendToEmployees(command.companyId, [incident.employeeId], {
-      title: 'Incidente resuelto',
-      body: 'Tu incidente reportado fue resuelto por tu manager.',
-      data: { type: 'approval' },
-    });
+    void this.push.sendLocalizedToEmployees(
+      command.companyId,
+      [incident.employeeId],
+      {
+        titleKey: 'push.incident.resolved.title',
+        bodyKey: 'push.incident.resolved.body',
+        data: { type: 'approval' },
+      },
+    );
 
     for (const event of incident.getUncommittedEvents()) {
       this.eventBus.publish(event);

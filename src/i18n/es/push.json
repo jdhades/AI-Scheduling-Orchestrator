@@ -1,0 +1,60 @@
+{
+  "assignment": {
+    "created": {
+      "title": "Nuevo turno",
+      "body": "Te asignaron un turno el {date}."
+    },
+    "updated": {
+      "title": "Turno actualizado",
+      "body": "Tu turno quedó para el {date}."
+    },
+    "reassigned": {
+      "title": "Turno reasignado",
+      "body": "El turno del {date} ya no está a tu nombre."
+    },
+    "cancelled": {
+      "title": "Turno cancelado",
+      "body": "Se canceló tu turno del {date}."
+    }
+  },
+  "schedule": {
+    "published": {
+      "title": "Horario publicado",
+      "body": "Ya está disponible tu horario de la semana del {week}."
+    }
+  },
+  "incident": {
+    "resolved": {
+      "title": "Incidente resuelto",
+      "body": "Tu incidente reportado fue resuelto por tu manager."
+    },
+    "rejected": {
+      "title": "Incidente rechazado",
+      "body": "Tu incidente reportado fue rechazado por tu manager."
+    }
+  },
+  "dayoff": {
+    "approved": {
+      "title": "Solicitud aprobada",
+      "body": "Tu pedido de día libre para el {date} fue aprobado."
+    },
+    "rejected": {
+      "title": "Solicitud rechazada",
+      "body": "Tu pedido de día libre para el {date} fue rechazado por tu manager."
+    }
+  },
+  "swap": {
+    "approved": {
+      "title": "Solicitud aprobada",
+      "body": "Tu pedido de intercambio de turno fue aprobado."
+    },
+    "approvedTarget": {
+      "title": "Solicitud aprobada",
+      "body": "El intercambio de turno que te involucraba fue aprobado."
+    },
+    "rejected": {
+      "title": "Solicitud rechazada",
+      "body": "Tu pedido de intercambio de turno fue rechazado."
+    }
+  }
+}

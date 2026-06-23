@@ -269,9 +269,10 @@ export class ScheduleGenerationJobHandler implements OnApplicationBootstrap {
         ),
       ];
       if (ids.length === 0) return;
-      await this.push.sendToEmployees(companyId, ids, {
-        title: 'Horario publicado',
-        body: `Ya está disponible tu horario de la semana del ${weekStart}.`,
+      await this.push.sendLocalizedToEmployees(companyId, ids, {
+        titleKey: 'push.schedule.published.title',
+        bodyKey: 'push.schedule.published.body',
+        args: { week: weekStart },
         data: { type: 'schedule' },
       });
     } catch (e) {

@@ -211,12 +211,12 @@ export class DayOffRequestsController {
 
     // Notificar al empleado del approve por WhatsApp + push (deep-link a
     // solicitudes). Fire-and-forget — el aggregate ya está persistido.
-    this.employeeNotifier.notify(
-      companyId,
-      r.employeeId,
-      `Tu pedido de día libre para el ${r.date} fue APROBADO.`,
-      { title: 'Solicitud aprobada', data: { type: 'approval' } },
-    );
+    this.employeeNotifier.notify(companyId, r.employeeId, {
+      titleKey: 'push.dayoff.approved.title',
+      bodyKey: 'push.dayoff.approved.body',
+      args: { date: r.date },
+      data: { type: 'approval' },
+    });
 
     return {
       deletedAssignmentIds: sideEffects.deleted.map((d) => d.id),
@@ -235,12 +235,12 @@ export class DayOffRequestsController {
     if (!r) throw new NotFoundException(`DayOffRequest ${id} not found`);
     r.reject();
     await this.repo.save(r);
-    this.employeeNotifier.notify(
-      companyId,
-      r.employeeId,
-      `Tu pedido de día libre para el ${r.date} fue rechazado por tu manager.`,
-      { title: 'Solicitud rechazada', data: { type: 'approval' } },
-    );
+    this.employeeNotifier.notify(companyId, r.employeeId, {
+      titleKey: 'push.dayoff.rejected.title',
+      bodyKey: 'push.dayoff.rejected.body',
+      args: { date: r.date },
+      data: { type: 'approval' },
+    });
   }
 
   /** DELETE /:id — el empleado cancela su propio pedido mientras esté pending. */

@@ -248,18 +248,16 @@ export class ShiftSwapRequestsController {
     req.accept();
     await this.repo.save(req);
     // Avisar a ambas partes — el solicitante y el target del swap.
-    this.employeeNotifier.notify(
-      companyId,
-      req.requesterId,
-      'Tu pedido de intercambio de turno fue APROBADO.',
-      { title: 'Solicitud aprobada', data: { type: 'approval' } },
-    );
-    this.employeeNotifier.notify(
-      companyId,
-      req.targetId,
-      'El intercambio de turno que te involucraba fue APROBADO.',
-      { title: 'Solicitud aprobada', data: { type: 'approval' } },
-    );
+    this.employeeNotifier.notify(companyId, req.requesterId, {
+      titleKey: 'push.swap.approved.title',
+      bodyKey: 'push.swap.approved.body',
+      data: { type: 'approval' },
+    });
+    this.employeeNotifier.notify(companyId, req.targetId, {
+      titleKey: 'push.swap.approvedTarget.title',
+      bodyKey: 'push.swap.approvedTarget.body',
+      data: { type: 'approval' },
+    });
   }
 
   @Post(':id/reject')
@@ -273,12 +271,11 @@ export class ShiftSwapRequestsController {
     if (!req) throw new NotFoundException(`ShiftSwapRequest ${id} not found`);
     req.reject();
     await this.repo.save(req);
-    this.employeeNotifier.notify(
-      companyId,
-      req.requesterId,
-      'Tu pedido de intercambio de turno fue rechazado.',
-      { title: 'Solicitud rechazada', data: { type: 'approval' } },
-    );
+    this.employeeNotifier.notify(companyId, req.requesterId, {
+      titleKey: 'push.swap.rejected.title',
+      bodyKey: 'push.swap.rejected.body',
+      data: { type: 'approval' },
+    });
   }
 
   /** DELETE /:id — el solicitante cancela su propio pedido mientras esté pending. */

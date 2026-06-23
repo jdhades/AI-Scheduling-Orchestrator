@@ -1,0 +1,60 @@
+{
+  "assignment": {
+    "created": {
+      "title": "New shift",
+      "body": "You were assigned a shift on {date}."
+    },
+    "updated": {
+      "title": "Shift updated",
+      "body": "Your shift is now on {date}."
+    },
+    "reassigned": {
+      "title": "Shift reassigned",
+      "body": "The shift on {date} is no longer assigned to you."
+    },
+    "cancelled": {
+      "title": "Shift cancelled",
+      "body": "Your shift on {date} was cancelled."
+    }
+  },
+  "schedule": {
+    "published": {
+      "title": "Schedule published",
+      "body": "Your schedule for the week of {week} is now available."
+    }
+  },
+  "incident": {
+    "resolved": {
+      "title": "Incident resolved",
+      "body": "Your reported incident was resolved by your manager."
+    },
+    "rejected": {
+      "title": "Incident rejected",
+      "body": "Your reported incident was rejected by your manager."
+    }
+  },
+  "dayoff": {
+    "approved": {
+      "title": "Request approved",
+      "body": "Your day-off request for {date} was approved."
+    },
+    "rejected": {
+      "title": "Request rejected",
+      "body": "Your day-off request for {date} was rejected by your manager."
+    }
+  },
+  "swap": {
+    "approved": {
+      "title": "Request approved",
+      "body": "Your shift swap request was approved."
+    },
+    "approvedTarget": {
+      "title": "Request approved",
+      "body": "The shift swap involving you was approved."
+    },
+    "rejected": {
+      "title": "Request rejected",
+      "body": "Your shift swap request was rejected."
+    }
+  }
+}

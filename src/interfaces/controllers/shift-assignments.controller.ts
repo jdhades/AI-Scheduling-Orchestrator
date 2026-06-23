@@ -211,9 +211,10 @@ export class ShiftAssignmentsController {
       );
       // Avisar por push al empleado del turno nuevo (manual o clonado).
       // Best-effort; no afecta la respuesta.
-      void this.push.sendToEmployees(companyId, [assignment.employeeId], {
-        title: 'Nuevo turno',
-        body: `Te asignaron un turno el ${assignment.date}.`,
+      void this.push.sendLocalizedToEmployees(companyId, [assignment.employeeId], {
+        titleKey: 'push.assignment.created.title',
+        bodyKey: 'push.assignment.created.body',
+        args: { date: assignment.date },
         data: { type: 'schedule' },
       });
       return { assignment: this.toDto(assignment) };
@@ -265,9 +266,10 @@ export class ShiftAssignmentsController {
     );
     this.notificationsGateway.notifyAssignmentChanged(companyId);
     // Avisar al empleado que su turno se canceló (best-effort).
-    void this.push.sendToEmployees(companyId, [existing.employeeId], {
-      title: 'Turno cancelado',
-      body: `Se canceló tu turno del ${existing.date}.`,
+    void this.push.sendLocalizedToEmployees(companyId, [existing.employeeId], {
+      titleKey: 'push.assignment.cancelled.title',
+      bodyKey: 'push.assignment.cancelled.body',
+      args: { date: existing.date },
       data: { type: 'schedule' },
     });
   }
@@ -355,15 +357,17 @@ export class ShiftAssignmentsController {
       // Push al empleado del turno movido (best-effort). Si cambió de empleado,
       // avisar también al anterior que ya no lo tiene.
       const moved = result.assignment;
-      void this.push.sendToEmployees(companyId, [moved.employeeId], {
-        title: 'Turno actualizado',
-        body: `Tu turno quedó para el ${moved.date}.`,
+      void this.push.sendLocalizedToEmployees(companyId, [moved.employeeId], {
+        titleKey: 'push.assignment.updated.title',
+        bodyKey: 'push.assignment.updated.body',
+        args: { date: moved.date },
         data: { type: 'schedule' },
       });
       if (previous && previous.employeeId !== moved.employeeId) {
-        void this.push.sendToEmployees(companyId, [previous.employeeId], {
-          title: 'Turno reasignado',
-          body: `El turno del ${previous.date} ya no está a tu nombre.`,
+        void this.push.sendLocalizedToEmployees(companyId, [previous.employeeId], {
+          titleKey: 'push.assignment.reassigned.title',
+          bodyKey: 'push.assignment.reassigned.body',
+          args: { date: previous.date },
           data: { type: 'schedule' },
         });
       }
