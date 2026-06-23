@@ -24,10 +24,14 @@ describe('GetEmployeeCalendarHandler', () => {
     } as any;
     // Sin assignments (mock devuelve []) el handler no consulta supabase.
     const mockSupabase = { from: jest.fn() } as any;
+    const mockBreakRepo = {
+      findByAssignmentIds: jest.fn().mockResolvedValue([]),
+    } as any;
     handler = new GetEmployeeCalendarHandler(
       mockRepo,
       mockTemplateRepo,
       mockSupabase,
+      mockBreakRepo,
     );
   });
 

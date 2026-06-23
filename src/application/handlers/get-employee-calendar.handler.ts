@@ -5,6 +5,10 @@ import { GetEmployeeCalendarQuery } from '../queries/get-employee-calendar.query
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
 import type { IShiftTemplateRepository } from '../../domain/repositories/shift-template.repository';
+import {
+  SHIFT_ASSIGNMENT_BREAK_REPOSITORY,
+  type IShiftAssignmentBreakRepository,
+} from '../../domain/repositories/shift-assignment-break.repository';
 
 const FAR_PAST = '1970-01-01';
 const FAR_FUTURE = '9999-12-31';
@@ -26,6 +30,7 @@ export interface EmployeeCalendarAssignmentDTO {
   /** null = turno sin confirmar (el empleado puede confirmarlo). */
   confirmedAt: string | null;
   locationName: string | null;
+  breaks: { startTime: string; endTime: string; isPaid: boolean }[];
 }
 
 /**
@@ -45,6 +50,8 @@ export class GetEmployeeCalendarHandler implements IQueryHandler<
     private readonly templateRepo: IShiftTemplateRepository,
     @Inject('SUPABASE_CLIENT')
     private readonly supabase: SupabaseClient,
+    @Inject(SHIFT_ASSIGNMENT_BREAK_REPOSITORY)
+    private readonly breakRepo: IShiftAssignmentBreakRepository,
   ) {}
 
   async execute(
@@ -103,6 +110,27 @@ export class GetEmployeeCalendarHandler implements IQueryHandler<
       }
     }
 
+    // Breaks por assignment (descansos intra-turno).
+    const breaksByAssignment = new Map<
+      string,
+      { startTime: string; endTime: string; isPaid: boolean }[]
+    >();
+    if (ids.length) {
+      const allBreaks = await this.breakRepo.findByAssignmentIds(
+        ids,
+        query.companyId,
+      );
+      for (const b of allBreaks) {
+        const list = breaksByAssignment.get(b.assignmentId) ?? [];
+        list.push({
+          startTime: b.startTime.toISOString(),
+          endTime: b.endTime.toISOString(),
+          isPaid: b.isPaid,
+        });
+        breaksByAssignment.set(b.assignmentId, list);
+      }
+    }
+
     const nameById = new Map(templates.map((t) => [t.id, t.name]));
     return assignments.map((a) => {
       const m = meta.get(a.id);
@@ -118,6 +146,7 @@ export class GetEmployeeCalendarHandler implements IQueryHandler<
         locationName: m?.locationId
           ? (locName.get(m.locationId) ?? null)
           : null,
+        breaks: breaksByAssignment.get(a.id) ?? [],
       };
     });
   }
