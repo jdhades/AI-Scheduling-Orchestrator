@@ -22,7 +22,13 @@ describe('GetEmployeeCalendarHandler', () => {
     mockTemplateRepo = {
       findAllByCompany: jest.fn().mockResolvedValue([]),
     } as any;
-    handler = new GetEmployeeCalendarHandler(mockRepo, mockTemplateRepo);
+    // Sin assignments (mock devuelve []) el handler no consulta supabase.
+    const mockSupabase = { from: jest.fn() } as any;
+    handler = new GetEmployeeCalendarHandler(
+      mockRepo,
+      mockTemplateRepo,
+      mockSupabase,
+    );
   });
 
   it('returns an array from the repository and normalizes the date range', async () => {

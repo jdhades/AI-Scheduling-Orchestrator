@@ -1,5 +1,6 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Inject } from '@nestjs/common';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { GetEmployeeCalendarQuery } from '../queries/get-employee-calendar.query';
 import type { IShiftAssignmentRepository } from '../../domain/repositories/shift-assignment.repository';
 import { SHIFT_ASSIGNMENT_REPOSITORY } from '../../domain/repositories/shift-assignment.repository';
@@ -22,6 +23,9 @@ export interface EmployeeCalendarAssignmentDTO {
   date: string;
   actualStartTime: string;
   actualEndTime: string;
+  /** null = turno sin confirmar (el empleado puede confirmarlo). */
+  confirmedAt: string | null;
+  locationName: string | null;
 }
 
 /**
@@ -39,6 +43,8 @@ export class GetEmployeeCalendarHandler implements IQueryHandler<
     private readonly assignmentRepo: IShiftAssignmentRepository,
     @Inject('SHIFT_TEMPLATE_REPOSITORY')
     private readonly templateRepo: IShiftTemplateRepository,
+    @Inject('SUPABASE_CLIENT')
+    private readonly supabase: SupabaseClient,
   ) {}
 
   async execute(
@@ -55,15 +61,64 @@ export class GetEmployeeCalendarHandler implements IQueryHandler<
       ),
       this.templateRepo.findAllByCompany(query.companyId),
     ]);
+
+    // El aggregate no modela confirmed_at; lo traemos con un side-query (junto
+    // con la location) para no tocar el dominio core.
+    const ids = assignments.map((a) => a.id);
+    const meta = new Map<
+      string,
+      { confirmedAt: string | null; locationId: string | null }
+    >();
+    if (ids.length) {
+      const { data } = await this.supabase
+        .from('shift_assignments')
+        .select('id, confirmed_at, location_id')
+        .in('id', ids);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        confirmed_at: string | null;
+        location_id: string | null;
+      }>) {
+        meta.set(r.id, {
+          confirmedAt: r.confirmed_at,
+          locationId: r.location_id,
+        });
+      }
+    }
+    const locIds = [
+      ...new Set(
+        [...meta.values()]
+          .map((m) => m.locationId)
+          .filter((l): l is string => !!l),
+      ),
+    ];
+    const locName = new Map<string, string>();
+    if (locIds.length) {
+      const { data } = await this.supabase
+        .from('locations')
+        .select('id, name')
+        .in('id', locIds);
+      for (const r of (data ?? []) as Array<{ id: string; name: string }>) {
+        locName.set(r.id, r.name);
+      }
+    }
+
     const nameById = new Map(templates.map((t) => [t.id, t.name]));
-    return assignments.map((a) => ({
-      id: a.id,
-      employeeId: a.employeeId,
-      templateId: a.templateId,
-      templateName: nameById.get(a.templateId) ?? '—',
-      date: a.date,
-      actualStartTime: a.actualStartTime.toISOString(),
-      actualEndTime: a.actualEndTime.toISOString(),
-    }));
+    return assignments.map((a) => {
+      const m = meta.get(a.id);
+      return {
+        id: a.id,
+        employeeId: a.employeeId,
+        templateId: a.templateId,
+        templateName: nameById.get(a.templateId) ?? '—',
+        date: a.date,
+        actualStartTime: a.actualStartTime.toISOString(),
+        actualEndTime: a.actualEndTime.toISOString(),
+        confirmedAt: m?.confirmedAt ?? null,
+        locationName: m?.locationId
+          ? (locName.get(m.locationId) ?? null)
+          : null,
+      };
+    });
   }
 }
