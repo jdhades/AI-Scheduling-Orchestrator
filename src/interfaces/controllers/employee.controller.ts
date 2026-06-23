@@ -43,6 +43,12 @@ import { EmailService } from '../../infrastructure/notifications/email.service';
 import { TenantFeatureService } from '../../domain/services/tenant-feature.service';
 import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 
+/** Body de PATCH /employees/me/locale — el empleado cambia su propio idioma. */
+export class UpdateMyLocaleDto {
+  @IsIn(['es', 'en'])
+  locale!: 'es' | 'en';
+}
+
 /** Body de PUT /employees/:id/locations — set de locaciones permitidas + modo. */
 export class SetEmployeeLocationsDto {
   @IsArray()
@@ -494,6 +500,7 @@ export class EmployeeController {
     email: string | null;
     companyName: string | null;
     timezone: string | null;
+    locale: string | null;
   }> {
     if (!user?.employeeId) {
       throw new NotFoundException('No employee is linked to this account');
@@ -506,6 +513,7 @@ export class EmployeeController {
       role: string | null;
       phone: string | null;
       departmentId: string | null;
+      locale: string | null;
     };
     const [{ data: empRow }, { data: co }] = await Promise.all([
       this.supabase
@@ -535,7 +543,31 @@ export class EmployeeController {
       email: (empRow?.email as string | null) ?? null,
       companyName: (co?.name as string | null) ?? null,
       timezone,
+      locale: emp.locale ?? null,
     };
+  }
+
+  /**
+   * PATCH /employees/me/locale — el empleado cambia su propio idioma.
+   * Self-service (sin permiso de manager): el employeeId sale del JWT.
+   * El cliente (móvil/web) sincroniza acá su idioma efectivo para que las
+   * notificaciones del servidor (push/WhatsApp) salgan en ese idioma.
+   */
+  @Patch('me/locale')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async updateMyLocale(
+    @Body() dto: UpdateMyLocaleDto,
+    @CurrentUser() user: AuthContext | undefined,
+    @CurrentCompany() companyId: string,
+  ): Promise<void> {
+    if (!user?.employeeId) {
+      throw new NotFoundException('No employee is linked to this account');
+    }
+    await this.commandBus.execute(
+      new UpdateEmployeeCommand(user.employeeId, companyId, {
+        locale: dto.locale,
+      }),
+    );
   }
 
   private async resolveEmployeeTimezone(

@@ -20,7 +20,7 @@ import { IntegrationsModule } from './infrastructure/integrations/integrations.m
 @Module({
   imports: [
     I18nModule.forRoot({
-      fallbackLanguage: 'es',
+      fallbackLanguage: 'en',
       loaderOptions: {
         path:
           process.env.NODE_ENV === 'production'

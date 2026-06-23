@@ -7,7 +7,7 @@ import {
   type LocalizedPushNotification,
 } from '../../infrastructure/notifications/push.service';
 
-const DEFAULT_LOCALE = 'es';
+const DEFAULT_LOCALE = 'en';
 
 /**
  * EmployeeNotifier — fuente única para avisarle a un empleado por TODOS los

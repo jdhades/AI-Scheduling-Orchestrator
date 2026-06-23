@@ -26,7 +26,7 @@ interface ExpoMessage {
   sound: 'default';
 }
 
-const DEFAULT_LOCALE = 'es';
+const DEFAULT_LOCALE = 'en';
 
 /**
  * Sends push notifications via the Expo Push API to the employees' registered
@@ -77,7 +77,7 @@ export class PushService {
 
   /**
    * Notificación del sistema traducida al idioma de cada destinatario.
-   * Resuelve employees.locale por empleado (fallback 'es') y traduce
+   * Resuelve employees.locale por empleado (fallback 'en') y traduce
    * title/body con i18n antes de armar cada mensaje.
    */
   async sendLocalizedToEmployees(
