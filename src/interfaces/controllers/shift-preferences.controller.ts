@@ -243,7 +243,8 @@ export class ShiftPreferencesController {
     @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthContext | undefined,
   ): Promise<void> {
-    if (!user?.employeeId) {
+    const isManager = user?.role === 'manager' || user?.role === 'owner';
+    if (!user?.employeeId && !isManager) {
       throw new ForbiddenException('No linked employee');
     }
     const { data: existing, error: findErr } = await this.supabase
@@ -254,9 +255,11 @@ export class ShiftPreferencesController {
       .maybeSingle();
     if (findErr) throw new BadRequestException(findErr.message);
     if (!existing) throw new NotFoundException(`Preference ${id} not found`);
-    // Solo el dueño borra. Manager NO borra preferencias ajenas
-    // (son hints suaves; si quiere ignorarlas el solver lo hace).
-    if (existing.employee_id !== user.employeeId) {
+    // El empleado solo borra las suyas. El manager/owner resuelve (soft-delete)
+    // cualquiera del tenant: la pantalla Approvals → Preferencias deja que
+    // decida por cada una (convertir en regla o gestionar a mano), y en ambos
+    // casos la pref sale de la cola.
+    if (!isManager && existing.employee_id !== user!.employeeId) {
       throw new ForbiddenException('Cannot delete another employee preference');
     }
     // Soft-delete: conservamos el registro para reportes/auditoría (cuántas
