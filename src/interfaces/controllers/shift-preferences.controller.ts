@@ -26,6 +26,8 @@ import {
   IsUUID,
 } from 'class-validator';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { I18nService } from 'nestjs-i18n';
+import { LlmJobDispatcher } from '../../application/jobs/llm-job-dispatcher.service';
 import { CurrentCompany } from '../../infrastructure/auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../infrastructure/auth/decorators/current-user.decorator';
 import { AllowExpiredTrial } from '../../infrastructure/auth/decorators/allow-expired-trial.decorator';
@@ -119,6 +121,8 @@ export class ShiftPreferencesController {
     private readonly notifications: NotificationsGateway,
     private readonly managerNotifications: ManagerNotificationService,
     private readonly push: PushService,
+    private readonly llmDispatcher: LlmJobDispatcher,
+    private readonly i18n: I18nService,
   ) {}
 
   /** Push a managers/owners avisando que entró una preferencia nueva. La
@@ -259,17 +263,121 @@ export class ShiftPreferencesController {
     // cualquiera del tenant: la pantalla Approvals → Preferencias deja que
     // decida por cada una (convertir en regla o gestionar a mano), y en ambos
     // casos la pref sale de la cola.
-    if (!isManager && existing.employee_id !== user!.employeeId) {
+    if (!isManager && existing.employee_id !== user.employeeId) {
       throw new ForbiddenException('Cannot delete another employee preference');
     }
     // Soft-delete: conservamos el registro para reportes/auditoría (cuántas
     // veces el empleado pidió y retiró). El GET filtra deleted_at IS NULL.
-    const { error: delErr } = await this.supabase
+    await this.softDeletePreference(companyId, id);
+  }
+
+  /** Soft-delete de una pref + notifica el cambio a la cola del manager. */
+  private async softDeletePreference(
+    companyId: string,
+    id: string,
+  ): Promise<void> {
+    const { error } = await this.supabase
       .from('shift_preferences')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);
-    if (delErr) throw new BadRequestException(delErr.message);
+    if (error) throw new BadRequestException(error.message);
     this.notifications.notifyApprovalsChanged(companyId, 'shift_preference');
+  }
+
+  /**
+   * Convierte una preferencia en regla semántica y la resuelve (soft-delete).
+   * Solo manager/owner. El texto de la regla se arma acá (fuente única, web y
+   * móvil llaman este endpoint) en el idioma del actor; lleva la fecha en el
+   * texto para que el LLM la aplique solo a ese día. La regla se encola async
+   * (devuelve jobId); la pref sale de la cola al instante.
+   */
+  @Post(':id/make-rule')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async makeRule(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthContext | undefined,
+  ): Promise<{ jobId: string }> {
+    const isManager = user?.role === 'manager' || user?.role === 'owner';
+    if (!isManager) {
+      throw new ForbiddenException('Only managers can convert preferences');
+    }
+    const { data: pref, error } = await this.supabase
+      .from('shift_preferences')
+      .select(
+        'id, employee_id, kind, date, start_time, end_time, shift_template_id, deleted_at',
+      )
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!pref || pref.deleted_at)
+      throw new NotFoundException(`Preference ${id} not found`);
+
+    const lang = await this.lookupLocale(companyId, user?.employeeId ?? null);
+    const ruleText = await this.buildRuleText(companyId, lang, pref);
+
+    const jobId = await this.llmDispatcher.enqueue(
+      'create_rule',
+      {
+        companyId,
+        actorEmployeeId: user?.employeeId ?? null,
+        text: ruleText,
+        priority: 3, // 1=legal (fuerte) … 3=preferencia (suave).
+        ruleType: 'preference',
+      },
+      { label: ruleText.slice(0, 60) },
+    );
+
+    // Soft-delete: sale de la cola pero queda para reportes/auditoría.
+    await this.softDeletePreference(companyId, id);
+
+    return { jobId };
+  }
+
+  /** Arma el texto de la regla a partir de la preferencia, en el idioma dado. */
+  private async buildRuleText(
+    companyId: string,
+    lang: string,
+    pref: Record<string, unknown>,
+  ): Promise<string> {
+    const name = await this.lookupEmployeeName(
+      companyId,
+      pref.employee_id as string,
+    );
+    const date = (pref.date as string | null) ?? '';
+    const kind = pref.kind as ShiftPreferenceKind;
+    if (kind === 'available_hours') {
+      return String(
+        this.i18n.t('preference.ruleText.available_hours', {
+          lang,
+          args: {
+            name,
+            date,
+            from: ((pref.start_time as string | null) ?? '').slice(0, 5),
+            to: ((pref.end_time as string | null) ?? '').slice(0, 5),
+          },
+        }),
+      );
+    }
+    if (kind === 'prefer_specific_shift') {
+      const template = await this.lookupTemplateName(
+        companyId,
+        pref.shift_template_id as string | null,
+      );
+      return String(
+        this.i18n.t('preference.ruleText.prefer_specific_shift', {
+          lang,
+          args: { name, date, template },
+        }),
+      );
+    }
+    return String(
+      this.i18n.t('preference.ruleText.prefer_to_work', {
+        lang,
+        args: { name, date },
+      }),
+    );
   }
 
   private toRow(r: Record<string, unknown>): ShiftPreferenceRow {
@@ -300,6 +408,35 @@ export class ShiftPreferencesController {
       .eq('company_id', companyId)
       .maybeSingle();
     return (data?.name as string | undefined) ?? 'Employee';
+  }
+
+  /** Locale del actor para el idioma del texto de la regla (fallback 'en'). */
+  private async lookupLocale(
+    companyId: string,
+    employeeId: string | null,
+  ): Promise<string> {
+    if (!employeeId) return 'en';
+    const { data } = await this.supabase
+      .from('employees')
+      .select('locale')
+      .eq('id', employeeId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    return (data?.locale as string | undefined) ?? 'en';
+  }
+
+  private async lookupTemplateName(
+    companyId: string,
+    templateId: string | null,
+  ): Promise<string> {
+    if (!templateId) return '—';
+    const { data } = await this.supabase
+      .from('shift_templates')
+      .select('name')
+      .eq('id', templateId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    return (data?.name as string | undefined) ?? '—';
   }
 }
 

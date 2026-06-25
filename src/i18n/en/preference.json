@@ -1,0 +1,7 @@
+{
+  "ruleText": {
+    "prefer_to_work": "{name} prefers to work on {date}.",
+    "available_hours": "{name} is available on {date} from {from} to {to}.",
+    "prefer_specific_shift": "{name} prefers the {template} shift on {date}."
+  }
+}
